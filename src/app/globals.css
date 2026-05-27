@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "Rag Sans";
+  src: url("https://addz.digital/wp-content/uploads/2025/06/RagSans-1.4-Regular.woff2")
+    format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Rag Sans";
+  src: url("https://addz.digital/wp-content/uploads/2025/06/RagSans-1.4-Bold.woff2")
+    format("woff2");
+  font-weight: 700;
+  font-display: swap;
+}
+
+:root {
+  --background: #080123;
+  --foreground: #070914;
+  --addz-ink: #080123;
+  --addz-muted: #65738a;
+  --addz-line: #dfe7ee;
+  --addz-mint: #6fffe5;
+  --addz-mint-soft: #e8fbf8;
+  --addz-panel: #ffffff;
+  --addz-page: #f4f7f6;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: "Rag Sans", "Noto Sans Hebrew", "Geist", "Geist Fallback", Arial, sans-serif;
+  --font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Rag Sans", "Noto Sans Hebrew", "Segoe UI", Arial, Helvetica, sans-serif;
+}
+
+button,
+select,
+input,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: var(--addz-mint);
+  color: var(--addz-ink);
+}
+
+* {
+  scrollbar-color: #b7c4cf transparent;
+}
+
+body {
+  text-rendering: geometricPrecision;
+}

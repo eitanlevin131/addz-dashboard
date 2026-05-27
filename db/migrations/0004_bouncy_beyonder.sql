@@ -1,0 +1,1 @@
+ALTER TABLE "ai_account_memory" ADD COLUMN "documents" jsonb DEFAULT '[]'::jsonb NOT NULL;
