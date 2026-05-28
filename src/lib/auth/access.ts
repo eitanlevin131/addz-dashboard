@@ -16,6 +16,15 @@ export function isAdminRole(role: string) {
   return role === "admin" || role === "agency";
 }
 
+function getConfiguredAdminEmails() {
+  return new Set(
+    (process.env.ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
 export async function getAccessContext(): Promise<
   | { ok: true; access: AccessContext }
   | { ok: false; response: NextResponse }
@@ -58,13 +67,15 @@ export async function getAccessContext(): Promise<
     };
   }
 
-  if (isAdminRole(user.role)) {
+  const role = getConfiguredAdminEmails().has(email) ? "admin" : user.role;
+
+  if (isAdminRole(role)) {
     return {
       ok: true,
       access: {
         userId: user.id,
         email: user.email,
-        role: user.role,
+        role,
         clientIds: null,
       },
     };
@@ -112,4 +123,3 @@ export function assertClientAccess(access: AccessContext, clientId: string) {
     { status: 403 },
   );
 }
-

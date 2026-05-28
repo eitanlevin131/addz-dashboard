@@ -16,6 +16,7 @@ import {
   Sparkles,
   TrendingUp,
 } from "lucide-react";
+import { signIn } from "next-auth/react";
 import { useEffect, useState } from "react";
 import {
   automationReports,
@@ -88,6 +89,75 @@ type SyncedHoliday = {
   region: HolidayRegion;
   source: "Hebcal" | "Nager.Date" | "local";
 };
+
+function LoginGate({ message }: { message: string }) {
+  const [email, setEmail] = useState("");
+  const [state, setState] = useState("");
+
+  async function submitLogin(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!email.trim()) return;
+
+    setState("שולח קישור כניסה...");
+    const result = await signIn("email", {
+      email: email.trim(),
+      redirect: false,
+      callbackUrl: "/",
+    });
+
+    if (result?.error) {
+      setState("השליחה נכשלה. בדוק שהוגדר RESEND_API_KEY ושהדומיין מאושר לשליחה.");
+      return;
+    }
+
+    setState("נשלח קישור כניסה למייל. אחרי הכניסה הנתונים החיים ייטענו אוטומטית.");
+  }
+
+  return (
+    <div
+      dir="rtl"
+      className="flex min-h-screen items-center justify-center bg-[oklch(9%_0.05_285)] px-4 text-white"
+    >
+      <section className="w-full max-w-md rounded-3xl border border-white/15 bg-white p-6 text-[#080123] shadow-[0_30px_90px_rgba(0,0,0,0.35)]">
+        <div className="mb-6 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-bold text-[#65738a]">Flashy Growth Desk</p>
+            <h1 className="mt-1 text-3xl font-black tracking-normal">כניסה לנתונים חיים</h1>
+          </div>
+          <div className="grid size-12 place-items-center rounded-2xl bg-[#35dacd] text-lg font-black">
+            FG
+          </div>
+        </div>
+
+        <p className="mb-5 rounded-2xl border border-[#dfe7ee] bg-[#f7fafc] p-4 text-sm leading-6 text-[#4a5870]">
+          {message || "צריך להתחבר כדי לראות את נתוני הלקוחות החיים."}
+        </p>
+
+        <form onSubmit={submitLogin} className="space-y-3">
+          <label className="block text-sm font-bold text-[#263548]">
+            אימייל
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="you@addz.digital"
+              className="mt-2 h-12 w-full rounded-xl border border-[#dfe7ee] px-4 text-left text-base outline-none transition focus:border-[#35dacd]"
+              dir="ltr"
+            />
+          </label>
+          <button
+            type="submit"
+            className="h-12 w-full rounded-xl bg-[#080123] text-base font-black text-white transition hover:bg-[#15102c]"
+          >
+            שלח קישור כניסה
+          </button>
+        </form>
+
+        {state && <p className="mt-4 text-sm leading-6 text-[#4a5870]">{state}</p>}
+      </section>
+    </div>
+  );
+}
 
 const views: { key: ViewKey; label: string; icon: typeof Activity; module?: ModuleKey }[] = [
   { key: "overview", label: "כללי", icon: LineChart, module: "reports" },
@@ -4706,6 +4776,7 @@ export function DashboardApp() {
   const [clientView, setClientView] = useState(false);
   const [dataSource, setDataSource] = useState<"demo" | "neon" | "loading">("loading");
   const [dataNotice, setDataNotice] = useState("טוען נתונים מ-Neon...");
+  const [authRequired, setAuthRequired] = useState(false);
   const [refreshState, setRefreshState] = useState("");
   const selectedClient =
     localClients.find((client) => client.id === selectedClientId) ?? localClients[0];
@@ -4755,6 +4826,12 @@ export function DashboardApp() {
 
         if (cancelled) return;
         if (!response.ok || !payload.success) {
+          if (response.status === 401 || response.status === 403) {
+            setAuthRequired(true);
+            setDataSource("loading");
+            setDataNotice(payload.message || "צריך להתחבר כדי לגשת לנתונים.");
+            return;
+          }
           setDataSource("demo");
           setDataNotice(payload.message || "אין חיבור Neon פעיל, מוצגים נתוני דמו.");
           return;
@@ -4774,6 +4851,7 @@ export function DashboardApp() {
         setLocalAutomationReports(data.automationReports);
         setLocalNewsletterPlans(data.newsletterPlans);
         setSelectedClientId(data.clients[0].id);
+        setAuthRequired(false);
         setDataSource("neon");
         setDataNotice(`נטענו ${data.clients.length} לקוחות מ-Neon.`);
       } catch (error) {
@@ -4798,6 +4876,10 @@ export function DashboardApp() {
     try {
       const response = await fetch("/api/dashboard-data", { cache: "no-store" });
       const payload = await response.json();
+      if (response.status === 401 || response.status === 403) {
+        setAuthRequired(true);
+        throw new Error(payload.message || "צריך להתחבר כדי לגשת לנתונים.");
+      }
       if (!response.ok || !payload.success) throw new Error(payload.message || "טעינת הנתונים נכשלה");
 
       const data = payload.data as DashboardDataPayload;
@@ -4807,6 +4889,7 @@ export function DashboardApp() {
       setLocalSmsReports(data.smsReports);
       setLocalAutomationReports(data.automationReports);
       setLocalNewsletterPlans(data.newsletterPlans);
+      setAuthRequired(false);
       setDataSource("neon");
       setDataNotice(`רוענן עכשיו: ${data.clients.length} לקוחות מ-Neon.`);
       setRefreshState("הנתונים רועננו.");
@@ -4893,6 +4976,10 @@ export function DashboardApp() {
     setSelectedClientId(clientId);
     setView("overview");
   };
+
+  if (authRequired) {
+    return <LoginGate message={dataNotice} />;
+  }
 
   return (
     <div
