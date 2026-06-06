@@ -94,19 +94,42 @@ function LoginGate({ message }: { message: string }) {
   const [email, setEmail] = useState("");
   const [state, setState] = useState("");
 
+  async function runEmailDiagnostics(identifier: string) {
+    try {
+      const response = await fetch("/api/system/email-diagnostics", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: identifier }),
+      });
+      const payload = await response.json();
+      if (payload.success) {
+        return "בדיקת Resend הצליחה, אבל Magic Link נכשל. בדוק ש-AUTH_URL ו-NEXTAUTH_URL מצביעים לדומיין הלייב.";
+      }
+
+      const resendDetails = payload.resendResponse ? `\nResend: ${payload.resendResponse}` : "";
+      const fromDetails = payload.from ? `\nEMAIL_FROM: ${payload.from}` : "";
+      return `${payload.message || "בדיקת Resend נכשלה."}${fromDetails}${resendDetails}`;
+    } catch (error) {
+      return error instanceof Error ? error.message : "בדיקת Resend נכשלה.";
+    }
+  }
+
   async function submitLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!email.trim()) return;
+    const identifier = email.trim();
+    if (!identifier) return;
 
     setState("שולח קישור כניסה...");
     const result = await signIn("email", {
-      email: email.trim(),
+      email: identifier,
       redirect: false,
       callbackUrl: "/",
     });
 
     if (result?.error) {
-      setState("השליחה נכשלה. בדוק שהוגדר RESEND_API_KEY ושהדומיין מאושר לשליחה.");
+      setState("השליחה נכשלה. מריץ בדיקת Resend מדויקת...");
+      const diagnostics = await runEmailDiagnostics(identifier);
+      setState(diagnostics);
       return;
     }
 
@@ -153,7 +176,7 @@ function LoginGate({ message }: { message: string }) {
           </button>
         </form>
 
-        {state && <p className="mt-4 text-sm leading-6 text-[#4a5870]">{state}</p>}
+        {state && <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-[#4a5870]">{state}</p>}
       </section>
     </div>
   );
