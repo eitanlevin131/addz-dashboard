@@ -509,6 +509,20 @@ type DashboardDataPayload = {
   newsletterPlans: NewsletterPlan[];
 };
 
+type AdminUserAccess = {
+  id: string;
+  name: string;
+  email: string;
+  role: "admin" | "client";
+  createdAt: string;
+  clients: {
+    linkId: string;
+    clientId: string | null;
+    clientName: string;
+    createdAt: string;
+  }[];
+};
+
 function MetricCard({
   title,
   value,
@@ -4258,11 +4272,242 @@ function ClientAiSummary({
   );
 }
 
+function UserAccessManager({ clients }: { clients: Client[] }) {
+  const [users, setUsers] = useState<AdminUserAccess[]>([]);
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [role, setRole] = useState<"admin" | "client">("client");
+  const [clientId, setClientId] = useState(clients[0]?.id ?? "");
+  const [state, setState] = useState("טוען משתמשים...");
+
+  async function loadUsers() {
+    try {
+      const response = await fetch("/api/admin/users", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "טעינת משתמשים נכשלה");
+      setUsers(payload.data ?? []);
+      setState(payload.data?.length ? "משתמשים נטענו." : "עדיין אין משתמשים שמורים.");
+    } catch (error) {
+      setState(error instanceof Error ? error.message : "טעינת משתמשים נכשלה.");
+    }
+  }
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      loadUsers();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+
+  async function saveUserAccess() {
+    if (!email.trim()) {
+      setState("צריך להזין אימייל.");
+      return;
+    }
+
+    setState("שומר הרשאה...");
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email,
+          name,
+          role,
+          clientId: role === "client" ? clientId : "",
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "שמירת משתמש נכשלה");
+      setEmail("");
+      setName("");
+      setRole("client");
+      await loadUsers();
+      setState("המשתמש וההרשאות נשמרו.");
+    } catch (error) {
+      setState(error instanceof Error ? error.message : "שמירת משתמש נכשלה.");
+    }
+  }
+
+  async function updateUserRole(userId: string, nextRole: "admin" | "client") {
+    setState("מעדכן תפקיד...");
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId, role: nextRole }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "עדכון תפקיד נכשל");
+      await loadUsers();
+      setState("התפקיד עודכן.");
+    } catch (error) {
+      setState(error instanceof Error ? error.message : "עדכון תפקיד נכשל.");
+    }
+  }
+
+  async function removeClientAccess(userId: string, targetClientId: string | null) {
+    if (!targetClientId) return;
+    setState("מסיר שיוך לקוח...");
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId, clientId: targetClientId }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "הסרת הרשאה נכשלה");
+      await loadUsers();
+      setState("השיוך הוסר.");
+    } catch (error) {
+      setState(error instanceof Error ? error.message : "הסרת הרשאה נכשלה.");
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-[#dfe7ee] bg-white p-5 shadow-[0_8px_22px_rgba(8,1,35,0.04)] xl:col-span-2">
+      <div className="flex flex-col gap-2 border-b border-slate-100 pb-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-[#080123]">משתמשים והרשאות לקוחות</h2>
+          <p className="mt-1 text-sm leading-6 text-[#65738a]">
+            כאן מוסיפים משתמש לקוח, משייכים אותו ללקוח ספציפי, או מגדירים משתמש אדמין.
+          </p>
+        </div>
+        <button
+          onClick={loadUsers}
+          className="h-10 rounded-md border border-[#dfe7ee] px-3 text-sm font-bold text-[#263548]"
+        >
+          רענון משתמשים
+        </button>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1fr_160px_1fr_auto]">
+        <input
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="אימייל משתמש"
+          className="h-10 rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
+          dir="ltr"
+        />
+        <input
+          type="text"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="שם להצגה"
+          className="h-10 rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
+        />
+        <select
+          value={role}
+          onChange={(event) => setRole(event.target.value as "admin" | "client")}
+          className="h-10 rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
+        >
+          <option value="client">לקוח</option>
+          <option value="admin">אדמין</option>
+        </select>
+        <select
+          value={clientId}
+          onChange={(event) => setClientId(event.target.value)}
+          disabled={role === "admin"}
+          className="h-10 rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5] disabled:bg-slate-100"
+        >
+          {clients.map((client) => (
+            <option key={client.id} value={client.id}>
+              {client.name}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={saveUserAccess}
+          className="h-10 rounded-md bg-[#080123] px-4 text-sm font-bold text-white"
+        >
+          שמור
+        </button>
+      </div>
+
+      <p className="mt-3 text-sm text-[#65738a]">{state}</p>
+
+      <div className="mt-4 overflow-x-auto rounded-xl border border-[#dfe7ee]">
+        <table className="w-full min-w-[760px] border-collapse text-sm">
+          <thead className="bg-[#f4f7f6] text-[#65738a]">
+            <tr>
+              <th className="p-3 text-right">משתמש</th>
+              <th className="p-3 text-right">תפקיד</th>
+              <th className="p-3 text-right">לקוחות משויכים</th>
+              <th className="p-3 text-right">נוצר</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[#eef3f7]">
+            {users.map((user) => (
+              <tr key={user.id} className="align-top text-[#263548]">
+                <td className="p-3">
+                  <p className="font-bold text-[#080123]">{user.name || "ללא שם"}</p>
+                  <p className="text-left text-xs text-[#65738a]" dir="ltr">
+                    {user.email}
+                  </p>
+                </td>
+                <td className="p-3">
+                  <select
+                    value={user.role}
+                    onChange={(event) => updateUserRole(user.id, event.target.value as "admin" | "client")}
+                    className="h-9 rounded-md border border-[#dfe7ee] px-2 text-sm"
+                  >
+                    <option value="client">לקוח</option>
+                    <option value="admin">אדמין</option>
+                  </select>
+                </td>
+                <td className="p-3">
+                  {user.role === "admin" ? (
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+                      גישה לכל הלקוחות
+                    </span>
+                  ) : user.clients.length ? (
+                    <div className="flex flex-wrap gap-2">
+                      {user.clients.map((client) => (
+                        <span
+                          key={client.linkId}
+                          className="inline-flex items-center gap-2 rounded-full bg-[#f4f7f6] px-3 py-1 text-xs"
+                        >
+                          {client.clientName}
+                          <button
+                            onClick={() => removeClientAccess(user.id, client.clientId)}
+                            className="font-black text-rose-600"
+                          >
+                            הסר
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-[#65738a]">אין שיוך לקוח</span>
+                  )}
+                </td>
+                <td className="p-3 text-[#65738a]">
+                  {new Date(user.createdAt).toLocaleDateString("he-IL")}
+                </td>
+              </tr>
+            ))}
+            {!users.length && (
+              <tr>
+                <td colSpan={4} className="p-6 text-center text-[#65738a]">
+                  אין משתמשים להצגה.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function AdminPanel({
   clientName,
+  clients,
   onCreateLiveClient,
 }: {
   clientName: string;
+  clients: Client[];
   onCreateLiveClient: (input: {
     clientName: string;
     clientEmail: string;
@@ -4548,6 +4793,7 @@ function AdminPanel({
           ביישום Neon + Auth.js, הבידוד ייאכף בצד שרת דרך שיוך `client_users` והרשאות באפליקציה.
         </div>
       </section>
+      <UserAccessManager clients={clients} />
     </div>
   );
 }
@@ -4914,6 +5160,11 @@ export function DashboardApp() {
             setDataNotice(payload.message || "צריך להתחבר כדי לגשת לנתונים.");
             return;
           }
+          if (payload.code !== "DATABASE_NOT_CONFIGURED") {
+            setDataSource("loading");
+            setLiveDataIssue(payload.message || "טעינת הנתונים החיים נכשלה.");
+            return;
+          }
           setDataSource("demo");
           setDataNotice(payload.message || "אין חיבור Neon פעיל, מוצגים נתוני דמו.");
           return;
@@ -5064,6 +5315,11 @@ export function DashboardApp() {
     setView("overview");
   };
 
+  async function logout() {
+    await fetch("/api/auth/admin-code", { method: "DELETE" });
+    window.location.href = "/";
+  }
+
   if (authRequired) {
     return <LoginGate message={dataNotice} />;
   }
@@ -5158,6 +5414,12 @@ export function DashboardApp() {
             >
               <Sparkles className="ml-2 inline" size={16} />
               צור המלצה
+            </button>}
+            {!clientView && <button
+              onClick={logout}
+              className="min-h-10 rounded-lg border border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.08)] px-4 text-sm text-white"
+            >
+              יציאה
             </button>}
           </div>
           {refreshState && <p className="text-sm text-[oklch(78%_0.015_285)]">{refreshState}</p>}
@@ -5332,6 +5594,7 @@ export function DashboardApp() {
           {view === "admin" && (
             <AdminPanel
               clientName={selectedClient.name}
+              clients={localClients}
               onCreateLiveClient={createLiveClient}
             />
           )}
