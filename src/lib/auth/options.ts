@@ -80,7 +80,40 @@ const demoProvider = CredentialsProvider({
   },
 });
 
+const adminCodeProvider = CredentialsProvider({
+  id: "admin-code",
+  name: "Admin Code",
+  credentials: {
+    email: { label: "Email", type: "email" },
+    code: { label: "Code", type: "password" },
+  },
+  async authorize(credentials) {
+    const email = credentials?.email?.trim().toLowerCase();
+    const code = credentials?.code?.trim();
+    const expectedCode = process.env.ADMIN_LOGIN_CODE?.trim();
+    const adminEmails = new Set(
+      (process.env.ADMIN_EMAILS ?? "")
+        .split(",")
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean),
+    );
+
+    if (!email || !code || !expectedCode || code !== expectedCode || !adminEmails.has(email)) {
+      return null;
+    }
+
+    return {
+      id: `admin-code-${email}`,
+      name: "Agency Admin",
+      email,
+    };
+  },
+});
+
 const databaseConfigured = isDatabaseConfigured();
+const providers = databaseConfigured
+  ? [emailProvider as never, adminCodeProvider]
+  : [demoProvider];
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.AUTH_SECRET || "local-dev-only-secret-change-in-production",
@@ -92,18 +125,19 @@ export const authOptions: NextAuthOptions = {
         verificationTokensTable: verificationTokens,
       } as never) as Adapter)
     : undefined,
-  providers: databaseConfigured ? [emailProvider as never] : [demoProvider],
+  providers,
   session: {
-    strategy: databaseConfigured ? "database" : "jwt",
+    strategy: "jwt",
   },
   pages: {
     signIn: "/",
     verifyRequest: "/",
   },
   callbacks: {
-    async session({ session, user }) {
-      if (session.user && user?.id) {
-        session.user.name = session.user.name ?? user.name;
+    async session({ session, token }) {
+      if (session.user) {
+        session.user.name = session.user.name ?? token.name;
+        session.user.email = session.user.email ?? token.email;
       }
       return session;
     },

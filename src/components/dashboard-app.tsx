@@ -92,7 +92,15 @@ type SyncedHoliday = {
 
 function LoginGate({ message }: { message: string }) {
   const [email, setEmail] = useState("");
-  const [state, setState] = useState("");
+  const [adminCode, setAdminCode] = useState("");
+  const [state, setState] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get("error");
+    return error
+      ? `Auth.js החזיר שגיאה: ${error}. אם זה קרה אחרי לחיצה על Magic Link, נסה לשלוח קישור חדש או להיכנס עם קוד אדמין.`
+      : "";
+  });
 
   async function runEmailDiagnostics(identifier: string) {
     try {
@@ -118,6 +126,24 @@ function LoginGate({ message }: { message: string }) {
     event.preventDefault();
     const identifier = email.trim();
     if (!identifier) return;
+
+    if (adminCode.trim()) {
+      setState("בודק קוד אדמין...");
+      const result = await signIn("admin-code", {
+        email: identifier,
+        code: adminCode.trim(),
+        redirect: false,
+        callbackUrl: "/",
+      });
+
+      if (result?.error) {
+        setState("קוד האדמין לא תקין או שהאימייל לא מופיע ב-ADMIN_EMAILS.");
+        return;
+      }
+
+      window.location.href = "/";
+      return;
+    }
 
     setState("שולח קישור כניסה...");
     const result = await signIn("email", {
@@ -168,11 +194,22 @@ function LoginGate({ message }: { message: string }) {
               dir="ltr"
             />
           </label>
+          <label className="block text-sm font-bold text-[#263548]">
+            קוד אדמין זמני
+            <input
+              type="password"
+              value={adminCode}
+              onChange={(event) => setAdminCode(event.target.value)}
+              placeholder="ריק = שליחת Magic Link"
+              className="mt-2 h-12 w-full rounded-xl border border-[#dfe7ee] px-4 text-left text-base outline-none transition focus:border-[#35dacd]"
+              dir="ltr"
+            />
+          </label>
           <button
             type="submit"
             className="h-12 w-full rounded-xl bg-[#080123] text-base font-black text-white transition hover:bg-[#15102c]"
           >
-            שלח קישור כניסה
+            {adminCode.trim() ? "כניסה עם קוד אדמין" : "שלח קישור כניסה"}
           </button>
         </form>
 
