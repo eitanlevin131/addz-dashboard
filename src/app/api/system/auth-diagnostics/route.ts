@@ -66,6 +66,7 @@ export async function GET(request: Request) {
       authUrlHost: hostFromUrl(process.env.AUTH_URL),
       adminEmailMatched: email ? adminEmails.has(email) : false,
       adminEmailsConfigured: adminEmails.size,
+      clientCodeConfigured: Boolean(process.env.CLIENT_LOGIN_CODE),
     },
     database: {
       configured: isDatabaseConfigured(),

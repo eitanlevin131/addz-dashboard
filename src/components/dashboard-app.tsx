@@ -92,13 +92,13 @@ type SyncedHoliday = {
 
 function LoginGate({ message }: { message: string }) {
   const [email, setEmail] = useState("");
-  const [adminCode, setAdminCode] = useState("");
+  const [accessCode, setAccessCode] = useState("");
   const [state, setState] = useState(() => {
     if (typeof window === "undefined") return "";
     const params = new URLSearchParams(window.location.search);
     const error = params.get("error");
     return error
-      ? `Auth.js החזיר שגיאה: ${error}. אם זה קרה אחרי לחיצה על Magic Link, נסה לשלוח קישור חדש או להיכנס עם קוד אדמין.`
+      ? `Auth.js החזיר שגיאה: ${error}. אם זה קרה אחרי לחיצה על Magic Link, נסה לשלוח קישור חדש או להיכנס עם קוד כניסה.`
       : "";
   });
 
@@ -127,17 +127,17 @@ function LoginGate({ message }: { message: string }) {
     const identifier = email.trim();
     if (!identifier) return;
 
-    if (adminCode.trim()) {
-      setState("בודק קוד אדמין...");
+    if (accessCode.trim()) {
+      setState("בודק קוד כניסה...");
       const response = await fetch("/api/auth/admin-code", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: identifier, code: adminCode.trim() }),
+        body: JSON.stringify({ email: identifier, code: accessCode.trim() }),
       });
       const payload = await response.json();
 
       if (!response.ok || !payload.success) {
-        setState(payload.message || "קוד האדמין לא תקין או שהאימייל לא מופיע ב-ADMIN_EMAILS.");
+        setState(payload.message || "קוד הכניסה לא תקין או שהאימייל לא מורשה.");
         return;
       }
 
@@ -195,11 +195,11 @@ function LoginGate({ message }: { message: string }) {
             />
           </label>
           <label className="block text-sm font-bold text-[#263548]">
-            קוד אדמין זמני
+            קוד כניסה
             <input
               type="password"
-              value={adminCode}
-              onChange={(event) => setAdminCode(event.target.value)}
+              value={accessCode}
+              onChange={(event) => setAccessCode(event.target.value)}
               placeholder="ריק = שליחת Magic Link"
               className="mt-2 h-12 w-full rounded-xl border border-[#dfe7ee] px-4 text-left text-base outline-none transition focus:border-[#35dacd]"
               dir="ltr"
@@ -209,7 +209,7 @@ function LoginGate({ message }: { message: string }) {
             type="submit"
             className="h-12 w-full rounded-xl bg-[#080123] text-base font-black text-white transition hover:bg-[#15102c]"
           >
-            {adminCode.trim() ? "כניסה עם קוד אדמין" : "שלח קישור כניסה"}
+            {accessCode.trim() ? "כניסה עם קוד" : "שלח קישור כניסה"}
           </button>
         </form>
 
@@ -5208,8 +5208,19 @@ export function DashboardApp() {
   }, []);
 
   async function refreshDashboardData() {
-    setRefreshState("מרענן נתונים...");
+    setRefreshState("מסנכרן מול Flashy...");
     try {
+      const syncResponse = await fetch("/api/flashy/sync", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accountId: account.id }),
+      });
+      const syncPayload = await syncResponse.json();
+      if (!syncResponse.ok || !syncPayload.success) {
+        throw new Error(syncPayload.message || "סנכרון Flashy נכשל");
+      }
+
+      setRefreshState("טוען נתונים מסונכרנים...");
       const response = await fetch("/api/dashboard-data", { cache: "no-store" });
       const payload = await response.json();
       if (response.status === 401 || response.status === 403) {
@@ -5230,7 +5241,11 @@ export function DashboardApp() {
       setLiveDataIssue("");
       setDataSource("neon");
       setDataNotice(`רוענן עכשיו: ${data.clients.length} לקוחות מ-Neon.`);
-      setRefreshState("הנתונים רועננו.");
+      setRefreshState(
+        `סונכרן: ${syncPayload.imported?.emailCampaigns ?? 0} אימייל, ${
+          syncPayload.imported?.smsCampaigns ?? 0
+        } SMS, ${syncPayload.imported?.automations ?? 0} אוטומציות.`,
+      );
     } catch (error) {
       setRefreshState(error instanceof Error ? error.message : "הרענון נכשל.");
     }

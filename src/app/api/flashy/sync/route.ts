@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth/access";
+import { decryptSecret } from "@/lib/crypto";
 import {
   automationReports,
   emailReports,
@@ -7,7 +9,20 @@ import {
   smsReports,
 } from "@/lib/demo-data";
 import { getFlashyReports, monthWindows, validateFlashyAccount } from "@/lib/flashy";
-import { isDatabaseConfigured } from "@/lib/db";
+import { getDb, isDatabaseConfigured } from "@/lib/db";
+import {
+  automationReports as automationReportsTable,
+  emailCampaignReports,
+  flashyAccounts as flashyAccountsTable,
+  smsCampaignReports,
+  syncRuns,
+} from "@/lib/schema";
+import {
+  normalizeAutomationReports,
+  normalizeEmailReports,
+  normalizeSmsReports,
+  type RawFlashyRow,
+} from "@/lib/flashy-normalize";
 
 export async function POST(request: Request) {
   const startedAt = Date.now();
@@ -16,9 +31,13 @@ export async function POST(request: Request) {
   const apiKey = typeof body.apiKey === "string" ? body.apiKey : "";
   const account = flashyAccounts.find((item) => item.id === accountId);
 
-  if (apiKey && isDatabaseConfigured()) {
+  if (isDatabaseConfigured()) {
     const adminContext = await requireAdmin();
     if (!adminContext.ok) return adminContext.response;
+
+    if (!apiKey && accountId) {
+      return syncPersistedAccount(accountId, startedAt);
+    }
   }
 
   if (!account) {
@@ -97,6 +116,172 @@ export async function POST(request: Request) {
       automations: automationReports.filter((item) => item.accountId === account.id).length,
     },
   });
+}
+
+async function syncPersistedAccount(accountId: string, startedAt: number) {
+  const db = getDb();
+  const account = await db
+    .select()
+    .from(flashyAccountsTable)
+    .where(eq(flashyAccountsTable.id, accountId))
+    .then((rows) => rows[0]);
+
+  if (!account) {
+    return NextResponse.json(
+      { success: false, message: "חשבון Flashy לא נמצא ב-Neon." },
+      { status: 404 },
+    );
+  }
+
+  const [syncRun] = await db
+    .insert(syncRuns)
+    .values({
+      flashyAccountId: account.id,
+      status: "running",
+      startedAt: new Date(),
+    })
+    .returning();
+
+  try {
+    const apiKey = decryptSecret(account.encryptedApiKey);
+    const to = Math.floor(Date.now() / 1000);
+    const from = to - 60 * 60 * 24 * 90;
+    const accountResponse = await validateFlashyAccount(apiKey);
+    const reports = await getFlashyReports(apiKey, from, to);
+    const emailRows = reports.emails as RawFlashyRow[];
+    const smsRows = reports.sms as RawFlashyRow[];
+    const automationRows = reports.automations as RawFlashyRow[];
+    const normalizedEmails = normalizeEmailReports(emailRows, account.id);
+    const normalizedSms = normalizeSmsReports(smsRows, account.id);
+    const normalizedAutomations = normalizeAutomationReports(automationRows, account.id);
+
+    if (normalizedEmails.length) {
+      await db
+        .insert(emailCampaignReports)
+        .values(
+          normalizedEmails.map((report, index) => ({
+            flashyAccountId: account.id,
+            campaignId: report.campaignId,
+            sentAt: new Date(report.sentAt),
+            campaignName: report.campaignName,
+            subjectLine: report.subjectLine,
+            totalRecipients: report.totalRecipients,
+            totalDelivered: report.totalDelivered,
+            totalOpens: report.totalOpens,
+            totalClicks: report.totalClicks,
+            purchases: report.purchases,
+            revenueGenerated: String(report.revenueGenerated),
+            raw: emailRows[index] ?? {},
+          })),
+        )
+        .onConflictDoNothing();
+    }
+
+    if (normalizedSms.length) {
+      await db
+        .insert(smsCampaignReports)
+        .values(
+          normalizedSms.map((report, index) => ({
+            flashyAccountId: account.id,
+            campaignId: report.campaignId,
+            sentAt: new Date(report.sentAt),
+            campaignName: report.campaignName,
+            totalRecipients: report.totalRecipients,
+            totalDelivered: report.totalDelivered,
+            totalClicks: report.totalClicks,
+            purchases: report.purchases,
+            revenueGenerated: String(report.revenueGenerated),
+            raw: smsRows[index] ?? {},
+          })),
+        )
+        .onConflictDoNothing();
+    }
+
+    if (normalizedAutomations.length) {
+      await db
+        .insert(automationReportsTable)
+        .values(
+          normalizedAutomations.map((report, index) => ({
+            flashyAccountId: account.id,
+            automationId: report.automationId,
+            reportDate: report.date,
+            automationName: report.automationName,
+            channel: report.channel,
+            totalRecipients: report.totalRecipients,
+            totalDelivered: report.totalDelivered,
+            totalOpens: report.totalOpens,
+            totalClicks: report.totalClicks,
+            sentEmails: report.sentEmails ?? 0,
+            openedEmails: report.openedEmails ?? 0,
+            clickedEmails: report.clickedEmails ?? 0,
+            sentSms: report.sentSms ?? 0,
+            clickedSms: report.clickedSms ?? 0,
+            totalEntered: report.totalEntered ?? 0,
+            totalCompleted: report.totalCompleted ?? 0,
+            failedMessages: report.failedMessages ?? 0,
+            purchases: report.purchases,
+            revenueGenerated: String(report.revenueGenerated),
+            raw: automationRows[index] ?? {},
+          })),
+        )
+        .onConflictDoNothing();
+    }
+
+    await Promise.all([
+      db
+        .update(flashyAccountsTable)
+        .set({
+          flashyAccountId: accountResponse.data.id,
+          name: accountResponse.data.name || accountResponse.data.account || account.name,
+          website: accountResponse.data.website || account.website,
+          currency: accountResponse.data.currency || account.currency,
+          timezone: accountResponse.data.timezone || account.timezone,
+          lastSyncAt: new Date(),
+        })
+        .where(eq(flashyAccountsTable.id, account.id)),
+      db
+        .update(syncRuns)
+        .set({ status: "success", finishedAt: new Date() })
+        .where(eq(syncRuns.id, syncRun.id)),
+    ]);
+
+    const failedChecks = reports.checks.filter((check) => !check.ok);
+
+    return NextResponse.json({
+      success: true,
+      mode: "persisted-account-sync",
+      hasWarnings: failedChecks.length > 0,
+      checkedAt: new Date().toISOString(),
+      durationMs: Date.now() - startedAt,
+      account: accountResponse.data,
+      checks: reports.checks,
+      imported: {
+        emailCampaigns: normalizedEmails.length,
+        smsCampaigns: normalizedSms.length,
+        automations: normalizedAutomations.length,
+      },
+      message: failedChecks.length
+        ? `הסנכרון הסתיים עם ${failedChecks.length} אזהרות.`
+        : "הסנכרון הסתיים בהצלחה.",
+    });
+  } catch (error) {
+    await db
+      .update(syncRuns)
+      .set({
+        status: "failed",
+        finishedAt: new Date(),
+        errorMessage: error instanceof Error ? error.message : "Unknown sync error",
+      })
+      .where(eq(syncRuns.id, syncRun.id));
+
+    return NextResponse.json(
+      {
+        success: false,
+        message: error instanceof Error ? error.message : "סנכרון Flashy נכשל.",
+      },
+      { status: 400 },
+    );
+  }
 }
 
 function buildSyncPlan() {

@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
 import {
   createAdminSessionToken,
   getAdminSessionCookieName,
   getAdminSessionMaxAge,
 } from "@/lib/auth/admin-session";
+import { getDb, isDatabaseConfigured } from "@/lib/db";
+import { clientUsers, users } from "@/lib/schema";
 
 function getAdminEmails() {
   return new Set(
@@ -20,19 +23,56 @@ export async function POST(request: Request) {
     code?: string;
   };
   const normalizedEmail = email?.trim().toLowerCase();
-  const expectedCode = process.env.ADMIN_LOGIN_CODE?.trim();
-
-  if (
-    !normalizedEmail ||
-    !code?.trim() ||
-    !expectedCode ||
-    code.trim() !== expectedCode ||
-    !getAdminEmails().has(normalizedEmail)
-  ) {
+  const submittedCode = code?.trim();
+  const expectedAdminCode = process.env.ADMIN_LOGIN_CODE?.trim();
+  const expectedClientCode = process.env.CLIENT_LOGIN_CODE?.trim();
+  if (!normalizedEmail || !submittedCode) {
     return NextResponse.json(
-      { success: false, message: "האימייל או קוד האדמין לא תקינים." },
+      { success: false, message: "האימייל או קוד הכניסה לא תקינים." },
       { status: 401 },
     );
+  }
+
+  const isConfiguredAdmin =
+    Boolean(expectedAdminCode) &&
+    submittedCode === expectedAdminCode &&
+    getAdminEmails().has(normalizedEmail);
+
+  if (!isConfiguredAdmin) {
+    if (!expectedClientCode || submittedCode !== expectedClientCode || !isDatabaseConfigured()) {
+      return NextResponse.json(
+        { success: false, message: "האימייל או קוד הכניסה לא תקינים." },
+        { status: 401 },
+      );
+    }
+
+    const db = getDb();
+    const user = await db
+      .select({ id: users.id, email: users.email, role: users.role })
+      .from(users)
+      .where(eq(users.email, normalizedEmail))
+      .then((rows) => rows[0]);
+
+    if (!user) {
+      return NextResponse.json(
+        { success: false, message: "המשתמש לא קיים במערכת. צריך להוסיף אותו באדמין." },
+        { status: 401 },
+      );
+    }
+
+    if (user.role !== "admin") {
+      const links = await db
+        .select({ id: clientUsers.id })
+        .from(clientUsers)
+        .where(eq(clientUsers.userId, user.id));
+
+      if (!links.length) {
+        return NextResponse.json(
+          { success: false, message: "המשתמש לא משויך עדיין לאף לקוח." },
+          { status: 401 },
+        );
+      }
+    }
   }
 
   const response = NextResponse.json({ success: true, message: "התחברת בהצלחה." });
