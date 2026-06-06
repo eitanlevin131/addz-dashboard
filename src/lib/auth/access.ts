@@ -54,6 +54,18 @@ export async function getAccessContext(): Promise<
     };
   }
 
+  if (getConfiguredAdminEmails().has(email)) {
+    return {
+      ok: true,
+      access: {
+        userId: `admin-email-${email}`,
+        email,
+        role: "admin",
+        clientIds: null,
+      },
+    };
+  }
+
   const db = getDb();
   const user = await db.select().from(users).where(eq(users.email, email)).limit(1).then((rows) => rows[0]);
 
@@ -67,7 +79,7 @@ export async function getAccessContext(): Promise<
     };
   }
 
-  const role = getConfiguredAdminEmails().has(email) ? "admin" : user.role;
+  const role = user.role;
 
   if (isAdminRole(role)) {
     return {

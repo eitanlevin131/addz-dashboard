@@ -64,7 +64,7 @@ export async function GET(request: Request) {
     database: {
       configured: isDatabaseConfigured(),
       userFound: Boolean(dbUser),
-      userRole: dbUser?.role ?? null,
+      userRole: email && adminEmails.has(email) ? "admin" : (dbUser?.role ?? null),
       clientAccessCount,
     },
   });
