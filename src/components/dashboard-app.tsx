@@ -129,15 +129,15 @@ function LoginGate({ message }: { message: string }) {
 
     if (adminCode.trim()) {
       setState("בודק קוד אדמין...");
-      const result = await signIn("admin-code", {
-        email: identifier,
-        code: adminCode.trim(),
-        redirect: false,
-        callbackUrl: "/",
+      const response = await fetch("/api/auth/admin-code", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: identifier, code: adminCode.trim() }),
       });
+      const payload = await response.json();
 
-      if (result?.error) {
-        setState("קוד האדמין לא תקין או שהאימייל לא מופיע ב-ADMIN_EMAILS.");
+      if (!response.ok || !payload.success) {
+        setState(payload.message || "קוד האדמין לא תקין או שהאימייל לא מופיע ב-ADMIN_EMAILS.");
         return;
       }
 

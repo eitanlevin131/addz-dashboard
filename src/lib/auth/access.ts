@@ -1,8 +1,10 @@
 import { getServerSession } from "next-auth";
 import { eq } from "drizzle-orm";
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { clientUsers, users } from "@/lib/schema";
+import { getAdminSessionCookieName, readAdminSessionToken } from "./admin-session";
 import { authOptions } from "./options";
 
 export type AccessContext = {
@@ -42,7 +44,10 @@ export async function getAccessContext(): Promise<
   }
 
   const session = await getServerSession(authOptions);
-  const email = session?.user?.email?.toLowerCase();
+  const adminCookie = readAdminSessionToken(
+    (await cookies()).get(getAdminSessionCookieName())?.value,
+  );
+  const email = adminCookie?.email ?? session?.user?.email?.toLowerCase();
 
   if (!email) {
     return {
