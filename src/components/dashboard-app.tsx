@@ -182,6 +182,26 @@ function LoginGate({ message }: { message: string }) {
   );
 }
 
+function LiveDataIssue({ message }: { message: string }) {
+  return (
+    <div
+      dir="rtl"
+      className="flex min-h-screen items-center justify-center bg-[oklch(9%_0.05_285)] px-4 text-white"
+    >
+      <section className="w-full max-w-lg rounded-3xl border border-white/15 bg-white p-6 text-[#080123] shadow-[0_30px_90px_rgba(0,0,0,0.35)]">
+        <p className="text-sm font-bold text-[#65738a]">Flashy Growth Desk</p>
+        <h1 className="mt-1 text-3xl font-black tracking-normal">הנתונים החיים לא נטענו</h1>
+        <p className="mt-4 rounded-2xl border border-[#dfe7ee] bg-[#f7fafc] p-4 text-sm leading-6 text-[#4a5870]">
+          {message}
+        </p>
+        <p className="mt-4 text-sm leading-6 text-[#65738a]">
+          אחרי תיקון הרשאות או שיוך לקוח, רענן את העמוד.
+        </p>
+      </section>
+    </div>
+  );
+}
+
 const views: { key: ViewKey; label: string; icon: typeof Activity; module?: ModuleKey }[] = [
   { key: "overview", label: "כללי", icon: LineChart, module: "reports" },
   { key: "sms", label: "SMS", icon: MessageSquareText, module: "reports" },
@@ -4800,6 +4820,7 @@ export function DashboardApp() {
   const [dataSource, setDataSource] = useState<"demo" | "neon" | "loading">("loading");
   const [dataNotice, setDataNotice] = useState("טוען נתונים מ-Neon...");
   const [authRequired, setAuthRequired] = useState(false);
+  const [liveDataIssue, setLiveDataIssue] = useState("");
   const [refreshState, setRefreshState] = useState("");
   const selectedClient =
     localClients.find((client) => client.id === selectedClientId) ?? localClients[0];
@@ -4851,6 +4872,7 @@ export function DashboardApp() {
         if (!response.ok || !payload.success) {
           if (response.status === 401 || response.status === 403) {
             setAuthRequired(true);
+            setLiveDataIssue("");
             setDataSource("loading");
             setDataNotice(payload.message || "צריך להתחבר כדי לגשת לנתונים.");
             return;
@@ -4862,8 +4884,10 @@ export function DashboardApp() {
 
         const data = payload.data as DashboardDataPayload;
         if (!data.clients.length || !data.accounts.length) {
-          setDataSource("demo");
-          setDataNotice("Neon מחובר, אבל עדיין אין לקוחות שמורים. מוצגים נתוני דמו.");
+          setDataSource("loading");
+          setLiveDataIssue(
+            "התחברת בהצלחה, אבל המשתמש לא משויך עדיין ללקוח או שאין חשבונות שמורים ב-Neon.",
+          );
           return;
         }
 
@@ -4875,6 +4899,7 @@ export function DashboardApp() {
         setLocalNewsletterPlans(data.newsletterPlans);
         setSelectedClientId(data.clients[0].id);
         setAuthRequired(false);
+        setLiveDataIssue("");
         setDataSource("neon");
         setDataNotice(`נטענו ${data.clients.length} לקוחות מ-Neon.`);
       } catch (error) {
@@ -4901,6 +4926,7 @@ export function DashboardApp() {
       const payload = await response.json();
       if (response.status === 401 || response.status === 403) {
         setAuthRequired(true);
+        setLiveDataIssue("");
         throw new Error(payload.message || "צריך להתחבר כדי לגשת לנתונים.");
       }
       if (!response.ok || !payload.success) throw new Error(payload.message || "טעינת הנתונים נכשלה");
@@ -4913,6 +4939,7 @@ export function DashboardApp() {
       setLocalAutomationReports(data.automationReports);
       setLocalNewsletterPlans(data.newsletterPlans);
       setAuthRequired(false);
+      setLiveDataIssue("");
       setDataSource("neon");
       setDataNotice(`רוענן עכשיו: ${data.clients.length} לקוחות מ-Neon.`);
       setRefreshState("הנתונים רועננו.");
@@ -5002,6 +5029,10 @@ export function DashboardApp() {
 
   if (authRequired) {
     return <LoginGate message={dataNotice} />;
+  }
+
+  if (liveDataIssue) {
+    return <LiveDataIssue message={liveDataIssue} />;
   }
 
   return (

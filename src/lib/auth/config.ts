@@ -5,10 +5,8 @@ export const authRuntimeConfig = {
     "DATABASE_URL",
     "AUTH_SECRET",
     "AUTH_URL",
-    "EMAIL_SERVER_HOST",
-    "EMAIL_SERVER_PORT",
-    "EMAIL_SERVER_USER",
-    "EMAIL_SERVER_PASSWORD",
+    "NEXTAUTH_URL",
+    "RESEND_API_KEY",
     "EMAIL_FROM",
   ],
 };
