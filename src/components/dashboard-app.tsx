@@ -358,6 +358,32 @@ function filterByTimeRange<T>(
   });
 }
 
+function getTimeRangeBounds(
+  rangeKey: TimeRangeKey,
+  customStartDate: string,
+  customEndDate: string,
+) {
+  if (rangeKey === "all") return { start: "", end: "" };
+
+  if (rangeKey === "custom") {
+    return {
+      start: customStartDate ? new Date(`${customStartDate}T00:00:00`).toISOString() : "",
+      end: customEndDate ? new Date(`${customEndDate}T23:59:59`).toISOString() : "",
+    };
+  }
+
+  const range = timeRanges.find((item) => item.key === rangeKey);
+  if (!range?.days) return { start: "", end: "" };
+
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - range.days + 1);
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
 function consolidateAutomations(automations: AutomationReport[]): AutomationReport[] {
   const groups = new Map<string, AutomationReport>();
 
@@ -648,6 +674,37 @@ type PerformanceItem = {
   engagementRate: number;
 };
 
+interface FlashyReconcileResult {
+  stored: {
+    emailCampaigns: number;
+    smsCampaigns: number;
+    automations: number;
+    emailRevenue: number;
+    smsRevenue: number;
+    campaignRevenue: number;
+    automationRevenue: number;
+  };
+  flashy: {
+    emailCampaigns: number;
+    smsCampaigns: number;
+    automations: number;
+    emailRevenue: number;
+    smsRevenue: number;
+    campaignRevenue: number;
+    automationRevenue: number;
+  };
+  delta: {
+    campaignRevenue: number;
+    automationRevenue: number;
+  };
+  campaignDifferences: {
+    name: string;
+    storedRevenue: number;
+    liveRevenue: number;
+    delta: number;
+  }[];
+}
+
 function KPIGrid({ account, summary }: { account: FlashyAccount; summary: MetricSummary }) {
   const totalCost = summary.smsCost + summary.fixedCosts;
   const profitTone = summary.profit >= 0 ? "text-[#007d72]" : "text-[#9a3412]";
@@ -747,14 +804,20 @@ function DataReconciliationPanel({
   emails,
   sms,
   automations,
+  rangeStart,
+  rangeEnd,
 }: {
   account: FlashyAccount;
   summary: MetricSummary;
   emails: EmailCampaignReport[];
   sms: SmsCampaignReport[];
   automations: AutomationReport[];
+  rangeStart: string;
+  rangeEnd: string;
 }) {
   const [flashyRevenue, setFlashyRevenue] = useState("");
+  const [reconcileResult, setReconcileResult] = useState<FlashyReconcileResult | null>(null);
+  const [reconcileStatus, setReconcileStatus] = useState("");
   const emailRevenue = emails.reduce((total, item) => total + item.revenueGenerated, 0);
   const smsRevenue = sms.reduce((total, item) => total + item.revenueGenerated, 0);
   const automationRevenue = automations.reduce((total, item) => total + item.revenueGenerated, 0);
@@ -767,6 +830,31 @@ function DataReconciliationPanel({
   const expectedSmsCost = smsCredits * account.smsCreditPriceUsd * account.usdIlsRate;
   const flashyRevenueValue = Number(flashyRevenue.replace(/[^\d.-]/g, "")) || 0;
   const revenueDelta = flashyRevenueValue ? flashyRevenueValue - summary.revenue : 0;
+
+  async function runReconcileCheck() {
+    setReconcileStatus("בודק מול Flashy...");
+    setReconcileResult(null);
+
+    try {
+      const response = await fetch("/api/flashy/reconcile", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          accountId: account.id,
+          start: rangeStart || undefined,
+          end: rangeEnd || undefined,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.message || "בדיקת ההתאמה נכשלה.");
+      }
+      setReconcileResult(payload.data as FlashyReconcileResult);
+      setReconcileStatus("הבדיקה הושלמה.");
+    } catch (error) {
+      setReconcileStatus(error instanceof Error ? error.message : "בדיקת ההתאמה נכשלה.");
+    }
+  }
 
   const rows = [
     {
@@ -795,17 +883,26 @@ function DataReconciliationPanel({
             פירוק מהיר להשוואה מול Flashy: הכנסות לפי מקור וחישוב עלות SMS.
           </p>
         </div>
-        <label className="block text-sm font-bold text-[#263548]">
-          הכנסה שמופיעה ב־Flashy
-          <input
-            type="number"
-            value={flashyRevenue}
-            onChange={(event) => setFlashyRevenue(event.target.value)}
-            placeholder="253300"
-            className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5] lg:w-44"
-            dir="ltr"
-          />
-        </label>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <label className="block text-sm font-bold text-[#263548]">
+            הכנסה שמופיעה ב־Flashy
+            <input
+              type="number"
+              value={flashyRevenue}
+              onChange={(event) => setFlashyRevenue(event.target.value)}
+              placeholder="253300"
+              className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5] sm:w-40"
+              dir="ltr"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={runReconcileCheck}
+            className="h-10 rounded-md bg-[#080123] px-4 text-sm font-black text-white transition hover:bg-[#1b1238]"
+          >
+            השווה מול Flashy עכשיו
+          </button>
+        </div>
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-3">
@@ -846,6 +943,76 @@ function DataReconciliationPanel({
           </p>
         </div>
       </div>
+
+      {(reconcileStatus || reconcileResult) && (
+        <div className="mt-4 rounded-xl border border-[#dfe7ee] bg-[#fbfcfc] p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-base font-black">השוואה חיה מול Flashy</h3>
+              <p className="mt-1 text-xs text-[#65738a]">{reconcileStatus}</p>
+            </div>
+            {reconcileResult && (
+              <div className="text-sm font-black text-[#007d72]">
+                פער קמפיינים: {formatCurrency(reconcileResult.delta.campaignRevenue, account.currency)}
+              </div>
+            )}
+          </div>
+
+          {reconcileResult && (
+            <>
+              <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                <div className="rounded-lg bg-white p-3">
+                  <p className="text-xs font-black text-[#65738a]">קמפיינים</p>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                    <span>דאשבורד: {formatCurrency(reconcileResult.stored.campaignRevenue, account.currency)}</span>
+                    <span>Flashy: {formatCurrency(reconcileResult.flashy.campaignRevenue, account.currency)}</span>
+                    <span className={Math.abs(reconcileResult.delta.campaignRevenue) > 1 ? "text-[#9a3412]" : "text-[#007d72]"}>
+                      פער: {formatCurrency(reconcileResult.delta.campaignRevenue, account.currency)}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-[#65738a]">
+                    אימייל {formatNumber(reconcileResult.flashy.emailCampaigns)} · SMS {formatNumber(reconcileResult.flashy.smsCampaigns)}
+                  </p>
+                </div>
+                <div className="rounded-lg bg-white p-3">
+                  <p className="text-xs font-black text-[#65738a]">אוטומציות</p>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                    <span>דאשבורד: {formatCurrency(reconcileResult.stored.automationRevenue, account.currency)}</span>
+                    <span>Flashy: {formatCurrency(reconcileResult.flashy.automationRevenue, account.currency)}</span>
+                    <span className={Math.abs(reconcileResult.delta.automationRevenue) > 1 ? "text-[#9a3412]" : "text-[#007d72]"}>
+                      פער: {formatCurrency(reconcileResult.delta.automationRevenue, account.currency)}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-[#65738a]">
+                    {formatNumber(reconcileResult.flashy.automations)} שורות מ־Flashy
+                  </p>
+                </div>
+              </div>
+
+              {reconcileResult.campaignDifferences.length > 0 && (
+                <div className="mt-3 overflow-hidden rounded-lg border border-[#eef3f7] bg-white">
+                  <div className="grid grid-cols-[1fr_110px_110px_100px] gap-2 border-b border-[#eef3f7] px-3 py-2 text-xs font-black text-[#65738a]">
+                    <span>פריט</span>
+                    <span>דאשבורד</span>
+                    <span>Flashy</span>
+                    <span>פער</span>
+                  </div>
+                  {reconcileResult.campaignDifferences.slice(0, 6).map((item) => (
+                    <div key={item.name} className="grid grid-cols-[1fr_110px_110px_100px] gap-2 border-b border-[#f4f6f8] px-3 py-2 text-xs last:border-b-0">
+                      <span className="truncate font-bold">{item.name}</span>
+                      <span>{formatCurrency(item.storedRevenue, account.currency)}</span>
+                      <span>{formatCurrency(item.liveRevenue, account.currency)}</span>
+                      <span className={Math.abs(item.delta) > 1 ? "font-black text-[#9a3412]" : "text-[#007d72]"}>
+                        {formatCurrency(item.delta, account.currency)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </section>
   );
 }
@@ -1229,6 +1396,8 @@ function Overview({
   sms,
   automations,
   showDeepAnalysis,
+  rangeStart,
+  rangeEnd,
 }: {
   account: FlashyAccount;
   summary: MetricSummary;
@@ -1236,6 +1405,8 @@ function Overview({
   sms: SmsCampaignReport[];
   automations: AutomationReport[];
   showDeepAnalysis: boolean;
+  rangeStart: string;
+  rangeEnd: string;
 }) {
   const [channelFilter, setChannelFilter] = useState<OverviewChannelFilter>("all");
   const performanceItems: PerformanceItem[] = [
@@ -1389,6 +1560,8 @@ function Overview({
             emails={emails}
             sms={sms}
             automations={automations}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
           />
         </div>
       )}
@@ -5266,6 +5439,7 @@ export function DashboardApp() {
   const accountAutomations = consolidateAutomations(accountAutomationRows);
   const accountPlans = localNewsletterPlans.filter((plan) => plan.clientId === selectedClient.id);
   const summary = summarizeAccount(account, accountEmails, accountSms, accountAutomations);
+  const activeRangeBounds = getTimeRangeBounds(timeRange, customStartDate, customEndDate);
 
   const visibleViews = views.filter((item) => {
     if (clientView && (item.key === "admin" || item.key === "settings")) return false;
@@ -5648,6 +5822,8 @@ export function DashboardApp() {
                 sms={accountSms}
                 automations={accountAutomations}
                 showDeepAnalysis={effectiveShowDeepAnalysis}
+                rangeStart={activeRangeBounds.start}
+                rangeEnd={activeRangeBounds.end}
               />
             )
           )}
