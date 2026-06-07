@@ -348,7 +348,7 @@ function filterByTimeRange<T>(
 
   const start = new Date();
   start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - range.days + 1);
+  start.setDate(start.getDate() - range.days);
   const end = new Date();
   end.setHours(23, 59, 59, 999);
 
@@ -377,7 +377,7 @@ function getTimeRangeBounds(
 
   const start = new Date();
   start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - range.days + 1);
+  start.setDate(start.getDate() - range.days);
   const end = new Date();
   end.setHours(23, 59, 59, 999);
 
