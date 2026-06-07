@@ -1381,6 +1381,18 @@ function Overview({
         />
       </div>
 
+      {showDeepAnalysis && (
+        <div className="col-span-12">
+          <DataReconciliationPanel
+            account={account}
+            summary={summary}
+            emails={emails}
+            sms={sms}
+            automations={automations}
+          />
+        </div>
+      )}
+
       <div className="col-span-12 flex flex-col gap-3 rounded-2xl border border-[oklch(100%_0_0_/_0.14)] bg-[oklch(100%_0_0_/_0.05)] p-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm text-[oklch(78%_0.015_285)]">
           מציג {formatNumber(totalActivities)} פעילויות, מתוכן {formatNumber(profitableActivities)} עם החזר חיובי.
@@ -1408,38 +1420,29 @@ function Overview({
       <AIInsightPanel account={account} bestSms={bestSms ?? bestItem} weakItem={lowestRoasItem} />
 
       {showDeepAnalysis && (
-        <div className="col-span-12 grid gap-5">
-          <DataReconciliationPanel
-            account={account}
-            summary={summary}
-            emails={emails}
-            sms={sms}
-            automations={automations}
+        <div className="col-span-12 grid gap-5 xl:grid-cols-2">
+          <DataTable
+            title="המנצחים בתקופה"
+            columns={["שם", "ערוץ", "הכנסה", "רכישות", "קליקים"]}
+            rows={topPerformers.map((item) => [
+              item.name,
+              item.channel,
+              formatCurrency(item.revenue, account.currency),
+              formatNumber(item.purchases),
+              formatNumber(item.clicks),
+            ])}
           />
-          <div className="grid gap-5 xl:grid-cols-2">
-            <DataTable
-              title="המנצחים בתקופה"
-              columns={["שם", "ערוץ", "הכנסה", "רכישות", "קליקים"]}
-              rows={topPerformers.map((item) => [
-                item.name,
-                item.channel,
-                formatCurrency(item.revenue, account.currency),
-                formatNumber(item.purchases),
-                formatNumber(item.clicks),
-              ])}
-            />
-            <DataTable
-              title="דורשים בדיקה"
-              columns={["שם", "ערוץ", "עלות", "הכנסה", "ROAS"]}
-              rows={needsAttention.map((item) => [
-                item.name,
-                item.channel,
-                formatCurrency(item.cost, account.currency),
-                formatCurrency(item.revenue, account.currency),
-                item.cost > 0 ? `${(item.revenue / item.cost).toFixed(1)}x` : "ללא הכנסה",
-              ])}
-            />
-          </div>
+          <DataTable
+            title="דורשים בדיקה"
+            columns={["שם", "ערוץ", "עלות", "הכנסה", "ROAS"]}
+            rows={needsAttention.map((item) => [
+              item.name,
+              item.channel,
+              formatCurrency(item.cost, account.currency),
+              formatCurrency(item.revenue, account.currency),
+              item.cost > 0 ? `${(item.revenue / item.cost).toFixed(1)}x` : "ללא הכנסה",
+            ])}
+          />
         </div>
       )}
     </section>

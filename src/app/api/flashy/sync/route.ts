@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { requireAdmin } from "@/lib/auth/access";
 import { decryptSecret } from "@/lib/crypto";
 import {
@@ -174,7 +174,24 @@ async function syncPersistedAccount(accountId: string, startedAt: number) {
             raw: emailRows[index] ?? {},
           })),
         )
-        .onConflictDoNothing();
+        .onConflictDoUpdate({
+          target: [
+            emailCampaignReports.flashyAccountId,
+            emailCampaignReports.campaignId,
+            emailCampaignReports.sentAt,
+          ],
+          set: {
+            campaignName: sql`excluded.campaign_name`,
+            subjectLine: sql`excluded.subject_line`,
+            totalRecipients: sql`excluded.total_recipients`,
+            totalDelivered: sql`excluded.total_delivered`,
+            totalOpens: sql`excluded.total_opens`,
+            totalClicks: sql`excluded.total_clicks`,
+            purchases: sql`excluded.purchases`,
+            revenueGenerated: sql`excluded.revenue_generated`,
+            raw: sql`excluded.raw`,
+          },
+        });
     }
 
     if (normalizedSms.length) {
@@ -194,7 +211,22 @@ async function syncPersistedAccount(accountId: string, startedAt: number) {
             raw: smsRows[index] ?? {},
           })),
         )
-        .onConflictDoNothing();
+        .onConflictDoUpdate({
+          target: [
+            smsCampaignReports.flashyAccountId,
+            smsCampaignReports.campaignId,
+            smsCampaignReports.sentAt,
+          ],
+          set: {
+            campaignName: sql`excluded.campaign_name`,
+            totalRecipients: sql`excluded.total_recipients`,
+            totalDelivered: sql`excluded.total_delivered`,
+            totalClicks: sql`excluded.total_clicks`,
+            purchases: sql`excluded.purchases`,
+            revenueGenerated: sql`excluded.revenue_generated`,
+            raw: sql`excluded.raw`,
+          },
+        });
     }
 
     if (normalizedAutomations.length) {
@@ -224,7 +256,32 @@ async function syncPersistedAccount(accountId: string, startedAt: number) {
             raw: automationRows[index] ?? {},
           })),
         )
-        .onConflictDoNothing();
+        .onConflictDoUpdate({
+          target: [
+            automationReportsTable.flashyAccountId,
+            automationReportsTable.automationId,
+            automationReportsTable.reportDate,
+            automationReportsTable.channel,
+          ],
+          set: {
+            automationName: sql`excluded.automation_name`,
+            totalRecipients: sql`excluded.total_recipients`,
+            totalDelivered: sql`excluded.total_delivered`,
+            totalOpens: sql`excluded.total_opens`,
+            totalClicks: sql`excluded.total_clicks`,
+            sentEmails: sql`excluded.sent_emails`,
+            openedEmails: sql`excluded.opened_emails`,
+            clickedEmails: sql`excluded.clicked_emails`,
+            sentSms: sql`excluded.sent_sms`,
+            clickedSms: sql`excluded.clicked_sms`,
+            totalEntered: sql`excluded.total_entered`,
+            totalCompleted: sql`excluded.total_completed`,
+            failedMessages: sql`excluded.failed_messages`,
+            purchases: sql`excluded.purchases`,
+            revenueGenerated: sql`excluded.revenue_generated`,
+            raw: sql`excluded.raw`,
+          },
+        });
     }
 
     await Promise.all([
