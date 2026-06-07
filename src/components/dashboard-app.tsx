@@ -883,7 +883,7 @@ function DataReconciliationPanel({
             פירוק מהיר להשוואה מול Flashy: הכנסות לפי מקור וחישוב עלות SMS.
           </p>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="w-full rounded-xl border border-[#eef3f7] bg-[#fbfcfc] p-3 lg:max-w-[380px]">
           <label className="block text-sm font-bold text-[#263548]">
             הכנסה שמופיעה ב־Flashy
             <input
@@ -891,17 +891,20 @@ function DataReconciliationPanel({
               value={flashyRevenue}
               onChange={(event) => setFlashyRevenue(event.target.value)}
               placeholder="253300"
-              className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5] sm:w-40"
+              className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] bg-white px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
               dir="ltr"
             />
           </label>
           <button
             type="button"
             onClick={runReconcileCheck}
-            className="h-10 rounded-md bg-[#080123] px-4 text-sm font-black text-white transition hover:bg-[#1b1238]"
+            className="mt-3 h-11 w-full rounded-md bg-[#38ddcf] px-4 text-sm font-black text-[#080123] transition hover:bg-[#67f5e8]"
           >
             השווה מול Flashy עכשיו
           </button>
+          <p className="mt-2 text-xs leading-5 text-[#65738a]">
+            הכפתור מושך נתונים חיים מ־Flashy לאותו טווח ומציג פערים לפי מקור.
+          </p>
         </div>
       </div>
 
@@ -944,12 +947,13 @@ function DataReconciliationPanel({
         </div>
       </div>
 
-      {(reconcileStatus || reconcileResult) && (
-        <div className="mt-4 rounded-xl border border-[#dfe7ee] bg-[#fbfcfc] p-4">
+      <div className="mt-4 rounded-xl border border-[#dfe7ee] bg-[#fbfcfc] p-4">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="text-base font-black">השוואה חיה מול Flashy</h3>
-              <p className="mt-1 text-xs text-[#65738a]">{reconcileStatus}</p>
+              <p className="mt-1 text-xs text-[#65738a]">
+                {reconcileStatus || "לחץ על הכפתור למעלה כדי למשוך בדיקה חיה מ־Flashy."}
+              </p>
             </div>
             {reconcileResult && (
               <div className="text-sm font-black text-[#007d72]">
@@ -1012,7 +1016,6 @@ function DataReconciliationPanel({
             </>
           )}
         </div>
-      )}
     </section>
   );
 }
