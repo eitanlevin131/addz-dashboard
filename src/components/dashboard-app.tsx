@@ -430,6 +430,142 @@ function getMonthBounds(monthValue: string) {
   return { start, end };
 }
 
+function buildAgencyActions({
+  clients,
+  accounts,
+  emails,
+  sms,
+  automations,
+  plans,
+  nowMs,
+}: {
+  clients: Client[];
+  accounts: FlashyAccount[];
+  emails: EmailCampaignReport[];
+  sms: SmsCampaignReport[];
+  automations: AutomationReport[];
+  plans: NewsletterPlan[];
+  nowMs: number;
+}) {
+  const actions: AgencyAction[] = [];
+  const clientById = new Map(clients.map((client) => [client.id, client]));
+  const now = new Date(nowMs);
+  const twoWeeksFromNow = new Date(nowMs);
+  twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
+
+  for (const account of accounts) {
+    const client = clientById.get(account.clientId);
+    const accountEmails = byAccount(emails, account.id);
+    const accountSms = byAccount(sms, account.id);
+    const accountAutomations = consolidateAutomations(byAccount(automations, account.id));
+    const accountPlans = plans.filter((plan) => plan.clientId === account.clientId);
+    const lastSync = new Date(account.lastSyncAt);
+    const hoursSinceSync = Number.isNaN(lastSync.getTime())
+      ? 999
+      : (nowMs - lastSync.getTime()) / (1000 * 60 * 60);
+
+    if (hoursSinceSync > 36) {
+      actions.push({
+        id: `sync-${account.id}`,
+        title: `לרענן את ${client?.name ?? account.name}`,
+        why: "הסנכרון האחרון ישן, והדוחות עלולים לא לשקף את Flashy.",
+        impact: `סנכרון אחרון: ${Number.isNaN(lastSync.getTime()) ? "לא ידוע" : lastSync.toLocaleDateString("he-IL")}`,
+        targetView: "overview",
+        clientId: account.clientId,
+        tone: "warn",
+        cta: "פתח חשבון",
+      });
+    }
+
+    if (account.smsCreditPriceUsd <= 0 || account.monthlySubscriptionCostUsd <= 0 || account.agencyRetainerCostIls <= 0) {
+      actions.push({
+        id: `costs-${account.id}`,
+        title: `להשלים עלויות ל-${client?.name ?? account.name}`,
+        why: "בלי עלויות מלאות, ROAS ורווחיות לא מספיק אמינים לסוכנות.",
+        impact: "משפיע על דוחות רווח, SMS ו-ROAS.",
+        targetView: "settings",
+        clientId: account.clientId,
+        tone: "warn",
+        cta: "פתח הגדרות",
+      });
+    }
+
+    const smsWithCost = accountSms
+      .map((item) => {
+        const cost = item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate;
+        return { ...item, cost, roas: cost > 0 ? item.revenueGenerated / cost : null };
+      })
+      .filter((item) => item.cost > 0);
+    const weakSms = [...smsWithCost].sort((a, b) => (a.roas ?? 999) - (b.roas ?? 999))[0];
+    if (weakSms && (weakSms.roas ?? 0) < 2) {
+      actions.push({
+        id: `weak-sms-${weakSms.id}`,
+        title: "לבדוק SMS עם החזר נמוך",
+        why: weakSms.campaignName,
+        impact: `${formatCurrency(weakSms.cost, account.currency)} עלות · ${formatRoas(weakSms.roas)} ROAS`,
+        targetView: "sms",
+        clientId: account.clientId,
+        tone: "warn",
+        cta: "פתח SMS",
+      });
+    }
+
+    const bestCampaign = [...accountEmails, ...accountSms]
+      .sort((a, b) => b.revenueGenerated - a.revenueGenerated || b.purchases - a.purchases)[0];
+    if (bestCampaign && bestCampaign.revenueGenerated > 0) {
+      const name = "campaignName" in bestCampaign ? bestCampaign.campaignName : "קמפיין מוביל";
+      actions.push({
+        id: `best-campaign-${account.id}-${bestCampaign.id}`,
+        title: "לשכפל קמפיין חזק",
+        why: name,
+        impact: `${formatCurrency(bestCampaign.revenueGenerated, account.currency)} הכנסה · ${formatNumber(bestCampaign.purchases)} רכישות`,
+        targetView: "campaigns",
+        clientId: account.clientId,
+        tone: "good",
+        cta: "פתח קמפיינים",
+      });
+    }
+
+    const weakAutomation = [...accountAutomations]
+      .filter((item) => item.totalRecipients > 0 || item.sentEmails || item.sentSms)
+      .sort((a, b) => a.totalClicks - b.totalClicks || a.revenueGenerated - b.revenueGenerated)[0];
+    if (weakAutomation && weakAutomation.totalClicks === 0 && weakAutomation.revenueGenerated === 0) {
+      actions.push({
+        id: `weak-automation-${weakAutomation.id}`,
+        title: "לבדוק אוטומציה שלא מייצרת תוצאה",
+        why: weakAutomation.automationName,
+        impact: `${formatNumber(weakAutomation.totalRecipients)} נמענים ללא הכנסה בטווח.`,
+        targetView: "automations",
+        clientId: account.clientId,
+        tone: "warn",
+        cta: "פתח אוטומציות",
+      });
+    }
+
+    const hasUpcomingPlan = accountPlans.some((plan) => {
+      const date = new Date(plan.date);
+      return date >= now && date <= twoWeeksFromNow;
+    });
+    if (!hasUpcomingPlan) {
+      actions.push({
+        id: `planner-${account.id}`,
+        title: `אין תכנון דיוורים לשבועיים הקרובים`,
+        why: client?.name ?? account.name,
+        impact: "סיכון לפספוס ימי מכירה, חגים וקמפיינים מתוכננים.",
+        targetView: "planner",
+        clientId: account.clientId,
+        tone: "neutral",
+        cta: "פתח גאנט",
+      });
+    }
+  }
+
+  const toneWeight = { warn: 0, good: 1, neutral: 2 };
+  return actions
+    .sort((a, b) => toneWeight[a.tone] - toneWeight[b.tone])
+    .slice(0, 5);
+}
+
 function isSameMonth(dateValue: string, monthValue: string) {
   return dateValue.slice(0, 7) === monthValue;
 }
@@ -549,6 +685,17 @@ type AdminUserAccess = {
   }[];
 };
 
+type AgencyAction = {
+  id: string;
+  title: string;
+  why: string;
+  impact: string;
+  targetView: ViewKey;
+  clientId: string;
+  tone: "good" | "warn" | "neutral";
+  cta: string;
+};
+
 function MetricCard({
   title,
   value,
@@ -655,6 +802,197 @@ function RankedInsightList({
         )}
       </div>
     </article>
+  );
+}
+
+function AgencyCommandCenter({
+  clients,
+  accounts,
+  nowMs,
+  selectedAccountId,
+  onRefresh,
+  onOpenSettings,
+  onOpenReconcile,
+  onOpenClient,
+}: {
+  clients: Client[];
+  accounts: FlashyAccount[];
+  nowMs: number;
+  selectedAccountId: string;
+  onRefresh: () => void;
+  onOpenSettings: () => void;
+  onOpenReconcile: (clientId: string) => void;
+  onOpenClient: (clientId: string) => void;
+}) {
+  const clientById = new Map(clients.map((client) => [client.id, client]));
+  const accountStatuses = accounts.map((account) => {
+    const missingCosts = [
+      account.smsCreditPriceUsd <= 0 ? "מחיר SMS" : "",
+      account.monthlySubscriptionCostUsd <= 0 ? "מנוי" : "",
+      account.agencyRetainerCostIls <= 0 ? "ריטיינר" : "",
+    ].filter(Boolean);
+    const lastSync = new Date(account.lastSyncAt);
+    const hoursSinceSync = Number.isNaN(lastSync.getTime())
+      ? 999
+      : (nowMs - lastSync.getTime()) / (1000 * 60 * 60);
+    const needsSync = hoursSinceSync > 36;
+    const needsAttention = missingCosts.length > 0 || needsSync || !account.active;
+
+    return {
+      account,
+      client: clientById.get(account.clientId),
+      missingCosts,
+      needsSync,
+      needsAttention,
+      lastSync,
+    };
+  });
+  const attentionItems = accountStatuses.filter((item) => item.needsAttention);
+
+  return (
+    <section className="rounded-2xl border border-[#dfe7ee] bg-white p-4 text-[#080123] shadow-[0_12px_32px_rgba(8,1,35,0.06)]">
+      <div className="flex flex-col gap-3 border-b border-[#eef3f7] pb-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <h2 className="text-xl font-black">מצב חשבונות</h2>
+          <p className="mt-1 text-sm text-[#65738a]">
+            {attentionItems.length
+              ? `${formatNumber(attentionItems.length)} חשבונות דורשים טיפול.`
+              : "כל החשבונות הפעילים נראים תקינים כרגע."}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={onRefresh}
+            className="inline-flex h-10 items-center gap-2 rounded-md bg-[#080123] px-3 text-sm font-bold text-white"
+          >
+            <RefreshCw size={16} />
+            רענן חשבון
+          </button>
+          <button
+            onClick={onOpenSettings}
+            className="inline-flex h-10 items-center gap-2 rounded-md border border-[#dfe7ee] px-3 text-sm font-bold text-[#263548]"
+          >
+            <Settings size={16} />
+            הגדרות עלויות
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 xl:grid-cols-2">
+        {accountStatuses.map(({ account, client, missingCosts, needsSync, needsAttention, lastSync }) => (
+          <article
+            key={account.id}
+            className={classNames(
+              "rounded-xl border p-3",
+              account.id === selectedAccountId
+                ? "border-[#6fffe5] bg-[#effffc]"
+                : needsAttention
+                  ? "border-[#f4d7c5] bg-[#fff8f3]"
+                  : "border-[#eef3f7] bg-[#fbfcfc]",
+            )}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-black">{client?.name ?? account.name}</p>
+                <p className="mt-1 text-xs text-[#65738a]">
+                  Flashy #{account.flashyAccountId || "—"} · סנכרון{" "}
+                  {Number.isNaN(lastSync.getTime()) ? "לא ידוע" : lastSync.toLocaleString("he-IL")}
+                </p>
+              </div>
+              <span
+                className={classNames(
+                  "shrink-0 rounded-full px-2 py-1 text-xs font-black",
+                  needsAttention ? "bg-[#fff0e8] text-[#9a3412]" : "bg-[#e8fbf8] text-[#007d72]",
+                )}
+              >
+                {needsAttention ? "דורש טיפול" : "תקין"}
+              </span>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs">
+              {needsSync && <span className="rounded-full bg-white px-2 py-1 text-[#9a3412]">סנכרון ישן</span>}
+              {missingCosts.map((item) => (
+                <span key={item} className="rounded-full bg-white px-2 py-1 text-[#9a3412]">
+                  חסר {item}
+                </span>
+              ))}
+              {!needsAttention && <span className="rounded-full bg-white px-2 py-1 text-[#007d72]">אין בעיות פתוחות</span>}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => onOpenClient(account.clientId)}
+                className="rounded-md bg-white px-3 py-1.5 text-xs font-bold text-[#263548]"
+              >
+                פתח לקוח
+              </button>
+              <button
+                onClick={() => onOpenReconcile(account.clientId)}
+                className="rounded-md bg-white px-3 py-1.5 text-xs font-bold text-[#263548]"
+              >
+                בדוק פער Flashy
+              </button>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AgencyActionList({
+  actions,
+  onActionClick,
+}: {
+  actions: AgencyAction[];
+  onActionClick: (action: AgencyAction) => void;
+}) {
+  return (
+    <section className="rounded-2xl border border-[#dfe7ee] bg-white p-4 text-[#080123] shadow-[0_12px_32px_rgba(8,1,35,0.06)]">
+      <div className="flex items-start justify-between gap-3 border-b border-[#eef3f7] pb-4">
+        <div>
+          <h2 className="text-xl font-black">פעולות מומלצות לסוכנות</h2>
+          <p className="mt-1 text-sm text-[#65738a]">מה כדאי לעשות עכשיו, לפי הדאטה של החשבונות.</p>
+        </div>
+        <span className="rounded-full bg-[#edfffb] px-3 py-1 text-xs font-black text-[#007d72]">
+          {formatNumber(actions.length)} משימות
+        </span>
+      </div>
+      <div className="mt-4 grid gap-3">
+        {actions.length ? (
+          actions.map((action) => (
+            <article key={action.id} className="rounded-xl border border-[#eef3f7] bg-[#fbfcfc] p-3">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div className="min-w-0">
+                  <p
+                    className={classNames(
+                      "text-sm font-black",
+                      action.tone === "good" && "text-[#007d72]",
+                      action.tone === "warn" && "text-[#9a3412]",
+                      action.tone === "neutral" && "text-[#080123]",
+                    )}
+                  >
+                    {action.title}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-[#40506a]">{action.why}</p>
+                  <p className="mt-2 inline-flex rounded-full bg-white px-2 py-1 text-xs font-bold text-[#65738a]">
+                    {action.impact}
+                  </p>
+                </div>
+                <button
+                  onClick={() => onActionClick(action)}
+                  className="h-9 shrink-0 rounded-md bg-[#080123] px-3 text-xs font-bold text-white"
+                >
+                  {action.cta}
+                </button>
+              </div>
+            </article>
+          ))
+        ) : (
+          <div className="rounded-xl bg-[#fbfcfc] p-5 text-center text-sm text-[#65738a]">
+            אין כרגע פעולות דחופות. זה רגע נדיר, תהנה ממנו.
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -836,6 +1174,32 @@ function DataReconciliationPanel({
   const flashyUiAutomationValue = Number(flashyUiAutomationRevenue.replace(/[^\d.-]/g, "")) || 0;
   const campaignUiDelta = flashyUiCampaignValue ? flashyUiCampaignValue - campaignRevenue : 0;
   const automationUiDelta = flashyUiAutomationValue ? flashyUiAutomationValue - automationRevenue : 0;
+  const apiHasGap = reconcileResult
+    ? Math.abs(reconcileResult.delta.campaignRevenue) > 1 ||
+      Math.abs(reconcileResult.delta.automationRevenue) > 1
+    : false;
+  const uiHasGap = Math.abs(campaignUiDelta) > 1 || Math.abs(automationUiDelta) > 1;
+  const qaConclusion = reconcileResult
+    ? apiHasGap
+      ? {
+          title: "יש פער אמיתי מול Flashy API",
+          body: "צריך לבדוק את רשימת הפריטים עם הפערים לפני שמציגים מסקנות ללקוח.",
+          tone: "warn" as const,
+        }
+      : uiHasGap
+        ? {
+            title: reconcileResult.boundaryCampaignCandidates.length
+              ? "יש פער מול UI, כנראה בגלל קמפיין גבול"
+              : "יש פער מול UI, אבל לא מול API",
+            body: "הדאשבורד תואם ל־Flashy API. המספר הידני משמש לאבחון בלבד ולא משנה את הדוחות.",
+            tone: "neutral" as const,
+          }
+        : {
+            title: "אין פער מול Flashy API",
+            body: "הדאשבורד ו־Flashy API מחזירים את אותם מספרים בטווח הנבחר.",
+            tone: "good" as const,
+          }
+    : null;
 
   async function runReconcileCheck() {
     setReconcileStatus("בודק מול Flashy...");
@@ -984,6 +1348,29 @@ function DataReconciliationPanel({
               </div>
             )}
           </div>
+
+          {qaConclusion && (
+            <div
+              className={classNames(
+                "mt-3 rounded-lg border p-3",
+                qaConclusion.tone === "good" && "border-[#b8fff3] bg-[#edfffb]",
+                qaConclusion.tone === "warn" && "border-[#f4d7c5] bg-[#fff8f3]",
+                qaConclusion.tone === "neutral" && "border-[#eef3f7] bg-white",
+              )}
+            >
+              <p
+                className={classNames(
+                  "text-sm font-black",
+                  qaConclusion.tone === "good" && "text-[#007d72]",
+                  qaConclusion.tone === "warn" && "text-[#9a3412]",
+                  qaConclusion.tone === "neutral" && "text-[#080123]",
+                )}
+              >
+                {qaConclusion.title}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-[#40506a]">{qaConclusion.body}</p>
+            </div>
+          )}
 
           {(flashyUiCampaignValue > 0 || flashyUiAutomationValue > 0) && (
             <div className="mt-3 grid gap-3 lg:grid-cols-2">
@@ -4928,6 +5315,20 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
                   ) : (
                     <span className="text-[#65738a]">אין שיוך לקוח</span>
                   )}
+                  {user.role !== "admin" && (
+                    <div className="mt-2">
+                      <span
+                        className={classNames(
+                          "rounded-full px-3 py-1 text-xs font-bold",
+                          user.clients.length
+                            ? "bg-[#e8fbf8] text-[#007d72]"
+                            : "bg-[#fff0e8] text-[#9a3412]",
+                        )}
+                      >
+                        {user.clients.length ? "משויך ללקוח" : "לא משויך"}
+                      </span>
+                    </div>
+                  )}
                 </td>
                 <td className="p-3 text-[#65738a]">
                   {new Date(user.createdAt).toLocaleDateString("he-IL")}
@@ -5270,6 +5671,13 @@ function AccountSettings({
   const fixedMonthlyCostIls =
     (Number(monthlySubscriptionCostUsd) || 0) * (Number(usdIlsRate) || 3.7) +
     (Number(agencyRetainerCostIls) || 0);
+  const smsCostExampleIls =
+    100000 * (Number(smsCreditPriceUsd) || 0) * (Number(usdIlsRate) || 3.7);
+  const missingCostWarnings = [
+    Number(smsCreditPriceUsd) <= 0 ? "חסר מחיר קרדיט SMS בדולר" : "",
+    Number(monthlySubscriptionCostUsd) <= 0 ? "חסרה עלות מנוי חודשית בדולר" : "",
+    Number(agencyRetainerCostIls) <= 0 ? "חסר ריטיינר חודשי בשקל" : "",
+  ].filter(Boolean);
   const [saveState, setSaveState] = useState<
     | { status: "idle"; message: string }
     | { status: "saving"; message: string }
@@ -5326,7 +5734,7 @@ function AccountSettings({
           <div>
             <h2 className="text-xl font-bold text-[#080123]">הגדרות חשבון</h2>
             <p className="mt-1 text-sm leading-6 text-[#65738a]">
-              ההגדרות כאן מחוברות ללקוח שנבחר בסיידבר ומשפיעות מיד על חישובי ROAS ורווחיות.
+              {client.name} · {account.name}. ההגדרות משפיעות מיד על חישובי ROAS ורווחיות.
             </p>
           </div>
           <div className="rounded-md bg-slate-100 px-3 py-2 text-sm text-[#40506a]">
@@ -5381,6 +5789,11 @@ function AccountSettings({
               className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
               dir="ltr"
             />
+            {Number(monthlySubscriptionCostUsd) <= 0 && (
+              <span className="mt-2 block rounded-md bg-amber-50 p-2 text-xs leading-5 text-amber-800">
+                אם יש מנוי Flashy חודשי, כדאי למלא אותו כדי שהרווח הכללי יהיה אמין.
+              </span>
+            )}
           </label>
           <label className="block text-sm font-medium text-[#263548]">
             ריטיינר חודשי בשקל
@@ -5392,6 +5805,11 @@ function AccountSettings({
               className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
               dir="ltr"
             />
+            {Number(agencyRetainerCostIls) <= 0 && (
+              <span className="mt-2 block rounded-md bg-amber-50 p-2 text-xs leading-5 text-amber-800">
+                הריטיינר חסר ולכן הרווח אחרי עלויות סוכנות לא מלא.
+              </span>
+            )}
           </label>
           <label className="block text-sm font-medium text-[#263548]">
             שער דולר/שקל לחישוב עלויות
@@ -5404,6 +5822,34 @@ function AccountSettings({
               dir="ltr"
             />
           </label>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className="rounded-xl border border-[#b8fff3] bg-[#edfffb] p-4">
+            <p className="text-sm font-black text-[#007d72]">דוגמת חישוב SMS</p>
+            <p className="mt-2 text-2xl font-black text-[#080123]">
+              {formatCurrency(smsCostExampleIls, "ILS")}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-[#40506a]">
+              100,000 קרדיטים × {formatUsdDecimal(Number(smsCreditPriceUsd) || 0)} × שער {Number(usdIlsRate) || 3.7}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[#eef3f7] bg-[#fbfcfc] p-4">
+            <p className="text-sm font-black text-[#080123]">בדיקות עלויות</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {missingCostWarnings.length ? (
+                missingCostWarnings.map((warning) => (
+                  <span key={warning} className="rounded-full bg-[#fff0e8] px-2 py-1 text-xs font-bold text-[#9a3412]">
+                    {warning}
+                  </span>
+                ))
+              ) : (
+                <span className="rounded-full bg-[#e8fbf8] px-2 py-1 text-xs font-bold text-[#007d72]">
+                  כל העלויות המרכזיות הוגדרו
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="mt-5 flex flex-col gap-3 md:flex-row md:items-center">
@@ -5486,14 +5932,25 @@ function DataTable({
   columns: string[];
   rows: string[][];
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleRows = expanded ? rows : rows.slice(0, 6);
+
   return (
     <section className="overflow-hidden rounded-xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
-      <div className="border-b border-[#dfe7ee] p-4">
+      <div className="flex items-center justify-between gap-3 border-b border-[#dfe7ee] p-4">
         <h2 className="text-lg font-bold text-[#080123]">{title}</h2>
+        {rows.length > 6 && (
+          <button
+            onClick={() => setExpanded((current) => !current)}
+            className="rounded-md bg-[#eef3f7] px-3 py-1.5 text-xs font-bold text-[#263548]"
+          >
+            {expanded ? "צמצם" : `הצג הכל (${formatNumber(rows.length)})`}
+          </button>
+        )}
       </div>
       <div className="divide-y divide-[#eef3f7] md:hidden">
-        {rows.length ? (
-          rows.map((row, rowIndex) => (
+        {visibleRows.length ? (
+          visibleRows.map((row, rowIndex) => (
             <article key={rowIndex} className="p-4">
               <div className="mb-3 min-w-0">
                 <p className="truncate text-sm font-bold text-[#080123]">{row[0]}</p>
@@ -5525,7 +5982,7 @@ function DataTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-[#eef3f7] text-[#263548]">
-            {rows.map((row, rowIndex) => (
+            {visibleRows.map((row, rowIndex) => (
               <tr key={rowIndex} className="hover:bg-[#f8fbfa]">
                 {row.map((cell, cellIndex) => (
                   <td key={`${rowIndex}-${cellIndex}`} className="px-5 py-4">
@@ -5562,6 +6019,7 @@ export function DashboardApp() {
   const [authRequired, setAuthRequired] = useState(false);
   const [liveDataIssue, setLiveDataIssue] = useState("");
   const [refreshState, setRefreshState] = useState("");
+  const [nowMs] = useState(() => Date.now());
   const selectedClient =
     localClients.find((client) => client.id === selectedClientId) ?? localClients[0];
   const account =
@@ -5593,6 +6051,15 @@ export function DashboardApp() {
   const accountPlans = localNewsletterPlans.filter((plan) => plan.clientId === selectedClient.id);
   const summary = summarizeAccount(account, accountEmails, accountSms, accountAutomations);
   const activeRangeBounds = getTimeRangeBounds(timeRange, customStartDate, customEndDate);
+  const agencyActions = buildAgencyActions({
+    clients: localClients,
+    accounts: localAccounts,
+    emails: localEmailReports,
+    sms: localSmsReports,
+    automations: localAutomationReports,
+    plans: localNewsletterPlans,
+    nowMs,
+  });
 
   const visibleViews = views.filter((item) => {
     if (clientView && (item.key === "admin" || item.key === "settings")) return false;
@@ -5788,6 +6255,14 @@ export function DashboardApp() {
     setView("overview");
   };
 
+  function openAgencyTarget(clientId: string, targetView: ViewKey, revealDeepAnalysis = false) {
+    setSelectedClientId(clientId);
+    setView(targetView);
+    if (revealDeepAnalysis && costViewKeys.includes(targetView)) {
+      setShowDeepAnalysis(true);
+    }
+  }
+
   async function logout() {
     await fetch("/api/auth/admin-code", { method: "DELETE" });
     window.location.href = "/";
@@ -5957,6 +6432,24 @@ export function DashboardApp() {
                 </div>
               </div>
             </section>
+          )}
+          {!clientView && view === "overview" && (
+            <div className="mb-4 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+              <AgencyCommandCenter
+                clients={localClients}
+                accounts={localAccounts}
+                nowMs={nowMs}
+                selectedAccountId={account.id}
+                onRefresh={refreshDashboardData}
+                onOpenSettings={() => setView("settings")}
+                onOpenClient={(clientId) => openAgencyTarget(clientId, "overview")}
+                onOpenReconcile={(clientId) => openAgencyTarget(clientId, "overview", true)}
+              />
+              <AgencyActionList
+                actions={agencyActions}
+                onActionClick={(action) => openAgencyTarget(action.clientId, action.targetView)}
+              />
+            </div>
           )}
           {view === "overview" && (
             clientView ? (
