@@ -4522,7 +4522,7 @@ function AdminPanel({
   const [newClientName, setNewClientName] = useState("");
   const [newAccountName, setNewAccountName] = useState("");
   const [clientEmail, setClientEmail] = useState("");
-  const [smsCreditPriceUsd, setSmsCreditPriceUsd] = useState("0.12");
+  const [smsCreditPriceUsd, setSmsCreditPriceUsd] = useState("0.01");
   const [monthlySubscriptionCostUsd, setMonthlySubscriptionCostUsd] = useState("0");
   const [agencyRetainerCostIls, setAgencyRetainerCostIls] = useState("0");
   const [usdIlsRate, setUsdIlsRate] = useState("3.7");
@@ -4734,6 +4734,11 @@ function AdminPanel({
               className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
               dir="ltr"
             />
+            {Number(smsCreditPriceUsd) > 0.05 && (
+              <span className="mt-2 block rounded-md bg-amber-50 p-2 text-xs leading-5 text-amber-800">
+                המחיר נראה גבוה. אם המחיר האמיתי הוא בערך $0.0100, עלות ה־SMS תחושב פי כמה וכמה נמוך יותר.
+              </span>
+            )}
           </label>
         </div>
         <button
@@ -4913,6 +4918,11 @@ function AccountSettings({
               className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
               dir="ltr"
             />
+            {Number(smsCreditPriceUsd) > 0.05 && (
+              <span className="mt-2 block rounded-md bg-amber-50 p-2 text-xs leading-5 text-amber-800">
+                המחיר נראה גבוה. אם המחיר האמיתי הוא בערך $0.0100, עלות ה־SMS תחושב פי כמה וכמה נמוך יותר.
+              </span>
+            )}
           </label>
           <label className="block text-sm font-medium text-[#263548]">
             עלות מנוי חודשית בדולר
