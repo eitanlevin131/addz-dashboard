@@ -800,7 +800,6 @@ function KPIGrid({ account, summary }: { account: FlashyAccount; summary: Metric
 
 function DataReconciliationPanel({
   account,
-  summary,
   emails,
   sms,
   automations,
@@ -808,18 +807,19 @@ function DataReconciliationPanel({
   rangeEnd,
 }: {
   account: FlashyAccount;
-  summary: MetricSummary;
   emails: EmailCampaignReport[];
   sms: SmsCampaignReport[];
   automations: AutomationReport[];
   rangeStart: string;
   rangeEnd: string;
 }) {
-  const [flashyRevenue, setFlashyRevenue] = useState("");
+  const [flashyUiCampaignRevenue, setFlashyUiCampaignRevenue] = useState("");
+  const [flashyUiAutomationRevenue, setFlashyUiAutomationRevenue] = useState("");
   const [reconcileResult, setReconcileResult] = useState<FlashyReconcileResult | null>(null);
   const [reconcileStatus, setReconcileStatus] = useState("");
   const emailRevenue = emails.reduce((total, item) => total + item.revenueGenerated, 0);
   const smsRevenue = sms.reduce((total, item) => total + item.revenueGenerated, 0);
+  const campaignRevenue = emailRevenue + smsRevenue;
   const automationRevenue = automations.reduce((total, item) => total + item.revenueGenerated, 0);
   const smsCampaignRecipients = sms.reduce((total, item) => total + item.totalRecipients, 0);
   const smsAutomationRecipients = automations.reduce(
@@ -828,8 +828,10 @@ function DataReconciliationPanel({
   );
   const smsCredits = smsCampaignRecipients + smsAutomationRecipients;
   const expectedSmsCost = smsCredits * account.smsCreditPriceUsd * account.usdIlsRate;
-  const flashyRevenueValue = Number(flashyRevenue.replace(/[^\d.-]/g, "")) || 0;
-  const revenueDelta = flashyRevenueValue ? flashyRevenueValue - summary.revenue : 0;
+  const flashyUiCampaignValue = Number(flashyUiCampaignRevenue.replace(/[^\d.-]/g, "")) || 0;
+  const flashyUiAutomationValue = Number(flashyUiAutomationRevenue.replace(/[^\d.-]/g, "")) || 0;
+  const campaignUiDelta = flashyUiCampaignValue ? flashyUiCampaignValue - campaignRevenue : 0;
+  const automationUiDelta = flashyUiAutomationValue ? flashyUiAutomationValue - automationRevenue : 0;
 
   async function runReconcileCheck() {
     setReconcileStatus("בודק מול Flashy...");
@@ -884,17 +886,30 @@ function DataReconciliationPanel({
           </p>
         </div>
         <div className="w-full rounded-xl border border-[#eef3f7] bg-[#fbfcfc] p-3 lg:max-w-[380px]">
-          <label className="block text-sm font-bold text-[#263548]">
-            הכנסה שמופיעה ב־Flashy
-            <input
-              type="number"
-              value={flashyRevenue}
-              onChange={(event) => setFlashyRevenue(event.target.value)}
-              placeholder="253300"
-              className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] bg-white px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
-              dir="ltr"
-            />
-          </label>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+            <label className="block text-sm font-bold text-[#263548]">
+              קמפיינים במסך Flashy
+              <input
+                type="number"
+                value={flashyUiCampaignRevenue}
+                onChange={(event) => setFlashyUiCampaignRevenue(event.target.value)}
+                placeholder="192700"
+                className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] bg-white px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
+                dir="ltr"
+              />
+            </label>
+            <label className="block text-sm font-bold text-[#263548]">
+              אוטומציות במסך Flashy
+              <input
+                type="number"
+                value={flashyUiAutomationRevenue}
+                onChange={(event) => setFlashyUiAutomationRevenue(event.target.value)}
+                placeholder="60600"
+                className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] bg-white px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
+                dir="ltr"
+              />
+            </label>
+          </div>
           <button
             type="button"
             onClick={runReconcileCheck}
@@ -903,7 +918,7 @@ function DataReconciliationPanel({
             השווה מול Flashy עכשיו
           </button>
           <p className="mt-2 text-xs leading-5 text-[#65738a]">
-            הכפתור מושך נתונים חיים מ־Flashy לאותו טווח ומציג פערים לפי מקור.
+            הכפתור מושך נתוני Flashy API. השדות הידניים משווים מול המספר שמופיע במסך Flashy.
           </p>
         </div>
       </div>
@@ -937,12 +952,16 @@ function DataReconciliationPanel({
           <p className="mt-1 text-xs text-[#65738a]">קרדיטים × מחיר × שער</p>
         </div>
         <div className="rounded-xl bg-[#f7faf9] p-4">
-          <p className="text-xs font-black text-[#65738a]">פער מול Flashy</p>
-          <p className={classNames("mt-1 text-xl font-black", Math.abs(revenueDelta) > 1 ? "text-[#9a3412]" : "text-[#007d72]")}>
-            {flashyRevenueValue ? formatCurrency(revenueDelta, account.currency) : "—"}
+          <p className="text-xs font-black text-[#65738a]">פער מול מסך Flashy</p>
+          <p className={classNames("mt-1 text-xl font-black", Math.abs(campaignUiDelta + automationUiDelta) > 1 ? "text-[#9a3412]" : "text-[#007d72]")}>
+            {flashyUiCampaignValue || flashyUiAutomationValue
+              ? formatCurrency(campaignUiDelta + automationUiDelta, account.currency)
+              : "—"}
           </p>
           <p className="mt-1 text-xs text-[#65738a]">
-            {flashyRevenueValue ? "Flashy פחות/יותר הדאשבורד" : "הזן מספר להשוואה"}
+            {flashyUiCampaignValue || flashyUiAutomationValue
+              ? `קמפיינים ${formatCurrency(campaignUiDelta, account.currency)} · אוטומציות ${formatCurrency(automationUiDelta, account.currency)}`
+              : "הזן מספרי Flashy UI להשוואה"}
           </p>
         </div>
       </div>
@@ -952,24 +971,49 @@ function DataReconciliationPanel({
             <div>
               <h3 className="text-base font-black">השוואה חיה מול Flashy</h3>
               <p className="mt-1 text-xs text-[#65738a]">
-                {reconcileStatus || "לחץ על הכפתור למעלה כדי למשוך בדיקה חיה מ־Flashy."}
+                {reconcileStatus || "לחץ על הכפתור למעלה כדי להשוות דאשבורד מול Flashy API."}
               </p>
             </div>
             {reconcileResult && (
               <div className="text-sm font-black text-[#007d72]">
-                פער קמפיינים: {formatCurrency(reconcileResult.delta.campaignRevenue, account.currency)}
+                פער API בקמפיינים: {formatCurrency(reconcileResult.delta.campaignRevenue, account.currency)}
               </div>
             )}
           </div>
+
+          {(flashyUiCampaignValue > 0 || flashyUiAutomationValue > 0) && (
+            <div className="mt-3 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-lg border border-[#f4d7c5] bg-[#fff8f3] p-3">
+                <p className="text-xs font-black text-[#9a3412]">פער מול מסך Flashy - קמפיינים</p>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                  <span>דאשבורד: {formatCurrency(campaignRevenue, account.currency)}</span>
+                  <span>Flashy UI: {formatCurrency(flashyUiCampaignValue, account.currency)}</span>
+                  <span className="font-black text-[#9a3412]">
+                    פער: {formatCurrency(campaignUiDelta, account.currency)}
+                  </span>
+                </div>
+              </div>
+              <div className="rounded-lg border border-[#f4d7c5] bg-[#fff8f3] p-3">
+                <p className="text-xs font-black text-[#9a3412]">פער מול מסך Flashy - אוטומציות</p>
+                <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+                  <span>דאשבורד: {formatCurrency(automationRevenue, account.currency)}</span>
+                  <span>Flashy UI: {formatCurrency(flashyUiAutomationValue, account.currency)}</span>
+                  <span className="font-black text-[#9a3412]">
+                    פער: {formatCurrency(automationUiDelta, account.currency)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
 
           {reconcileResult && (
             <>
               <div className="mt-3 grid gap-3 lg:grid-cols-2">
                 <div className="rounded-lg bg-white p-3">
-                  <p className="text-xs font-black text-[#65738a]">קמפיינים</p>
+                  <p className="text-xs font-black text-[#65738a]">קמפיינים מול Flashy API</p>
                   <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
                     <span>דאשבורד: {formatCurrency(reconcileResult.stored.campaignRevenue, account.currency)}</span>
-                    <span>Flashy: {formatCurrency(reconcileResult.flashy.campaignRevenue, account.currency)}</span>
+                    <span>Flashy API: {formatCurrency(reconcileResult.flashy.campaignRevenue, account.currency)}</span>
                     <span className={Math.abs(reconcileResult.delta.campaignRevenue) > 1 ? "text-[#9a3412]" : "text-[#007d72]"}>
                       פער: {formatCurrency(reconcileResult.delta.campaignRevenue, account.currency)}
                     </span>
@@ -979,10 +1023,10 @@ function DataReconciliationPanel({
                   </p>
                 </div>
                 <div className="rounded-lg bg-white p-3">
-                  <p className="text-xs font-black text-[#65738a]">אוטומציות</p>
+                  <p className="text-xs font-black text-[#65738a]">אוטומציות מול Flashy API</p>
                   <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
                     <span>דאשבורד: {formatCurrency(reconcileResult.stored.automationRevenue, account.currency)}</span>
-                    <span>Flashy: {formatCurrency(reconcileResult.flashy.automationRevenue, account.currency)}</span>
+                    <span>Flashy API: {formatCurrency(reconcileResult.flashy.automationRevenue, account.currency)}</span>
                     <span className={Math.abs(reconcileResult.delta.automationRevenue) > 1 ? "text-[#9a3412]" : "text-[#007d72]"}>
                       פער: {formatCurrency(reconcileResult.delta.automationRevenue, account.currency)}
                     </span>
@@ -1559,7 +1603,6 @@ function Overview({
         <div className="col-span-12">
           <DataReconciliationPanel
             account={account}
-            summary={summary}
             emails={emails}
             sms={sms}
             automations={automations}
