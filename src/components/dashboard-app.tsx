@@ -703,6 +703,10 @@ interface FlashyReconcileResult {
     liveRevenue: number;
     delta: number;
   }[];
+  boundaryCampaignCandidates: {
+    name: string;
+    revenue: number;
+  }[];
 }
 
 function KPIGrid({ account, summary }: { account: FlashyAccount; summary: MetricSummary }) {
@@ -1052,6 +1056,24 @@ function DataReconciliationPanel({
                       <span>{formatCurrency(item.liveRevenue, account.currency)}</span>
                       <span className={Math.abs(item.delta) > 1 ? "font-black text-[#9a3412]" : "text-[#007d72]"}>
                         {formatCurrency(item.delta, account.currency)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {reconcileResult.boundaryCampaignCandidates.length > 0 && (
+                <div className="mt-3 overflow-hidden rounded-lg border border-[#f4d7c5] bg-[#fff8f3]">
+                  <div className="border-b border-[#f4d7c5] px-3 py-2">
+                    <p className="text-xs font-black text-[#9a3412]">
+                      קמפיינים סמוכים לתחילת הטווח שיכולים להסביר פער מול מסך Flashy
+                    </p>
+                  </div>
+                  {reconcileResult.boundaryCampaignCandidates.map((item) => (
+                    <div key={item.name} className="flex items-center justify-between gap-3 border-b border-[#f8e7dc] px-3 py-2 text-xs last:border-b-0">
+                      <span className="truncate font-bold">{item.name}</span>
+                      <span className="shrink-0 font-black text-[#9a3412]">
+                        {formatCurrency(item.revenue, account.currency)}
                       </span>
                     </div>
                   ))}
@@ -1911,10 +1933,38 @@ function ClientSmsDashboard({
     }),
   ].map((item) => ({ ...item, roas: item.cost > 0 ? item.revenue / item.cost : null }));
   const winners = [...rows].sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0) || b.revenue - a.revenue).slice(0, 3);
+  const topRevenueSms = [...rows].sort((a, b) => b.revenue - a.revenue || b.purchases - a.purchases)[0];
   const focus = [...rows].filter((item) => item.cost > 0).sort((a, b) => (a.roas ?? 0) - (b.roas ?? 0))[0];
 
   return (
     <section className="space-y-4">
+      <DecisionPanel
+        title="שורה תחתונה ל-SMS"
+        items={[
+          {
+            label: "מה מצב ההחזר",
+            value: formatRoas(summary.roas),
+            detail: `${formatCurrency(summary.revenue, account.currency)} הכנסה מול ${formatCurrency(summary.smsCost, account.currency)} עלות שליחה.`,
+            tone: summary.roas && summary.roas >= 5 ? "good" : "neutral",
+          },
+          {
+            label: "מה לשכפל",
+            value: topRevenueSms?.name ?? "—",
+            detail: topRevenueSms
+              ? `${topRevenueSms.type}, ${formatCurrency(topRevenueSms.revenue, account.currency)} הכנסה ו-${formatNumber(topRevenueSms.purchases)} רכישות.`
+              : "אין מספיק שליחות SMS בטווח.",
+            tone: "good",
+          },
+          {
+            label: "מה לבדוק",
+            value: focus?.name ?? "אין חריגה",
+            detail: focus
+              ? `${formatCurrency(focus.cost, account.currency)} עלות, ${formatRoas(focus.roas)} החזר.`
+              : "לא זוהה SMS עם עלות שדורשת בדיקה.",
+            tone: focus && (focus.roas ?? 0) < 2 ? "warn" : "neutral",
+          },
+        ]}
+      />
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard title="הכנסות SMS" value={formatCurrency(summary.revenue, account.currency)} caption={`${formatNumber(summary.purchases)} רכישות`} icon={TrendingUp} tone="good" />
         <MetricCard title="ROAS SMS" value={formatRoas(summary.roas)} caption="קמפיינים ואוטומציות" icon={LineChart} tone="good" />
@@ -1964,10 +2014,38 @@ function ClientAutomationDashboard({
   const revenue = enriched.reduce((total, item) => total + item.revenueGenerated, 0);
   const purchases = enriched.reduce((total, item) => total + item.purchases, 0);
   const top = [...enriched].sort((a, b) => b.revenueGenerated - a.revenueGenerated || b.purchases - a.purchases).slice(0, 3);
+  const best = top[0];
   const focus = [...enriched].sort((a, b) => a.clickRate - b.clickRate || a.revenueGenerated - b.revenueGenerated)[0];
 
   return (
     <section className="space-y-4">
+      <DecisionPanel
+        title="שורה תחתונה לאוטומציות"
+        items={[
+          {
+            label: "תרומה להכנסה",
+            value: formatCurrency(revenue, account.currency),
+            detail: `${formatNumber(purchases)} רכישות מתוך ${formatNumber(automations.length)} אוטומציות בטווח.`,
+            tone: "good",
+          },
+          {
+            label: "מה לשכפל",
+            value: best?.automationName ?? "—",
+            detail: best
+              ? `${automationFilterLabels[best.type]} · ${formatCurrency(best.revenueGenerated, account.currency)} הכנסה.`
+              : "אין אוטומציה מובילה בטווח.",
+            tone: "good",
+          },
+          {
+            label: "מה לבדוק",
+            value: focus?.automationName ?? "אין חריגה",
+            detail: focus
+              ? `${formatPercent(focus.clickRate)} הקלקה · ${formatCurrency(focus.revenueGenerated, account.currency)} הכנסה.`
+              : "אין מספיק נתונים לבדיקה.",
+            tone: focus && focus.clickRate < 0.005 ? "warn" : "neutral",
+          },
+        ]}
+      />
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard title="הכנסות אוטומציות" value={formatCurrency(revenue, account.currency)} caption={`${formatNumber(automations.length)} אוטומציות`} icon={RefreshCw} tone="good" />
         <MetricCard title="רכישות" value={formatNumber(purchases)} caption="מאוטומציות בטווח" icon={CheckCircle2} tone="good" />
@@ -2045,6 +2123,35 @@ function ClientCampaignDashboard({
 
   return (
     <section className="space-y-4">
+      <DecisionPanel
+        title="שורה תחתונה לקמפיינים"
+        items={[
+          {
+            label: "מה עבד",
+            value: bestCampaigns[0]?.name ?? "—",
+            detail: bestCampaigns[0]
+              ? `${bestCampaigns[0].channel}, ${formatCurrency(bestCampaigns[0].revenue, account.currency)} הכנסה ו-${formatNumber(bestCampaigns[0].purchases)} רכישות.`
+              : "אין מספיק קמפיינים בטווח.",
+            tone: "good",
+          },
+          {
+            label: "יום חזק",
+            value: bestDayEntry?.[0] ?? "—",
+            detail: bestDayEntry
+              ? `${formatCurrency(bestDayEntry[1].revenue, account.currency)} הכנסה מ-${formatNumber(bestDayEntry[1].count)} קמפיינים.`
+              : "אין מספיק נתונים לפי ימים.",
+            tone: "good",
+          },
+          {
+            label: "מה לקחת לקמפיין הבא",
+            value: bestSubject?.subjectLine || "מסר שעבד",
+            detail: bestSubject
+              ? `${formatPercent(bestSubject.totalDelivered > 0 ? bestSubject.totalOpens / bestSubject.totalDelivered : 0)} פתיחה · ${formatPercent(bestSubject.totalDelivered > 0 ? bestSubject.uniqueClicks / bestSubject.totalDelivered : 0)} הקלקה.`
+              : "נזהה שורת נושא חזקה כשיהיו נתוני אימייל.",
+            tone: "neutral",
+          },
+        ]}
+      />
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard title="הכנסות קמפיינים" value={formatCurrency(revenue, account.currency)} caption={`${formatNumber(allCampaigns.length)} קמפיינים`} icon={Send} tone="good" />
         <MetricCard title="רכישות" value={formatNumber(purchases)} caption="אימייל ו-SMS" icon={CheckCircle2} tone="good" />

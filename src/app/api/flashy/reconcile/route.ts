@@ -52,6 +52,33 @@ function groupRevenue<T>(
   return groups;
 }
 
+function groupCampaignReports(
+  emails: ReturnType<typeof normalizeEmailReports>,
+  sms: ReturnType<typeof normalizeSmsReports>,
+) {
+  return groupRevenue(
+    [
+      ...emails.map((item) => ({
+        key: `email-${item.campaignId}`,
+        name: item.campaignName,
+        channel: "Email",
+        date: item.sentAt,
+        revenue: item.revenueGenerated,
+      })),
+      ...sms.map((item) => ({
+        key: `sms-${item.campaignId}`,
+        name: item.campaignName,
+        channel: "SMS",
+        date: item.sentAt,
+        revenue: item.revenueGenerated,
+      })),
+    ],
+    (item) => item.key,
+    (item) => `${item.channel} · ${item.name} · ${item.date.slice(0, 10)}`,
+    (item) => item.revenue,
+  );
+}
+
 export async function POST(request: Request) {
   if (!isDatabaseConfigured()) {
     return NextResponse.json(
@@ -102,14 +129,23 @@ export async function POST(request: Request) {
   const dbAutomations = automationRows.filter((item) => dateInRange(item.reportDate, start, end));
 
   const apiKey = decryptSecret(account.encryptedApiKey);
+  const extendedStart = new Date(start);
+  extendedStart.setDate(extendedStart.getDate() - 7);
   const reports = await getFlashyReports(
     apiKey,
     Math.floor(start.getTime() / 1000),
     Math.floor(end.getTime() / 1000),
   );
+  const extendedReports = await getFlashyReports(
+    apiKey,
+    Math.floor(extendedStart.getTime() / 1000),
+    Math.floor(end.getTime() / 1000),
+  );
   const liveEmails = normalizeEmailReports(reports.emails as RawFlashyRow[], account.id);
   const liveSms = normalizeSmsReports(reports.sms as RawFlashyRow[], account.id);
   const liveAutomations = normalizeAutomationReports(reports.automations as RawFlashyRow[], account.id);
+  const extendedEmails = normalizeEmailReports(extendedReports.emails as RawFlashyRow[], account.id);
+  const extendedSms = normalizeSmsReports(extendedReports.sms as RawFlashyRow[], account.id);
 
   const dbCampaignRevenue =
     sumBy(dbEmails, (item) => toNumber(item.revenueGenerated)) +
@@ -154,6 +190,15 @@ export async function POST(request: Request) {
     (item) => item.name,
     (item) => item.revenue,
   );
+  const extendedCampaignGroups = groupCampaignReports(extendedEmails, extendedSms);
+  const boundaryCampaignCandidates = Array.from(extendedCampaignGroups.values())
+    .filter((item) => !liveCampaignGroups.has(item.key) && item.revenue > 0)
+    .map((item) => ({
+      name: item.name,
+      revenue: cents(item.revenue),
+    }))
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 8);
 
   const keys = new Set([...storedCampaignGroups.keys(), ...liveCampaignGroups.keys()]);
   const campaignDifferences = Array.from(keys)
@@ -201,6 +246,7 @@ export async function POST(request: Request) {
         automationRevenue: cents(liveAutomationRevenue - dbAutomationRevenue),
       },
       campaignDifferences,
+      boundaryCampaignCandidates,
       checks: reports.checks,
     },
   });
