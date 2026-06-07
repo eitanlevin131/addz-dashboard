@@ -741,6 +741,115 @@ function KPIGrid({ account, summary }: { account: FlashyAccount; summary: Metric
   );
 }
 
+function DataReconciliationPanel({
+  account,
+  summary,
+  emails,
+  sms,
+  automations,
+}: {
+  account: FlashyAccount;
+  summary: MetricSummary;
+  emails: EmailCampaignReport[];
+  sms: SmsCampaignReport[];
+  automations: AutomationReport[];
+}) {
+  const [flashyRevenue, setFlashyRevenue] = useState("");
+  const emailRevenue = emails.reduce((total, item) => total + item.revenueGenerated, 0);
+  const smsRevenue = sms.reduce((total, item) => total + item.revenueGenerated, 0);
+  const automationRevenue = automations.reduce((total, item) => total + item.revenueGenerated, 0);
+  const smsCampaignRecipients = sms.reduce((total, item) => total + item.totalRecipients, 0);
+  const smsAutomationRecipients = automations.reduce(
+    (total, item) => total + getAutomationSmsRecipients(item),
+    0,
+  );
+  const smsCredits = smsCampaignRecipients + smsAutomationRecipients;
+  const expectedSmsCost = smsCredits * account.smsCreditPriceUsd * account.usdIlsRate;
+  const flashyRevenueValue = Number(flashyRevenue.replace(/[^\d.-]/g, "")) || 0;
+  const revenueDelta = flashyRevenueValue ? flashyRevenueValue - summary.revenue : 0;
+
+  const rows = [
+    {
+      label: "קמפייני אימייל",
+      value: formatCurrency(emailRevenue, account.currency),
+      detail: `${formatNumber(emails.length)} קמפיינים`,
+    },
+    {
+      label: "קמפייני SMS",
+      value: formatCurrency(smsRevenue, account.currency),
+      detail: `${formatNumber(smsCampaignRecipients)} נמענים`,
+    },
+    {
+      label: "אוטומציות",
+      value: formatCurrency(automationRevenue, account.currency),
+      detail: `${formatNumber(automations.length)} שורות מאוחדות`,
+    },
+  ];
+
+  return (
+    <section className="rounded-2xl border border-[#dfe7ee] bg-white p-5 text-[#080123] shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
+      <div className="flex flex-col gap-3 border-b border-[#eef3f7] pb-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h2 className="text-xl font-black">בדיקת אמינות נתונים</h2>
+          <p className="mt-1 text-sm leading-6 text-[#65738a]">
+            פירוק מהיר להשוואה מול Flashy: הכנסות לפי מקור וחישוב עלות SMS.
+          </p>
+        </div>
+        <label className="block text-sm font-bold text-[#263548]">
+          הכנסה שמופיעה ב־Flashy
+          <input
+            type="number"
+            value={flashyRevenue}
+            onChange={(event) => setFlashyRevenue(event.target.value)}
+            placeholder="253300"
+            className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5] lg:w-44"
+            dir="ltr"
+          />
+        </label>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+        {rows.map((row) => (
+          <div key={row.label} className="rounded-xl border border-[#eef3f7] bg-[#fbfcfc] p-4">
+            <p className="text-sm font-bold text-[#65738a]">{row.label}</p>
+            <p className="mt-2 text-2xl font-black">{row.value}</p>
+            <p className="mt-1 text-xs text-[#65738a]">{row.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-4">
+        <div className="rounded-xl bg-[#f7faf9] p-4">
+          <p className="text-xs font-black text-[#65738a]">קרדיטי SMS מחושבים</p>
+          <p className="mt-1 text-xl font-black">{formatNumber(smsCredits)}</p>
+          <p className="mt-1 text-xs text-[#65738a]">
+            {formatNumber(smsCampaignRecipients)} קמפיינים + {formatNumber(smsAutomationRecipients)} אוטומציות
+          </p>
+        </div>
+        <div className="rounded-xl bg-[#f7faf9] p-4">
+          <p className="text-xs font-black text-[#65738a]">מחיר קרדיט</p>
+          <p className="mt-1 text-xl font-black">{formatUsdDecimal(account.smsCreditPriceUsd)}</p>
+          <p className="mt-1 text-xs text-[#65738a]">שער {account.usdIlsRate}</p>
+        </div>
+        <div className="rounded-xl bg-[#f7faf9] p-4">
+          <p className="text-xs font-black text-[#65738a]">עלות SMS לפי נוסחה</p>
+          <p className="mt-1 text-xl font-black">{formatCurrency(expectedSmsCost, account.currency)}</p>
+          <p className="mt-1 text-xs text-[#65738a]">קרדיטים × מחיר × שער</p>
+        </div>
+        <div className="rounded-xl bg-[#f7faf9] p-4">
+          <p className="text-xs font-black text-[#65738a]">פער מול Flashy</p>
+          <p className={classNames("mt-1 text-xl font-black", Math.abs(revenueDelta) > 1 ? "text-[#9a3412]" : "text-[#007d72]")}>
+            {flashyRevenueValue ? formatCurrency(revenueDelta, account.currency) : "—"}
+          </p>
+          <p className="mt-1 text-xs text-[#65738a]">
+            {flashyRevenueValue ? "Flashy פחות/יותר הדאשבורד" : "הזן מספר להשוואה"}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function RevenueCostChart({
   account,
   items,
@@ -1299,30 +1408,39 @@ function Overview({
       <AIInsightPanel account={account} bestSms={bestSms ?? bestItem} weakItem={lowestRoasItem} />
 
       {showDeepAnalysis && (
-      <div className="col-span-12 grid gap-5 xl:grid-cols-2">
-        <DataTable
-          title="המנצחים בתקופה"
-          columns={["שם", "ערוץ", "הכנסה", "רכישות", "קליקים"]}
-          rows={topPerformers.map((item) => [
-            item.name,
-            item.channel,
-            formatCurrency(item.revenue, account.currency),
-            formatNumber(item.purchases),
-            formatNumber(item.clicks),
-          ])}
-        />
-        <DataTable
-          title="דורשים בדיקה"
-          columns={["שם", "ערוץ", "עלות", "הכנסה", "ROAS"]}
-          rows={needsAttention.map((item) => [
-            item.name,
-            item.channel,
-            formatCurrency(item.cost, account.currency),
-            formatCurrency(item.revenue, account.currency),
-            item.cost > 0 ? `${(item.revenue / item.cost).toFixed(1)}x` : "ללא הכנסה",
-          ])}
-        />
-      </div>
+        <div className="col-span-12 grid gap-5">
+          <DataReconciliationPanel
+            account={account}
+            summary={summary}
+            emails={emails}
+            sms={sms}
+            automations={automations}
+          />
+          <div className="grid gap-5 xl:grid-cols-2">
+            <DataTable
+              title="המנצחים בתקופה"
+              columns={["שם", "ערוץ", "הכנסה", "רכישות", "קליקים"]}
+              rows={topPerformers.map((item) => [
+                item.name,
+                item.channel,
+                formatCurrency(item.revenue, account.currency),
+                formatNumber(item.purchases),
+                formatNumber(item.clicks),
+              ])}
+            />
+            <DataTable
+              title="דורשים בדיקה"
+              columns={["שם", "ערוץ", "עלות", "הכנסה", "ROAS"]}
+              rows={needsAttention.map((item) => [
+                item.name,
+                item.channel,
+                formatCurrency(item.cost, account.currency),
+                formatCurrency(item.revenue, account.currency),
+                item.cost > 0 ? `${(item.revenue / item.cost).toFixed(1)}x` : "ללא הכנסה",
+              ])}
+            />
+          </div>
+        </div>
       )}
     </section>
   );
