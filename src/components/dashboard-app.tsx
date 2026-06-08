@@ -171,7 +171,7 @@ function LoginGate({ message }: { message: string }) {
         <div className="mb-6 flex items-center justify-between gap-4">
           <div>
             <p className="text-sm font-bold text-[#65738a]">Flashy Growth Desk</p>
-            <h1 className="mt-1 text-3xl font-black tracking-normal">כניסה לנתונים חיים</h1>
+            <h1 className="mt-1 text-3xl font-black tracking-normal">כניסה לדאשבורד</h1>
           </div>
           <div className="grid size-12 place-items-center rounded-2xl bg-[#35dacd] text-lg font-black">
             FG
@@ -179,7 +179,7 @@ function LoginGate({ message }: { message: string }) {
         </div>
 
         <p className="mb-5 rounded-2xl border border-[#dfe7ee] bg-[#f7fafc] p-4 text-sm leading-6 text-[#4a5870]">
-          {message || "צריך להתחבר כדי לראות את נתוני הלקוחות החיים."}
+          {message || "לקוחות נכנסים עם Magic Link למייל. צוות הסוכנות יכול להיכנס גם עם קוד אדמין."}
         </p>
 
         <form onSubmit={submitLogin} className="space-y-3">
@@ -430,142 +430,6 @@ function getMonthBounds(monthValue: string) {
   return { start, end };
 }
 
-function buildAgencyActions({
-  clients,
-  accounts,
-  emails,
-  sms,
-  automations,
-  plans,
-  nowMs,
-}: {
-  clients: Client[];
-  accounts: FlashyAccount[];
-  emails: EmailCampaignReport[];
-  sms: SmsCampaignReport[];
-  automations: AutomationReport[];
-  plans: NewsletterPlan[];
-  nowMs: number;
-}) {
-  const actions: AgencyAction[] = [];
-  const clientById = new Map(clients.map((client) => [client.id, client]));
-  const now = new Date(nowMs);
-  const twoWeeksFromNow = new Date(nowMs);
-  twoWeeksFromNow.setDate(twoWeeksFromNow.getDate() + 14);
-
-  for (const account of accounts) {
-    const client = clientById.get(account.clientId);
-    const accountEmails = byAccount(emails, account.id);
-    const accountSms = byAccount(sms, account.id);
-    const accountAutomations = consolidateAutomations(byAccount(automations, account.id));
-    const accountPlans = plans.filter((plan) => plan.clientId === account.clientId);
-    const lastSync = new Date(account.lastSyncAt);
-    const hoursSinceSync = Number.isNaN(lastSync.getTime())
-      ? 999
-      : (nowMs - lastSync.getTime()) / (1000 * 60 * 60);
-
-    if (hoursSinceSync > 36) {
-      actions.push({
-        id: `sync-${account.id}`,
-        title: `לרענן את ${client?.name ?? account.name}`,
-        why: "הסנכרון האחרון ישן, והדוחות עלולים לא לשקף את Flashy.",
-        impact: `סנכרון אחרון: ${Number.isNaN(lastSync.getTime()) ? "לא ידוע" : lastSync.toLocaleDateString("he-IL")}`,
-        targetView: "overview",
-        clientId: account.clientId,
-        tone: "warn",
-        cta: "פתח חשבון",
-      });
-    }
-
-    if (account.smsCreditPriceUsd <= 0 || account.monthlySubscriptionCostUsd <= 0 || account.agencyRetainerCostIls <= 0) {
-      actions.push({
-        id: `costs-${account.id}`,
-        title: `להשלים עלויות ל-${client?.name ?? account.name}`,
-        why: "בלי עלויות מלאות, ROAS ורווחיות לא מספיק אמינים לסוכנות.",
-        impact: "משפיע על דוחות רווח, SMS ו-ROAS.",
-        targetView: "settings",
-        clientId: account.clientId,
-        tone: "warn",
-        cta: "פתח הגדרות",
-      });
-    }
-
-    const smsWithCost = accountSms
-      .map((item) => {
-        const cost = item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate;
-        return { ...item, cost, roas: cost > 0 ? item.revenueGenerated / cost : null };
-      })
-      .filter((item) => item.cost > 0);
-    const weakSms = [...smsWithCost].sort((a, b) => (a.roas ?? 999) - (b.roas ?? 999))[0];
-    if (weakSms && (weakSms.roas ?? 0) < 2) {
-      actions.push({
-        id: `weak-sms-${weakSms.id}`,
-        title: "לבדוק SMS עם החזר נמוך",
-        why: weakSms.campaignName,
-        impact: `${formatCurrency(weakSms.cost, account.currency)} עלות · ${formatRoas(weakSms.roas)} ROAS`,
-        targetView: "sms",
-        clientId: account.clientId,
-        tone: "warn",
-        cta: "פתח SMS",
-      });
-    }
-
-    const bestCampaign = [...accountEmails, ...accountSms]
-      .sort((a, b) => b.revenueGenerated - a.revenueGenerated || b.purchases - a.purchases)[0];
-    if (bestCampaign && bestCampaign.revenueGenerated > 0) {
-      const name = "campaignName" in bestCampaign ? bestCampaign.campaignName : "קמפיין מוביל";
-      actions.push({
-        id: `best-campaign-${account.id}-${bestCampaign.id}`,
-        title: "לשכפל קמפיין חזק",
-        why: name,
-        impact: `${formatCurrency(bestCampaign.revenueGenerated, account.currency)} הכנסה · ${formatNumber(bestCampaign.purchases)} רכישות`,
-        targetView: "campaigns",
-        clientId: account.clientId,
-        tone: "good",
-        cta: "פתח קמפיינים",
-      });
-    }
-
-    const weakAutomation = [...accountAutomations]
-      .filter((item) => item.totalRecipients > 0 || item.sentEmails || item.sentSms)
-      .sort((a, b) => a.totalClicks - b.totalClicks || a.revenueGenerated - b.revenueGenerated)[0];
-    if (weakAutomation && weakAutomation.totalClicks === 0 && weakAutomation.revenueGenerated === 0) {
-      actions.push({
-        id: `weak-automation-${weakAutomation.id}`,
-        title: "לבדוק אוטומציה שלא מייצרת תוצאה",
-        why: weakAutomation.automationName,
-        impact: `${formatNumber(weakAutomation.totalRecipients)} נמענים ללא הכנסה בטווח.`,
-        targetView: "automations",
-        clientId: account.clientId,
-        tone: "warn",
-        cta: "פתח אוטומציות",
-      });
-    }
-
-    const hasUpcomingPlan = accountPlans.some((plan) => {
-      const date = new Date(plan.date);
-      return date >= now && date <= twoWeeksFromNow;
-    });
-    if (!hasUpcomingPlan) {
-      actions.push({
-        id: `planner-${account.id}`,
-        title: `אין תכנון דיוורים לשבועיים הקרובים`,
-        why: client?.name ?? account.name,
-        impact: "סיכון לפספוס ימי מכירה, חגים וקמפיינים מתוכננים.",
-        targetView: "planner",
-        clientId: account.clientId,
-        tone: "neutral",
-        cta: "פתח גאנט",
-      });
-    }
-  }
-
-  const toneWeight = { warn: 0, good: 1, neutral: 2 };
-  return actions
-    .sort((a, b) => toneWeight[a.tone] - toneWeight[b.tone])
-    .slice(0, 5);
-}
-
 function isSameMonth(dateValue: string, monthValue: string) {
   return dateValue.slice(0, 7) === monthValue;
 }
@@ -663,6 +527,10 @@ type LiveFlashyPayload = {
 };
 
 type DashboardDataPayload = {
+  viewer?: {
+    email: string;
+    role: "admin" | "client";
+  };
   clients: Client[];
   accounts: FlashyAccount[];
   emailReports: EmailCampaignReport[];
@@ -683,17 +551,6 @@ type AdminUserAccess = {
     clientName: string;
     createdAt: string;
   }[];
-};
-
-type AgencyAction = {
-  id: string;
-  title: string;
-  why: string;
-  impact: string;
-  targetView: ViewKey;
-  clientId: string;
-  tone: "good" | "warn" | "neutral";
-  cta: string;
 };
 
 function MetricCard({
@@ -734,43 +591,6 @@ function MetricCard({
   );
 }
 
-function DecisionPanel({
-  title,
-  subtitle,
-  items,
-}: {
-  title: string;
-  subtitle?: string;
-  items: { label: string; value: string; detail: string; tone?: "good" | "warn" | "neutral" }[];
-}) {
-  return (
-    <section className="rounded-xl border border-[#dfe7ee] bg-white p-4 shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
-      <div className="mb-3">
-        <h2 className="text-lg font-bold text-[#080123]">{title}</h2>
-        {subtitle && <p className="mt-1 text-xs leading-5 text-[#65738a]">{subtitle}</p>}
-      </div>
-      <div className="grid gap-2 lg:grid-cols-3 xl:grid-cols-4">
-        {items.map((item) => (
-          <div key={item.label} className="rounded-lg border border-[#eef3f7] bg-[#fbfcfc] p-3">
-            <p className="text-xs font-bold text-[#65738a]">{item.label}</p>
-            <p
-              className={classNames(
-                "mt-1 text-base font-bold leading-tight",
-                item.tone === "good" && "text-[#007d72]",
-                item.tone === "warn" && "text-[#9a3412]",
-                (!item.tone || item.tone === "neutral") && "text-[#080123]",
-              )}
-            >
-              {item.value}
-            </p>
-            <p className="mt-1 text-xs leading-5 text-[#40506a]">{item.detail}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function RankedInsightList({
   title,
   items,
@@ -802,197 +622,6 @@ function RankedInsightList({
         )}
       </div>
     </article>
-  );
-}
-
-function AgencyCommandCenter({
-  clients,
-  accounts,
-  nowMs,
-  selectedAccountId,
-  onRefresh,
-  onOpenSettings,
-  onOpenReconcile,
-  onOpenClient,
-}: {
-  clients: Client[];
-  accounts: FlashyAccount[];
-  nowMs: number;
-  selectedAccountId: string;
-  onRefresh: () => void;
-  onOpenSettings: () => void;
-  onOpenReconcile: (clientId: string) => void;
-  onOpenClient: (clientId: string) => void;
-}) {
-  const clientById = new Map(clients.map((client) => [client.id, client]));
-  const accountStatuses = accounts.map((account) => {
-    const missingCosts = [
-      account.smsCreditPriceUsd <= 0 ? "מחיר SMS" : "",
-      account.monthlySubscriptionCostUsd <= 0 ? "מנוי" : "",
-      account.agencyRetainerCostIls <= 0 ? "ריטיינר" : "",
-    ].filter(Boolean);
-    const lastSync = new Date(account.lastSyncAt);
-    const hoursSinceSync = Number.isNaN(lastSync.getTime())
-      ? 999
-      : (nowMs - lastSync.getTime()) / (1000 * 60 * 60);
-    const needsSync = hoursSinceSync > 36;
-    const needsAttention = missingCosts.length > 0 || needsSync || !account.active;
-
-    return {
-      account,
-      client: clientById.get(account.clientId),
-      missingCosts,
-      needsSync,
-      needsAttention,
-      lastSync,
-    };
-  });
-  const attentionItems = accountStatuses.filter((item) => item.needsAttention);
-
-  return (
-    <section className="rounded-2xl border border-[#dfe7ee] bg-white p-4 text-[#080123] shadow-[0_12px_32px_rgba(8,1,35,0.06)]">
-      <div className="flex flex-col gap-3 border-b border-[#eef3f7] pb-4 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h2 className="text-xl font-black">מצב חשבונות</h2>
-          <p className="mt-1 text-sm text-[#65738a]">
-            {attentionItems.length
-              ? `${formatNumber(attentionItems.length)} חשבונות דורשים טיפול.`
-              : "כל החשבונות הפעילים נראים תקינים כרגע."}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={onRefresh}
-            className="inline-flex h-10 items-center gap-2 rounded-md bg-[#080123] px-3 text-sm font-bold text-white"
-          >
-            <RefreshCw size={16} />
-            רענן חשבון
-          </button>
-          <button
-            onClick={onOpenSettings}
-            className="inline-flex h-10 items-center gap-2 rounded-md border border-[#dfe7ee] px-3 text-sm font-bold text-[#263548]"
-          >
-            <Settings size={16} />
-            הגדרות עלויות
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-3 xl:grid-cols-2">
-        {accountStatuses.map(({ account, client, missingCosts, needsSync, needsAttention, lastSync }) => (
-          <article
-            key={account.id}
-            className={classNames(
-              "rounded-xl border p-3",
-              account.id === selectedAccountId
-                ? "border-[#6fffe5] bg-[#effffc]"
-                : needsAttention
-                  ? "border-[#f4d7c5] bg-[#fff8f3]"
-                  : "border-[#eef3f7] bg-[#fbfcfc]",
-            )}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-black">{client?.name ?? account.name}</p>
-                <p className="mt-1 text-xs text-[#65738a]">
-                  Flashy #{account.flashyAccountId || "—"} · סנכרון{" "}
-                  {Number.isNaN(lastSync.getTime()) ? "לא ידוע" : lastSync.toLocaleString("he-IL")}
-                </p>
-              </div>
-              <span
-                className={classNames(
-                  "shrink-0 rounded-full px-2 py-1 text-xs font-black",
-                  needsAttention ? "bg-[#fff0e8] text-[#9a3412]" : "bg-[#e8fbf8] text-[#007d72]",
-                )}
-              >
-                {needsAttention ? "דורש טיפול" : "תקין"}
-              </span>
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2 text-xs">
-              {needsSync && <span className="rounded-full bg-white px-2 py-1 text-[#9a3412]">סנכרון ישן</span>}
-              {missingCosts.map((item) => (
-                <span key={item} className="rounded-full bg-white px-2 py-1 text-[#9a3412]">
-                  חסר {item}
-                </span>
-              ))}
-              {!needsAttention && <span className="rounded-full bg-white px-2 py-1 text-[#007d72]">אין בעיות פתוחות</span>}
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                onClick={() => onOpenClient(account.clientId)}
-                className="rounded-md bg-white px-3 py-1.5 text-xs font-bold text-[#263548]"
-              >
-                פתח לקוח
-              </button>
-              <button
-                onClick={() => onOpenReconcile(account.clientId)}
-                className="rounded-md bg-white px-3 py-1.5 text-xs font-bold text-[#263548]"
-              >
-                בדוק פער Flashy
-              </button>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function AgencyActionList({
-  actions,
-  onActionClick,
-}: {
-  actions: AgencyAction[];
-  onActionClick: (action: AgencyAction) => void;
-}) {
-  return (
-    <section className="rounded-2xl border border-[#dfe7ee] bg-white p-4 text-[#080123] shadow-[0_12px_32px_rgba(8,1,35,0.06)]">
-      <div className="flex items-start justify-between gap-3 border-b border-[#eef3f7] pb-4">
-        <div>
-          <h2 className="text-xl font-black">פעולות מומלצות לסוכנות</h2>
-          <p className="mt-1 text-sm text-[#65738a]">מה כדאי לעשות עכשיו, לפי הדאטה של החשבונות.</p>
-        </div>
-        <span className="rounded-full bg-[#edfffb] px-3 py-1 text-xs font-black text-[#007d72]">
-          {formatNumber(actions.length)} משימות
-        </span>
-      </div>
-      <div className="mt-4 grid gap-3">
-        {actions.length ? (
-          actions.map((action) => (
-            <article key={action.id} className="rounded-xl border border-[#eef3f7] bg-[#fbfcfc] p-3">
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div className="min-w-0">
-                  <p
-                    className={classNames(
-                      "text-sm font-black",
-                      action.tone === "good" && "text-[#007d72]",
-                      action.tone === "warn" && "text-[#9a3412]",
-                      action.tone === "neutral" && "text-[#080123]",
-                    )}
-                  >
-                    {action.title}
-                  </p>
-                  <p className="mt-1 text-xs leading-5 text-[#40506a]">{action.why}</p>
-                  <p className="mt-2 inline-flex rounded-full bg-white px-2 py-1 text-xs font-bold text-[#65738a]">
-                    {action.impact}
-                  </p>
-                </div>
-                <button
-                  onClick={() => onActionClick(action)}
-                  className="h-9 shrink-0 rounded-md bg-[#080123] px-3 text-xs font-bold text-white"
-                >
-                  {action.cta}
-                </button>
-              </div>
-            </article>
-          ))
-        ) : (
-          <div className="rounded-xl bg-[#fbfcfc] p-5 text-center text-sm text-[#65738a]">
-            אין כרגע פעולות דחופות. זה רגע נדיר, תהנה ממנו.
-          </div>
-        )}
-      </div>
-    </section>
   );
 }
 
@@ -1049,93 +678,54 @@ interface FlashyReconcileResult {
 
 function KPIGrid({ account, summary }: { account: FlashyAccount; summary: MetricSummary }) {
   const totalCost = summary.smsCost + summary.fixedCosts;
-  const profitTone = summary.profit >= 0 ? "text-[#007d72]" : "text-[#9a3412]";
-  const secondaryMetrics = [
+  const metrics = [
+    {
+      label: "הכנסות",
+      value: formatCurrency(summary.revenue, account.currency),
+      detail: "מיוחסות לקמפיינים ואוטומציות",
+      tone: "good" as const,
+    },
+    {
+      label: "רווח",
+      value: formatCurrency(summary.profit, account.currency),
+      detail: `אחרי ${formatCurrency(totalCost, account.currency)} עלות`,
+      tone: summary.profit >= 0 ? "good" as const : "warn" as const,
+    },
     {
       label: "ROAS",
       value: formatRoas(summary.roas),
       detail: "כולל SMS ועלויות קבועות",
-      icon: LineChart,
       tone: "good" as const,
-    },
-    {
-      label: "עלות כוללת",
-      value: formatCurrency(totalCost, account.currency),
-      detail: `SMS ${formatCurrency(summary.smsCost, account.currency)}`,
-      icon: Activity,
-      tone: totalCost > 0 ? "warn" as const : "neutral" as const,
     },
     {
       label: "רכישות",
       value: formatNumber(summary.purchases),
       detail: `Conversion ${formatPercent(summary.conversionRate)}`,
-      icon: CheckCircle2,
       tone: "neutral" as const,
     },
   ];
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-[oklch(100%_0_0_/_0.14)] bg-white text-[#080123] shadow-[0_16px_45px_rgba(8,1,35,0.12)]">
-      <div className="grid gap-px bg-[#dfe7ee] xl:grid-cols-[1fr_1.15fr]">
-        <div className="bg-[linear-gradient(135deg,#ffffff_0%,#edfffb_100%)] p-4 md:p-5">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold text-[#65738a]">הכנסות מיוחסות</p>
-              <h2 className="mt-2 text-[clamp(34px,4.2vw,56px)] font-black leading-none tracking-normal">
-                {formatCurrency(summary.revenue, account.currency)}
-              </h2>
-            </div>
-            <div className="rounded-xl border border-[#cfeee9] bg-white/70 px-4 py-3 text-left">
-              <p className="text-xs font-bold text-[#65738a]">רווח אחרי עלויות</p>
-              <p className={classNames("mt-1 text-2xl font-black tabular-nums", profitTone)}>
-                {formatCurrency(summary.profit, account.currency)}
-              </p>
-            </div>
-          </div>
-          <div className="mt-4 grid gap-2 sm:grid-cols-3">
-            <div className="rounded-xl bg-white/70 p-3">
-              <p className="text-xs font-bold text-[#65738a]">נמענים</p>
-              <p className="mt-1 text-lg font-black">{formatNumber(summary.recipients)}</p>
-            </div>
-            <div className="rounded-xl bg-white/70 p-3">
-              <p className="text-xs font-bold text-[#65738a]">קליקים</p>
-              <p className="mt-1 text-lg font-black">{formatNumber(summary.clicks)}</p>
-            </div>
-            <div className="rounded-xl bg-white/70 p-3">
-              <p className="text-xs font-bold text-[#65738a]">נמסרו</p>
-              <p className="mt-1 text-lg font-black">{formatNumber(summary.delivered)}</p>
-            </div>
-          </div>
-        </div>
-        <div className="grid bg-white sm:grid-cols-3">
-          {secondaryMetrics.map((metric) => {
-            const Icon = metric.icon;
-            return (
-              <article key={metric.label} className="border-b border-[#eef3f7] p-4 last:border-b-0 sm:border-b-0 sm:border-l">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-bold text-[#65738a]">{metric.label}</p>
-                    <p className="mt-2 text-[clamp(22px,2.6vw,32px)] font-black leading-none tabular-nums">
-                      {metric.value}
-                    </p>
-                  </div>
-                  <div
-                    className={classNames(
-                      "grid size-9 place-items-center rounded-xl border",
-                      metric.tone === "good" && "border-[#b8fff3] bg-[#e8fbf8] text-[#008f82]",
-                      metric.tone === "warn" && "border-[#fde68a] bg-[#fff4db] text-[#b45309]",
-                      metric.tone === "neutral" && "border-[#dfe7ee] bg-[#eef3f7] text-[#263548]",
-                    )}
-                  >
-                    <Icon size={17} />
-                  </div>
-                </div>
-                <p className="mt-2 text-xs leading-5 text-[#65738a]">{metric.detail}</p>
-              </article>
-            );
-          })}
-        </div>
-      </div>
+    <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {metrics.map((metric) => (
+        <article
+          key={metric.label}
+          className="rounded-2xl border border-[#dfe7ee] bg-white p-5 text-[#080123] shadow-[0_10px_28px_rgba(8,1,35,0.05)]"
+        >
+          <p className="text-xs font-bold text-[#65738a]">{metric.label}</p>
+          <p
+            className={classNames(
+              "mt-3 text-[clamp(28px,3vw,42px)] font-black leading-none tabular-nums",
+              metric.tone === "good" && "text-[#080123]",
+              metric.tone === "warn" && "text-[#9a3412]",
+              metric.tone === "neutral" && "text-[#080123]",
+            )}
+          >
+            {metric.value}
+          </p>
+          <p className="mt-3 text-xs leading-5 text-[#65738a]">{metric.detail}</p>
+        </article>
+      ))}
     </section>
   );
 }
@@ -1512,7 +1102,7 @@ function RevenueCostChart({
   ];
 
   return (
-    <article className="col-span-12 rounded-2xl border border-[oklch(89%_0.008_285)] bg-white p-[18px] text-[oklch(15%_0.025_285)] shadow-[0_10px_30px_rgba(8,1,35,0.05)] xl:col-span-8">
+    <article className="col-span-12 rounded-2xl border border-[oklch(89%_0.008_285)] bg-white p-[18px] text-[oklch(15%_0.025_285)] shadow-[0_10px_30px_rgba(8,1,35,0.05)]">
       <div className="mb-[18px] flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
           <h2 className="m-0 text-[22px] font-bold">פעילויות מובילות</h2>
@@ -1674,6 +1264,7 @@ function ChannelBreakdown({
     cost: number;
     profit: number;
     count: number;
+    purchases: number;
     recipients: number;
     roas: number | null;
     revenuePerRecipient: number;
@@ -1681,56 +1272,41 @@ function ChannelBreakdown({
   }[];
 }) {
   return (
-    <article className="col-span-12 rounded-2xl border border-[oklch(89%_0.008_285)] bg-white p-[18px] text-[oklch(15%_0.025_285)] xl:col-span-4">
-      <div className="mb-[18px] flex items-center justify-between gap-3">
-        <h2 className="m-0 text-[22px] font-bold">חלוקת ערוצים</h2>
-        <span className="text-[13px] text-[oklch(48%_0.018_285)]">הכנסה</span>
+    <article className="col-span-12 rounded-2xl border border-[oklch(89%_0.008_285)] bg-white p-[18px] text-[oklch(15%_0.025_285)] shadow-[0_10px_30px_rgba(8,1,35,0.05)]">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h2 className="m-0 text-[20px] font-black">פירוק ערוצים</h2>
+        <span className="text-xs font-bold text-[oklch(48%_0.018_285)]">Email / SMS / Automations</span>
       </div>
-      <div className="grid gap-3">
+      <div className="hidden grid-cols-[120px_1fr_130px_130px_110px_90px] gap-3 border-b border-[#eef3f7] px-2 pb-2 text-xs font-bold text-[#65738a] md:grid">
+        <span>ערוץ</span>
+        <span>חלק יחסי</span>
+        <span className="text-left">הכנסה</span>
+        <span className="text-left">עלות</span>
+        <span className="text-left">ROAS</span>
+        <span className="text-left">רכישות</span>
+      </div>
+      <div className="divide-y divide-[#eef3f7]">
         {channelData.map((item) => (
-          <div key={item.channel} className="grid grid-cols-[74px_1fr_58px] items-center gap-2 text-sm">
-            <strong>{item.channel}</strong>
-            <div className="h-2.5 overflow-hidden rounded-full bg-[oklch(91%_0.008_285)]">
-              <div
-                className="h-full rounded-full bg-[oklch(82%_0.135_185)]"
-                style={{ width: `${Math.max(3, item.share * 100)}%` }}
-              />
+          <div key={item.channel} className="grid gap-3 px-2 py-3 text-sm md:grid-cols-[120px_1fr_130px_130px_110px_90px] md:items-center">
+            <div className="flex items-center justify-between gap-2 md:block">
+              <strong>{item.channel}</strong>
+              <span className="text-xs font-bold text-[#65738a] md:hidden">{formatPercent(item.share)}</span>
             </div>
-            <span>{formatPercent(item.share)}</span>
-            <span className="col-start-2 col-end-4 text-xs text-[oklch(48%_0.018_285)]">
-              {formatCurrency(item.revenue, account.currency)} · ROAS {formatRoas(item.roas)}
-            </span>
+            <div>
+              <div className="h-2 overflow-hidden rounded-full bg-[oklch(91%_0.008_285)]">
+                <div
+                  className="h-full rounded-full bg-[oklch(82%_0.135_185)]"
+                  style={{ width: `${Math.max(3, item.share * 100)}%` }}
+                />
+              </div>
+              <p className="mt-1 text-xs text-[#65738a]">{formatPercent(item.share)} מההכנסה · {formatNumber(item.count)} פעילויות</p>
+            </div>
+            <span className="text-left font-black">{formatCurrency(item.revenue, account.currency)}</span>
+            <span className="text-left font-bold text-[#65738a]">{item.cost > 0 ? formatCurrency(item.cost, account.currency) : "—"}</span>
+            <span className="text-left font-black">{formatRoas(item.roas)}</span>
+            <span className="text-left font-bold">{formatNumber(item.purchases)}</span>
           </div>
         ))}
-      </div>
-    </article>
-  );
-}
-
-function AIInsightPanel({
-  bestSms,
-  weakItem,
-  account,
-}: {
-  bestSms?: PerformanceItem;
-  weakItem?: PerformanceItem;
-  account: FlashyAccount;
-}) {
-  const title = bestSms ? `להרחיב את ${bestSms.channel} בזהירות.` : "אין המלצה אוטומטית כרגע.";
-  const copy = bestSms
-    ? `${bestSms.name} מייצר ${formatCurrency(bestSms.revenue, account.currency)} מול ${formatCurrency(bestSms.cost, account.currency)} עלות. מומלץ לשכפל וריאציה אחת, ולבדוק את ${weakItem?.name ?? "הפריט החלש"} לפני הגדלת נפח.`
-    : "ברגע שיצטבר מספיק דאטה, נציג כאן המלצת אופטימיזציה ברורה במקום טקסט גנרי.";
-
-  return (
-    <article className="col-span-12 grid gap-4 rounded-2xl border border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.07)] p-[18px] text-[oklch(98%_0_0)] backdrop-blur xl:grid-cols-[1fr_300px]">
-      <div>
-        <span className="mb-2 block text-[13px] text-[oklch(78%_0.015_285)]">AI insight</span>
-        <h2 className="m-0 text-[28px] font-bold">{title}</h2>
-        <p className="mt-2 leading-7 text-[oklch(78%_0.015_285)]">{copy}</p>
-      </div>
-      <div className="grid content-center gap-2">
-        <button className="min-h-10 rounded-lg bg-[oklch(82%_0.135_185)] px-4 py-2 font-bold text-[oklch(15%_0.025_285)]">צור משימה</button>
-        <button className="min-h-10 rounded-lg border border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.08)] px-4 py-2 text-white">פתח AI</button>
       </div>
     </article>
   );
@@ -1800,7 +1376,9 @@ function Sidebar({
         <span className="grid size-9 place-items-center rounded-[10px] border border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.06)] text-[oklch(82%_0.135_185)]">FG</span>
         <span className="truncate">Growth Desk</span>
       </div>
-      <ClientSelector clients={clients} selectedClientId={selectedClientId} onChange={onSelectClient} />
+      {!clientView && (
+        <ClientSelector clients={clients} selectedClientId={selectedClientId} onChange={onSelectClient} />
+      )}
       <nav className="grid gap-1" aria-label="ניווט ראשי">
         {visibleViews.map((item) => {
           const Icon = item.icon;
@@ -1835,12 +1413,14 @@ function Sidebar({
           </button>
         </div>
       )}
-      <div className="mt-auto rounded-xl border border-[oklch(100%_0_0_/_0.14)] bg-[oklch(100%_0_0_/_0.05)] p-2.5 text-xs leading-5 text-[oklch(78%_0.015_285)]">
+      {!clientView && (
+        <div className="mt-auto rounded-xl border border-[oklch(100%_0_0_/_0.14)] bg-[oklch(100%_0_0_/_0.05)] p-2.5 text-xs leading-5 text-[oklch(78%_0.015_285)]">
         <div className="font-bold text-white">
           {dataSource === "neon" ? "Neon מחובר" : dataSource === "loading" ? "טוען נתונים" : "דמו"}
         </div>
         <div className="mt-1 line-clamp-2">{dataNotice}</div>
-      </div>
+        </div>
+      )}
     </aside>
   );
 }
@@ -1934,6 +1514,7 @@ function Overview({
     const revenue = items.reduce((total, item) => total + item.revenue, 0);
     const cost = items.reduce((total, item) => total + item.cost, 0);
     const recipients = items.reduce((total, item) => total + item.recipients, 0);
+    const purchases = items.reduce((total, item) => total + item.purchases, 0);
 
     return {
       channel,
@@ -1941,13 +1522,13 @@ function Overview({
       cost,
       profit: revenue - cost,
       count: items.length,
+      purchases,
       recipients,
       roas: cost > 0 ? revenue / cost : null,
       revenuePerRecipient: recipients > 0 ? revenue / recipients : 0,
       share: summary.revenue > 0 ? revenue / summary.revenue : 0,
     };
   });
-  const topChannel = [...channelData].sort((a, b) => b.revenue - a.revenue)[0];
   const topPerformers = [...performanceItems]
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 6);
@@ -1959,53 +1540,13 @@ function Overview({
       return roasA - roasB || b.cost - a.cost;
     })
     .slice(0, 6);
-  const bestItem = topPerformers[0];
-  const lowestRoasItem = needsAttention[0];
-  const bestSms = performanceItems
-    .filter((item) => item.channel === "SMS" && item.cost > 0)
-    .sort((a, b) => b.revenue / b.cost - a.revenue / a.cost)[0];
   const totalActivities = performanceItems.length;
   const profitableActivities = performanceItems.filter((item) => item.revenue > item.cost).length;
-  const fixedCostsNote = summary.fixedCosts > 0
-    ? `כולל ${formatCurrency(summary.fixedCosts, account.currency)} עלויות קבועות.`
-    : "לא הוגדרו עלויות קבועות.";
 
   return (
     <section className="grid grid-cols-12 gap-3">
       <div className="col-span-12">
         <KPIGrid account={account} summary={summary} />
-      </div>
-
-      <div className="col-span-12">
-        <DecisionPanel
-          title="תמונת מצב מהירה"
-          items={[
-            {
-              label: "ערוץ מוביל",
-              value: topChannel?.channel ?? "—",
-              tone: "good",
-              detail: topChannel
-                ? `${formatCurrency(topChannel.revenue, account.currency)} הכנסה, ${formatPercent(topChannel.share)} מהטווח.`
-                : "אין עדיין מספיק נתונים לערוץ מוביל.",
-            },
-            {
-              label: "פעילות לשכפול",
-              value: bestItem?.name ?? "אין פעילות מובילה",
-              tone: "good",
-              detail: bestItem
-                ? `${bestItem.channel}, ${formatCurrency(bestItem.revenue, account.currency)} הכנסה ו-${formatNumber(bestItem.purchases)} רכישות.`
-                : "כשיש פעילות מנצחת, היא תופיע כאן.",
-            },
-            {
-              label: "מוקד בדיקה",
-              value: lowestRoasItem?.name ?? "אין חריגה ברורה",
-              tone: lowestRoasItem ? "warn" : "neutral",
-              detail: lowestRoasItem
-                ? `${lowestRoasItem.channel}, ${formatCurrency(lowestRoasItem.cost, account.currency)} עלות מול ${formatCurrency(lowestRoasItem.revenue, account.currency)} הכנסה.`
-                : fixedCostsNote,
-            },
-          ]}
-        />
       </div>
 
       {showDeepAnalysis && (
@@ -2021,8 +1562,10 @@ function Overview({
         </div>
       )}
 
-      <div className="col-span-12 flex flex-col gap-3 rounded-2xl border border-[oklch(100%_0_0_/_0.14)] bg-[oklch(100%_0_0_/_0.05)] p-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-sm text-[oklch(78%_0.015_285)]">
+      <ChannelBreakdown account={account} channelData={channelData} />
+
+      <div className="col-span-12 flex flex-col gap-3 rounded-2xl border border-[oklch(100%_0_0_/_0.12)] bg-[oklch(100%_0_0_/_0.04)] p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-xs font-bold text-[oklch(78%_0.015_285)]">
           מציג {formatNumber(totalActivities)} פעילויות, מתוכן {formatNumber(profitableActivities)} עם החזר חיובי.
         </div>
         <div className="flex flex-wrap gap-2">
@@ -2044,8 +1587,6 @@ function Overview({
       </div>
 
       <RevenueCostChart account={account} items={filteredPerformanceItems} />
-      <ChannelBreakdown account={account} channelData={channelData} />
-      <AIInsightPanel account={account} bestSms={bestSms ?? bestItem} weakItem={lowestRoasItem} />
 
       {showDeepAnalysis && (
         <div className="col-span-12 grid gap-5 xl:grid-cols-2">
@@ -2147,102 +1688,36 @@ function ClientOverview({
   const channelData = ["אימייל", "SMS", "אוטומציות"].map((channel) => {
     const items = activities.filter((item) => item.channel === channel);
     const revenue = items.reduce((total, item) => total + item.revenue, 0);
+    const cost = items.reduce((total, item) => total + item.cost, 0);
+    const recipients = items.reduce((total, item) => total + item.recipients, 0);
+    const purchases = items.reduce((total, item) => total + item.purchases, 0);
 
     return {
       channel,
       revenue,
-      purchases: items.reduce((total, item) => total + item.purchases, 0),
+      cost,
+      profit: revenue - cost,
+      purchases,
       count: items.length,
+      recipients,
+      roas: cost > 0 ? revenue / cost : null,
+      revenuePerRecipient: recipients > 0 ? revenue / recipients : 0,
       share: summary.revenue > 0 ? revenue / summary.revenue : 0,
     };
   });
-  const topChannel = [...channelData].sort((a, b) => b.revenue - a.revenue)[0];
-  const topActivities = [...activities].sort((a, b) => b.revenue - a.revenue || b.purchases - a.purchases);
-  const bestCampaign = topActivities.find((item) => item.kind === "campaign");
-  const bestAutomation = topActivities.find((item) => item.kind === "automation");
   const recentActivities = [...activities]
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     .slice(0, 4);
-  const improvementFocus = [...activities]
-    .filter((item) => item.cost > 0 || item.clicks === 0 || item.revenue === 0)
-    .sort((a, b) => {
-      const roasA = a.cost > 0 ? a.revenue / a.cost : a.revenue > 0 ? 999_999 : 0;
-      const roasB = b.cost > 0 ? b.revenue / b.cost : b.revenue > 0 ? 999_999 : 0;
-      return roasA - roasB || a.clicks - b.clicks;
-    })[0];
 
   return (
-    <section className="space-y-4">
-      <section className="overflow-hidden rounded-2xl border border-[#dfe7ee] bg-white text-[#080123] shadow-[0_16px_45px_rgba(8,1,35,0.12)]">
-        <div className="grid gap-px bg-[#dfe7ee] md:grid-cols-4">
-          {[
-            { label: "הכנסות", value: formatCurrency(summary.revenue, account.currency), caption: "מיוחסות לדיוור" },
-            { label: "רווח", value: formatCurrency(summary.profit, account.currency), caption: "אחרי עלויות שליחה" },
-            { label: "ROAS", value: formatRoas(summary.roas), caption: "החזר השקעה" },
-            { label: "רכישות", value: formatNumber(summary.purchases), caption: `Conversion ${formatPercent(summary.conversionRate)}` },
-          ].map((item) => (
-            <div key={item.label} className="bg-white p-4">
-              <p className="text-xs font-bold text-[#65738a]">{item.label}</p>
-              <p className="mt-2 text-[clamp(28px,3vw,42px)] font-black leading-none">{item.value}</p>
-              <p className="mt-2 text-xs text-[#65738a]">{item.caption}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+    <section className="grid grid-cols-12 gap-3">
+      <div className="col-span-12">
+        <KPIGrid account={account} summary={summary} />
+      </div>
 
-      <section className="grid gap-4 xl:grid-cols-[1fr_0.9fr]">
-        <article className="rounded-2xl border border-[#dfe7ee] bg-white p-5 text-[#080123] shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
-          <h2 className="text-xl font-black">מה עבד הכי טוב</h2>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            {[
-              {
-                label: "ערוץ מוביל",
-                value: topChannel?.channel ?? "—",
-                meta: topChannel
-                  ? `${formatCurrency(topChannel.revenue, account.currency)} · ${formatPercent(topChannel.share)} מההכנסה`
-                  : "אין מספיק נתונים",
-              },
-              {
-                label: "קמפיין מוביל",
-                value: bestCampaign?.name ?? "—",
-                meta: bestCampaign
-                  ? `${formatCurrency(bestCampaign.revenue, account.currency)} · ${formatNumber(bestCampaign.purchases)} רכישות`
-                  : "אין קמפיין מוביל בטווח",
-              },
-              {
-                label: "אוטומציה מובילה",
-                value: bestAutomation?.name ?? "—",
-                meta: bestAutomation
-                  ? `${formatCurrency(bestAutomation.revenue, account.currency)} · ${formatNumber(bestAutomation.purchases)} רכישות`
-                  : "אין אוטומציה מובילה בטווח",
-              },
-            ].map((item) => (
-              <div key={item.label} className="min-w-0 rounded-xl bg-[#f7faf9] p-4">
-                <p className="text-xs font-bold text-[#65738a]">{item.label}</p>
-                <p className="mt-2 truncate text-lg font-black text-[#080123]">{item.value}</p>
-                <p className="mt-2 text-xs leading-5 text-[#65738a]">{item.meta}</p>
-              </div>
-            ))}
-          </div>
-        </article>
+      <ChannelBreakdown account={account} channelData={channelData} />
 
-        <article className="rounded-2xl border border-[#b8fff3] bg-[#edfffb] p-5 text-[#080123] shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
-          <h2 className="text-xl font-black">מה אנחנו משפרים עכשיו</h2>
-          <div className="mt-4 space-y-3 text-sm leading-6 text-[#40506a]">
-            <p>
-              ממשיכים לשכפל את מה שמייצר הכנסה, במיוחד את {topChannel?.channel ?? "הערוץ המוביל"}.
-            </p>
-            <p>
-              {improvementFocus
-                ? `בודקים את "${improvementFocus.name}" כדי לשפר החזר, קליקים או הכנסה.`
-                : "לא זוהתה כרגע נקודת חולשה חריגה בטווח הנבחר."}
-            </p>
-            <p>השלב הבא הוא להוציא יותר פעולות דומות למה שעבד, ופחות פעולות עם החזר נמוך.</p>
-          </div>
-        </article>
-      </section>
-
-      <article className="rounded-2xl border border-[#dfe7ee] bg-white p-5 text-[#080123] shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
+      <article className="col-span-12 rounded-2xl border border-[#dfe7ee] bg-white p-5 text-[#080123] shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-xl font-black">פעילויות אחרונות</h2>
           <span className="text-xs font-bold text-[#65738a]">עד 4 פריטים</span>
@@ -2320,38 +1795,9 @@ function ClientSmsDashboard({
     }),
   ].map((item) => ({ ...item, roas: item.cost > 0 ? item.revenue / item.cost : null }));
   const winners = [...rows].sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0) || b.revenue - a.revenue).slice(0, 3);
-  const topRevenueSms = [...rows].sort((a, b) => b.revenue - a.revenue || b.purchases - a.purchases)[0];
-  const focus = [...rows].filter((item) => item.cost > 0).sort((a, b) => (a.roas ?? 0) - (b.roas ?? 0))[0];
 
   return (
     <section className="space-y-4">
-      <DecisionPanel
-        title="שורה תחתונה ל-SMS"
-        items={[
-          {
-            label: "מה מצב ההחזר",
-            value: formatRoas(summary.roas),
-            detail: `${formatCurrency(summary.revenue, account.currency)} הכנסה מול ${formatCurrency(summary.smsCost, account.currency)} עלות שליחה.`,
-            tone: summary.roas && summary.roas >= 5 ? "good" : "neutral",
-          },
-          {
-            label: "מה לשכפל",
-            value: topRevenueSms?.name ?? "—",
-            detail: topRevenueSms
-              ? `${topRevenueSms.type}, ${formatCurrency(topRevenueSms.revenue, account.currency)} הכנסה ו-${formatNumber(topRevenueSms.purchases)} רכישות.`
-              : "אין מספיק שליחות SMS בטווח.",
-            tone: "good",
-          },
-          {
-            label: "מה לבדוק",
-            value: focus?.name ?? "אין חריגה",
-            detail: focus
-              ? `${formatCurrency(focus.cost, account.currency)} עלות, ${formatRoas(focus.roas)} החזר.`
-              : "לא זוהה SMS עם עלות שדורשת בדיקה.",
-            tone: focus && (focus.roas ?? 0) < 2 ? "warn" : "neutral",
-          },
-        ]}
-      />
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard title="הכנסות SMS" value={formatCurrency(summary.revenue, account.currency)} caption={`${formatNumber(summary.purchases)} רכישות`} icon={TrendingUp} tone="good" />
         <MetricCard title="ROAS SMS" value={formatRoas(summary.roas)} caption="קמפיינים ואוטומציות" icon={LineChart} tone="good" />
@@ -2368,9 +1814,7 @@ function ClientSmsDashboard({
         />
         <article className="rounded-xl border border-[#b8fff3] bg-[#edfffb] p-4 text-[#080123]">
           <h2 className="text-lg font-black">מה אנחנו עושים עכשיו</h2>
-          <p className="mt-3 text-sm leading-6 text-[#40506a]">
-            ממשיכים לשכפל הודעות עם החזר גבוה, ובודקים את {focus ? `"${focus.name}"` : "השליחות החלשות"} כדי לשפר הקלקות ורכישות.
-          </p>
+          <p className="mt-3 text-sm leading-6 text-[#40506a]">טבלת הביצועים מציגה הכנסה, עלות, ROAS ורכישות לכל פעילות SMS.</p>
         </article>
       </section>
     </section>
@@ -2401,38 +1845,9 @@ function ClientAutomationDashboard({
   const revenue = enriched.reduce((total, item) => total + item.revenueGenerated, 0);
   const purchases = enriched.reduce((total, item) => total + item.purchases, 0);
   const top = [...enriched].sort((a, b) => b.revenueGenerated - a.revenueGenerated || b.purchases - a.purchases).slice(0, 3);
-  const best = top[0];
-  const focus = [...enriched].sort((a, b) => a.clickRate - b.clickRate || a.revenueGenerated - b.revenueGenerated)[0];
 
   return (
     <section className="space-y-4">
-      <DecisionPanel
-        title="שורה תחתונה לאוטומציות"
-        items={[
-          {
-            label: "תרומה להכנסה",
-            value: formatCurrency(revenue, account.currency),
-            detail: `${formatNumber(purchases)} רכישות מתוך ${formatNumber(automations.length)} אוטומציות בטווח.`,
-            tone: "good",
-          },
-          {
-            label: "מה לשכפל",
-            value: best?.automationName ?? "—",
-            detail: best
-              ? `${automationFilterLabels[best.type]} · ${formatCurrency(best.revenueGenerated, account.currency)} הכנסה.`
-              : "אין אוטומציה מובילה בטווח.",
-            tone: "good",
-          },
-          {
-            label: "מה לבדוק",
-            value: focus?.automationName ?? "אין חריגה",
-            detail: focus
-              ? `${formatPercent(focus.clickRate)} הקלקה · ${formatCurrency(focus.revenueGenerated, account.currency)} הכנסה.`
-              : "אין מספיק נתונים לבדיקה.",
-            tone: focus && focus.clickRate < 0.005 ? "warn" : "neutral",
-          },
-        ]}
-      />
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard title="הכנסות אוטומציות" value={formatCurrency(revenue, account.currency)} caption={`${formatNumber(automations.length)} אוטומציות`} icon={RefreshCw} tone="good" />
         <MetricCard title="רכישות" value={formatNumber(purchases)} caption="מאוטומציות בטווח" icon={CheckCircle2} tone="good" />
@@ -2447,12 +1862,6 @@ function ClientAutomationDashboard({
             meta: `${automationFilterLabels[item.type]} · ${formatNumber(item.purchases)} רכישות · ${formatPercent(item.clickRate)} הקלקה`,
           }))}
         />
-        <article className="rounded-xl border border-[#b8fff3] bg-[#edfffb] p-4 text-[#080123]">
-          <h2 className="text-lg font-black">מה אנחנו משפרים עכשיו</h2>
-          <p className="mt-3 text-sm leading-6 text-[#40506a]">
-            מחזקים את האוטומציות שמייצרות הכנסה ובודקים את {focus ? `"${focus.automationName}"` : "האוטומציות עם המעורבות הנמוכה"} כדי לשפר מעורבות ורכישות.
-          </p>
-        </article>
       </section>
     </section>
   );
@@ -2497,8 +1906,6 @@ function ClientCampaignDashboard({
   const purchases = allCampaigns.reduce((total, item) => total + item.purchases, 0);
   const dayNames = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
   const bestCampaigns = [...allCampaigns].sort((a, b) => b.revenue - a.revenue || b.purchases - a.purchases).slice(0, 3);
-  const bestSubject = [...emails]
-    .sort((a, b) => b.revenueGenerated - a.revenueGenerated || b.totalClicks - a.totalClicks)[0];
   const bestDay = allCampaigns.reduce<Record<string, { revenue: number; count: number }>>((acc, item) => {
     const label = dayNames[new Date(item.sentAt).getDay()];
     acc[label] = acc[label] ?? { revenue: 0, count: 0 };
@@ -2510,41 +1917,12 @@ function ClientCampaignDashboard({
 
   return (
     <section className="space-y-4">
-      <DecisionPanel
-        title="שורה תחתונה לקמפיינים"
-        items={[
-          {
-            label: "מה עבד",
-            value: bestCampaigns[0]?.name ?? "—",
-            detail: bestCampaigns[0]
-              ? `${bestCampaigns[0].channel}, ${formatCurrency(bestCampaigns[0].revenue, account.currency)} הכנסה ו-${formatNumber(bestCampaigns[0].purchases)} רכישות.`
-              : "אין מספיק קמפיינים בטווח.",
-            tone: "good",
-          },
-          {
-            label: "יום חזק",
-            value: bestDayEntry?.[0] ?? "—",
-            detail: bestDayEntry
-              ? `${formatCurrency(bestDayEntry[1].revenue, account.currency)} הכנסה מ-${formatNumber(bestDayEntry[1].count)} קמפיינים.`
-              : "אין מספיק נתונים לפי ימים.",
-            tone: "good",
-          },
-          {
-            label: "מה לקחת לקמפיין הבא",
-            value: bestSubject?.subjectLine || "מסר שעבד",
-            detail: bestSubject
-              ? `${formatPercent(bestSubject.totalDelivered > 0 ? bestSubject.totalOpens / bestSubject.totalDelivered : 0)} פתיחה · ${formatPercent(bestSubject.totalDelivered > 0 ? bestSubject.uniqueClicks / bestSubject.totalDelivered : 0)} הקלקה.`
-              : "נזהה שורת נושא חזקה כשיהיו נתוני אימייל.",
-            tone: "neutral",
-          },
-        ]}
-      />
       <div className="grid gap-3 md:grid-cols-3">
         <MetricCard title="הכנסות קמפיינים" value={formatCurrency(revenue, account.currency)} caption={`${formatNumber(allCampaigns.length)} קמפיינים`} icon={Send} tone="good" />
         <MetricCard title="רכישות" value={formatNumber(purchases)} caption="אימייל ו-SMS" icon={CheckCircle2} tone="good" />
         <MetricCard title="יום חזק" value={bestDayEntry?.[0] ?? "—"} caption={bestDayEntry ? formatCurrency(bestDayEntry[1].revenue, account.currency) : "אין מספיק נתונים"} icon={CalendarDays} />
       </div>
-      <section className="grid gap-4 xl:grid-cols-[1fr_0.8fr]">
+      <section>
         <RankedInsightList
           title="קמפיינים מובילים"
           items={bestCampaigns.map((item) => ({
@@ -2553,14 +1931,6 @@ function ClientCampaignDashboard({
             meta: `${item.channel} · ${formatNumber(item.purchases)} רכישות · ${formatPercent(item.clickRate)} הקלקה`,
           }))}
         />
-        <article className="rounded-xl border border-[#b8fff3] bg-[#edfffb] p-4 text-[#080123]">
-          <h2 className="text-lg font-black">מה למדנו</h2>
-          <p className="mt-3 text-sm leading-6 text-[#40506a]">
-            {bestSubject
-              ? `שורת הנושא החזקה: "${bestSubject.subjectLine}". נשתמש בדפוס הזה בקמפיינים הבאים.`
-              : "נמשיך לזהות ימים, שעות ומסרים שמייצרים יותר רכישות."}
-          </p>
-        </article>
       </section>
     </section>
   );
@@ -2613,12 +1983,6 @@ function SmsDashboard({
     .sort((a, b) => (a.roas ?? 0) - (b.roas ?? 0) || b.cost - a.cost);
   const visibleSmsWinners = smsWinners.slice(0, showAllSmsWinners ? smsWinners.length : 4);
   const visibleSmsRisks = smsNeedsAttention.slice(0, showAllSmsRisks ? smsNeedsAttention.length : 4);
-  const bestSms = [...rows]
-    .filter((row) => row.cost > 0)
-    .sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0))[0];
-  const expensiveSms = [...rows]
-    .filter((row) => row.cost > 0)
-    .sort((a, b) => b.cost - a.cost)[0];
   const maxSmsRevenue = Math.max(1, ...visibleSmsWinners.map((row) => row.revenue));
 
   return (
@@ -2647,33 +2011,6 @@ function SmsDashboard({
           tone="good"
         />
       </div>
-      <DecisionPanel
-        title="החלטות SMS"
-        items={[
-          {
-            label: "להמשיך",
-            value: bestSms?.name ?? "אין מועמד ברור",
-            tone: "good",
-            detail: bestSms
-              ? `ROAS ${formatRoas(bestSms.roas)}, הכנסה ${formatCurrency(bestSms.revenue, account.currency)} על ${formatNumber(bestSms.recipients)} נמענים.`
-              : "אין כרגע SMS עם עלות והחזר ברור.",
-          },
-          {
-            label: "לבדוק",
-            value: expensiveSms?.name ?? "אין עלות חריגה",
-            tone: expensiveSms ? "warn" : "neutral",
-            detail: expensiveSms
-              ? `עלות ${formatCurrency(expensiveSms.cost, account.currency)}. לשכפל רק אם ROAS ${formatRoas(expensiveSms.roas)} עומד ביעד.`
-              : "אין קמפיין/אוטומציה עם עלות שמצריכה בדיקה.",
-          },
-          {
-            label: "תמונת מצב",
-            value: `${formatNumber(summary.recipients)} נמענים`,
-            detail: `${formatCurrency(summary.smsCost, account.currency)} עלות מול ${formatCurrency(summary.revenue, account.currency)} הכנסה.`,
-          },
-        ]}
-      />
-
       <section className="grid gap-5 xl:grid-cols-2">
         <article className="overflow-hidden rounded-2xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
           <div className="border-b border-[#eef3f7] p-4">
@@ -2876,12 +2213,6 @@ function AutomationDashboard({
       item.revenueGenerated === 0 &&
       item.totalClicks === 0,
   ).length;
-  const highPotentialAutomation = [...filteredAutomations]
-    .filter((item) => item.revenueGenerated > 0)
-    .sort((a, b) => b.revenueGenerated - a.revenueGenerated)[0];
-  const weakPaidAutomation = [...filteredAutomations]
-    .filter((item) => item.smsCost > 0)
-    .sort((a, b) => (a.roas ?? 0) - (b.roas ?? 0))[0];
   const topAutomations = [...filteredAutomations]
     .sort((a, b) => b.revenueGenerated - a.revenueGenerated || b.purchases - a.purchases || b.clickRate - a.clickRate);
   const attentionAutomations = [...filteredAutomations]
@@ -3111,33 +2442,6 @@ function AutomationDashboard({
         </article>
       </section>
 
-      <DecisionPanel
-        title="המלצת עבודה"
-        items={[
-          {
-            label: "לשמר",
-            value: highPotentialAutomation?.automationName ?? "אין מובילה ברורה",
-            tone: "good",
-            detail: highPotentialAutomation
-              ? `${formatCurrency(highPotentialAutomation.revenueGenerated, account.currency)} הכנסה ו-${formatNumber(highPotentialAutomation.purchases)} רכישות.`
-              : "כשיצטברו הכנסות מאוטומציות, נציג כאן את החזקה ביותר.",
-          },
-          {
-            label: "לתקן",
-            value: weakPaidAutomation?.automationName ?? "אין SMS חלש ברור",
-            tone: weakPaidAutomation ? "warn" : "neutral",
-            detail: weakPaidAutomation
-              ? `עלות SMS ${formatCurrency(weakPaidAutomation.smsCost, account.currency)}, ROAS ${formatRoas(weakPaidAutomation.roas)}.`
-              : "אין אוטומציה עם עלות SMS שדורשת עצירה מיידית.",
-          },
-          {
-            label: "לבדוק",
-            value: `${formatNumber(attentionAutomations.length)} אוטומציות`,
-            detail: "נבדקות לפי הכנסה, קליקים, עלות SMS וכשלי שליחה.",
-          },
-        ]}
-      />
-
       {showDeepAnalysis && (
       <>
       <DataTable
@@ -3256,8 +2560,6 @@ function CampaignDashboard({
       };
     }),
   ];
-  const campaignToRepeat = [...allCampaignsForDecision]
-    .sort((a, b) => b.revenue - a.revenue || b.purchases - a.purchases)[0];
   const dayNames = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
   const aggregateBy = (keyGetter: (item: (typeof allCampaignsForDecision)[number]) => string) => {
     const groups = new Map<
@@ -3334,43 +2636,6 @@ function CampaignDashboard({
           tone="good"
         />
       </div>
-
-      <DecisionPanel
-        title="מה חשוב בקמפיינים"
-        items={[
-          {
-            label: "יום חזק",
-            value: bestDays[0]?.label ?? "אין מספיק נתונים",
-            tone: "good",
-            detail: bestDays[0]
-              ? `${formatCurrency(bestDays[0].revenue, account.currency)} הכנסה מ-${formatNumber(bestDays[0].count)} קמפיינים.`
-              : "נזהה את היום החזק ביותר לפי הכנסות ורכישות.",
-          },
-          {
-            label: "שעה טובה",
-            value: bestHours[0]?.label ?? "אין מספיק נתונים",
-            detail: bestHours[0]
-              ? `${formatCurrency(bestHours[0].revenue, account.currency)} הכנסה ו-${formatNumber(bestHours[0].purchases)} רכישות.`
-              : "נזהה שעות שליחה שחוזרות כבעלות ביצועים טובים.",
-          },
-          {
-            label: "שורת נושא",
-            value: subjectWinners[0]?.subject ?? "אין שורות נושא",
-            tone: "good",
-            detail: subjectWinners[0]
-              ? `${formatNumber(subjectWinners[0].clicks)} קליקים, ${formatCurrency(subjectWinners[0].revenue, account.currency)} הכנסה.`
-              : "כשיהיו קמפייני אימייל, נציג כאן את שורת הנושא החזקה.",
-          },
-          {
-            label: "לשכפל",
-            value: campaignToRepeat?.name ?? "אין קמפיין מוביל",
-            tone: "good",
-            detail: campaignToRepeat
-              ? `${campaignToRepeat.channel}, ${formatCurrency(campaignToRepeat.revenue, account.currency)} הכנסה ו-${formatNumber(campaignToRepeat.purchases)} רכישות.`
-              : "כשיהיה קמפיין עם הכנסה, נציג כאן מה לשכפל.",
-          },
-        ]}
-      />
 
       <section className="grid gap-3 xl:grid-cols-3">
         <RankedInsightList
@@ -6014,12 +5279,12 @@ export function DashboardApp() {
   const [customEndDate, setCustomEndDate] = useState("");
   const [showDeepAnalysis, setShowDeepAnalysis] = useState(false);
   const [clientView, setClientView] = useState(false);
+  const [viewerRole, setViewerRole] = useState<"admin" | "client">("admin");
   const [dataSource, setDataSource] = useState<"demo" | "neon" | "loading">("loading");
   const [dataNotice, setDataNotice] = useState("טוען נתונים מ-Neon...");
   const [authRequired, setAuthRequired] = useState(false);
   const [liveDataIssue, setLiveDataIssue] = useState("");
   const [refreshState, setRefreshState] = useState("");
-  const [nowMs] = useState(() => Date.now());
   const selectedClient =
     localClients.find((client) => client.id === selectedClientId) ?? localClients[0];
   const account =
@@ -6051,22 +5316,16 @@ export function DashboardApp() {
   const accountPlans = localNewsletterPlans.filter((plan) => plan.clientId === selectedClient.id);
   const summary = summarizeAccount(account, accountEmails, accountSms, accountAutomations);
   const activeRangeBounds = getTimeRangeBounds(timeRange, customStartDate, customEndDate);
-  const agencyActions = buildAgencyActions({
-    clients: localClients,
-    accounts: localAccounts,
-    emails: localEmailReports,
-    sms: localSmsReports,
-    automations: localAutomationReports,
-    plans: localNewsletterPlans,
-    nowMs,
-  });
+  const viewerIsAdmin = viewerRole === "admin";
+  const effectiveClientView = !viewerIsAdmin || clientView;
 
   const visibleViews = views.filter((item) => {
-    if (clientView && (item.key === "admin" || item.key === "settings")) return false;
+    if (effectiveClientView && (item.key === "admin" || item.key === "settings")) return false;
     return !item.module || selectedClient.visibleModules.includes(item.module) || item.key === "admin";
   });
-  const effectiveShowDeepAnalysis = clientView ? false : showDeepAnalysis;
-  const showTimeRange = costViewKeys.includes(view);
+  const effectiveShowDeepAnalysis = effectiveClientView ? false : showDeepAnalysis;
+  const activeView = effectiveClientView && (view === "settings" || view === "admin") ? "overview" : view;
+  const showTimeRange = costViewKeys.includes(activeView);
 
   useEffect(() => {
     let cancelled = false;
@@ -6096,6 +5355,7 @@ export function DashboardApp() {
         }
 
         const data = payload.data as DashboardDataPayload;
+        const incomingRole = data.viewer?.role ?? "admin";
         if (!data.clients.length || !data.accounts.length) {
           setDataSource("loading");
           setLiveDataIssue(
@@ -6104,6 +5364,12 @@ export function DashboardApp() {
           return;
         }
 
+        setViewerRole(incomingRole);
+        if (incomingRole === "client") {
+          setClientView(true);
+          setShowDeepAnalysis(false);
+          setView((current) => (current === "settings" || current === "admin" ? "overview" : current));
+        }
         setLocalClients(data.clients);
         setLocalAccounts(data.accounts);
         setLocalEmailReports(data.emailReports);
@@ -6156,6 +5422,13 @@ export function DashboardApp() {
       if (!response.ok || !payload.success) throw new Error(payload.message || "טעינת הנתונים נכשלה");
 
       const data = payload.data as DashboardDataPayload;
+      const incomingRole = data.viewer?.role ?? "admin";
+      setViewerRole(incomingRole);
+      if (incomingRole === "client") {
+        setClientView(true);
+        setShowDeepAnalysis(false);
+        setView((current) => (current === "settings" || current === "admin" ? "overview" : current));
+      }
       setLocalClients(data.clients);
       setLocalAccounts(data.accounts);
       setLocalEmailReports(data.emailReports);
@@ -6255,14 +5528,6 @@ export function DashboardApp() {
     setView("overview");
   };
 
-  function openAgencyTarget(clientId: string, targetView: ViewKey, revealDeepAnalysis = false) {
-    setSelectedClientId(clientId);
-    setView(targetView);
-    if (revealDeepAnalysis && costViewKeys.includes(targetView)) {
-      setShowDeepAnalysis(true);
-    }
-  }
-
   async function logout() {
     await fetch("/api/auth/admin-code", { method: "DELETE" });
     window.location.href = "/";
@@ -6279,18 +5544,21 @@ export function DashboardApp() {
   return (
     <div
       dir="rtl"
-      className="min-h-screen bg-[oklch(12%_0.055_285)] text-[oklch(98%_0_0)] lg:grid lg:grid-cols-[220px_minmax(0,1fr)]"
+      className={classNames(
+        "min-h-screen bg-[oklch(12%_0.055_285)] text-[oklch(98%_0_0)] lg:grid",
+        effectiveClientView ? "lg:grid-cols-[176px_minmax(0,1fr)]" : "lg:grid-cols-[220px_minmax(0,1fr)]",
+      )}
     >
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_0_0,oklch(82%_0.135_185_/_0.12),transparent_28rem)]" />
       <Sidebar
         clients={localClients}
         selectedClientId={selectedClientId}
         visibleViews={visibleViews}
-        view={view}
+        view={activeView}
         account={account}
         dataSource={dataSource}
         dataNotice={dataNotice}
-        clientView={clientView}
+        clientView={effectiveClientView}
         onSelectClient={selectClient}
         onSelectView={setView}
       />
@@ -6304,7 +5572,7 @@ export function DashboardApp() {
               onClick={() => setView(item.key)}
               className={classNames(
                 "h-9 shrink-0 rounded-lg px-3 text-sm",
-                view === item.key
+                activeView === item.key
                   ? "bg-[oklch(82%_0.135_185)] font-bold text-[oklch(15%_0.025_285)]"
                   : "bg-[oklch(100%_0_0_/_0.08)] text-[oklch(78%_0.015_285)]",
               )}
@@ -6316,59 +5584,66 @@ export function DashboardApp() {
       </div>
 
       <main className="relative min-w-0 p-3 md:p-5">
-        <ClientSelector
-          clients={localClients}
-          selectedClientId={selectedClientId}
-          onChange={selectClient}
-          mobile
-        />
+        {!effectiveClientView && (
+          <ClientSelector
+            clients={localClients}
+            selectedClientId={selectedClientId}
+            onChange={selectClient}
+            mobile
+          />
+        )}
         <header className="mb-4 flex flex-col items-start justify-between gap-3 lg:flex-row">
           <div>
-            <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-[oklch(78%_0.015_285)]">
-              <span>Flashy Account #{account.flashyAccountId}</span>
-              <span className="rounded-md bg-[oklch(82%_0.135_185)] px-2 py-1 font-bold text-[oklch(15%_0.025_285)]">פעיל</span>
-              <span>סנכרון אחרון: {new Date(account.lastSyncAt).toLocaleString("he-IL")}</span>
-            </div>
+            {!effectiveClientView && (
+              <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-[oklch(78%_0.015_285)]">
+                <span>Flashy Account #{account.flashyAccountId}</span>
+                <span className="rounded-md bg-[oklch(82%_0.135_185)] px-2 py-1 font-bold text-[oklch(15%_0.025_285)]">פעיל</span>
+                <span>סנכרון אחרון: {new Date(account.lastSyncAt).toLocaleString("he-IL")}</span>
+              </div>
+            )}
             <h1 className="m-0 text-[clamp(28px,3.5vw,48px)] font-bold leading-none tracking-normal text-white">
               {account.name}
             </h1>
+            {effectiveClientView && (
+              <p className="mt-2 text-sm text-[oklch(78%_0.015_285)]">דוח ביצועים נקי ללקוח · {timeRanges.find((range) => range.key === timeRange)?.label}</p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
+            {viewerIsAdmin && <button
               onClick={() => {
                 setClientView((current) => !current);
                 setShowDeepAnalysis(false);
-                if (!clientView && (view === "settings" || view === "admin")) setView("overview");
+                if (!effectiveClientView && (activeView === "settings" || activeView === "admin")) setView("overview");
               }}
               className={classNames(
                 "min-h-10 rounded-lg px-4 text-sm font-bold",
-                clientView
+                effectiveClientView
                   ? "bg-[oklch(82%_0.135_185)] text-[oklch(15%_0.025_285)]"
                   : "border border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.08)] text-white",
               )}
             >
-              {clientView ? "תצוגת לקוח" : "תצוגת סוכנות"}
-            </button>
-            {!clientView && <button
+              {effectiveClientView ? "תצוגת לקוח" : "תצוגת סוכנות"}
+            </button>}
+            {!effectiveClientView && <button
               onClick={refreshDashboardData}
               className="min-h-10 rounded-lg border border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.08)] px-4 text-sm text-white"
             >
               <RefreshCw className="ml-2 inline" size={16} />
               רענון
             </button>}
-            {!clientView && <button
+            {!effectiveClientView && <button
               onClick={() => setView("ai")}
               className="min-h-10 rounded-lg bg-[oklch(82%_0.135_185)] px-4 text-sm font-bold text-[oklch(15%_0.025_285)]"
             >
               <Sparkles className="ml-2 inline" size={16} />
               צור המלצה
             </button>}
-            {!clientView && <button
+            <button
               onClick={logout}
               className="min-h-10 rounded-lg border border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.08)] px-4 text-sm text-white"
             >
               יציאה
-            </button>}
+            </button>
           </div>
           {refreshState && <p className="text-sm text-[oklch(78%_0.015_285)]">{refreshState}</p>}
         </header>
@@ -6394,7 +5669,7 @@ export function DashboardApp() {
                     ))}
                 </div>
                 <div className="flex items-center gap-2">
-                  {!clientView && costViewKeys.includes(view) && (
+                  {!effectiveClientView && costViewKeys.includes(activeView) && (
                     <button
                       onClick={() => setShowDeepAnalysis((current) => !current)}
                       className={classNames(
@@ -6433,26 +5708,8 @@ export function DashboardApp() {
               </div>
             </section>
           )}
-          {!clientView && view === "overview" && (
-            <div className="mb-4 grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-              <AgencyCommandCenter
-                clients={localClients}
-                accounts={localAccounts}
-                nowMs={nowMs}
-                selectedAccountId={account.id}
-                onRefresh={refreshDashboardData}
-                onOpenSettings={() => setView("settings")}
-                onOpenClient={(clientId) => openAgencyTarget(clientId, "overview")}
-                onOpenReconcile={(clientId) => openAgencyTarget(clientId, "overview", true)}
-              />
-              <AgencyActionList
-                actions={agencyActions}
-                onActionClick={(action) => openAgencyTarget(action.clientId, action.targetView)}
-              />
-            </div>
-          )}
-          {view === "overview" && (
-            clientView ? (
+          {activeView === "overview" && (
+            effectiveClientView ? (
               <ClientOverview
                 account={account}
                 summary={summary}
@@ -6473,8 +5730,8 @@ export function DashboardApp() {
               />
             )
           )}
-          {view === "sms" && (
-            clientView ? (
+          {activeView === "sms" && (
+            effectiveClientView ? (
               <ClientSmsDashboard
                 account={account}
                 sms={accountSms}
@@ -6489,8 +5746,8 @@ export function DashboardApp() {
               />
             )
           )}
-          {view === "automations" && (
-            clientView ? (
+          {activeView === "automations" && (
+            effectiveClientView ? (
               <ClientAutomationDashboard
                 account={account}
                 automations={accountAutomations}
@@ -6503,8 +5760,8 @@ export function DashboardApp() {
               />
             )
           )}
-          {view === "campaigns" && (
-            clientView ? (
+          {activeView === "campaigns" && (
+            effectiveClientView ? (
               <ClientCampaignDashboard
                 account={account}
                 emails={accountEmails}
@@ -6519,7 +5776,7 @@ export function DashboardApp() {
               />
             )
           )}
-          {view === "planner" && (
+          {activeView === "planner" && (
             <Planner
               client={selectedClient}
               account={account}
@@ -6529,8 +5786,8 @@ export function DashboardApp() {
               onUpsertPlan={upsertNewsletterPlan}
             />
           )}
-          {view === "ai" && (
-            clientView ? (
+          {activeView === "ai" && (
+            effectiveClientView ? (
               <ClientAiSummary
                 account={account}
                 summary={summary}
@@ -6551,7 +5808,7 @@ export function DashboardApp() {
               />
             )
           )}
-          {view === "settings" && (
+          {activeView === "settings" && !effectiveClientView && (
             <AccountSettings
               key={account.id}
               client={selectedClient}
@@ -6559,7 +5816,7 @@ export function DashboardApp() {
               onUpdateAccount={updateAccountSettings}
             />
           )}
-          {view === "admin" && (
+          {activeView === "admin" && !effectiveClientView && (
             <AdminPanel
               clientName={selectedClient.name}
               clients={localClients}
@@ -6568,10 +5825,10 @@ export function DashboardApp() {
           )}
         </div>
       </main>
-      {!clientView && (
+      {!effectiveClientView && (
         <FloatingAiChat
           clientId={selectedClient.id}
-          view={view}
+          view={activeView}
           account={account}
           summary={summary}
           emails={accountEmails}

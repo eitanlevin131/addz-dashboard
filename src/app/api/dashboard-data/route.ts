@@ -72,6 +72,10 @@ export async function GET() {
   return NextResponse.json({
     success: true,
     data: {
+      viewer: {
+        email: accessContext.access.email,
+        role: isAdminRole(accessContext.access.role) ? "admin" : "client",
+      },
       clients: visibleClientRows.map(
         (client): Client => ({
           id: client.id,
