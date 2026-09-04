@@ -79,7 +79,6 @@ type ViewKey =
   | "admin";
 type TimeRangeKey = "7d" | "14d" | "30d" | "custom" | "all";
 type AutomationFilterKey = "all" | "email" | "sms" | "mixed";
-type OverviewChannelFilter = "all" | "email" | "sms" | "automation";
 type ActivityKindFilter = "all" | "campaign" | "automation";
 type ActivityMediumFilter = "all" | "email" | "sms";
 type HolidayRegion = "IL" | "US";
@@ -97,9 +96,16 @@ function LoginGate({ message }: { message: string }) {
     if (typeof window === "undefined") return "";
     const params = new URLSearchParams(window.location.search);
     const error = params.get("error");
-    return error
-      ? `Auth.js החזיר שגיאה: ${error}. אם זה קרה אחרי לחיצה על Magic Link, נסה לשלוח קישור חדש או להיכנס עם קוד כניסה.`
-      : "";
+    if (!error) return "";
+
+    const messages: Record<string, string> = {
+      EmailCreateAccount: "לא הצלחנו להשלים את פתיחת המשתמש. בקש קישור כניסה חדש ונסה שוב.",
+      Verification: "קישור הכניסה פג או שכבר נעשה בו שימוש. בקש קישור חדש.",
+      Callback: "לא הצלחנו להשלים את הכניסה. בקש קישור חדש ונסה שוב.",
+      AccessDenied: "האימייל אינו מורשה להיכנס לחשבון הזה.",
+    };
+
+    return messages[error] ?? "הכניסה לא הושלמה. בקש קישור חדש ונסה שוב.";
   });
 
   async function runEmailDiagnostics(identifier: string) {
@@ -167,18 +173,18 @@ function LoginGate({ message }: { message: string }) {
       dir="rtl"
       className="flex min-h-screen items-center justify-center bg-[oklch(9%_0.05_285)] px-4 text-white"
     >
-      <section className="w-full max-w-md rounded-3xl border border-white/15 bg-white p-6 text-[#080123] shadow-[0_30px_90px_rgba(0,0,0,0.35)]">
+      <section className="w-full max-w-md rounded-xl border border-[#e4e7ec] bg-white p-7 text-[#111318] shadow-[0_20px_60px_rgba(0,0,0,0.22)]">
         <div className="mb-6 flex items-center justify-between gap-4">
           <div>
             <p className="text-sm font-bold text-[#65738a]">Flashy Growth Desk</p>
             <h1 className="mt-1 text-3xl font-black tracking-normal">כניסה לדאשבורד</h1>
           </div>
-          <div className="grid size-12 place-items-center rounded-2xl bg-[#35dacd] text-lg font-black">
+          <div className="grid size-11 place-items-center rounded-lg bg-[#42dfcf] text-base font-black">
             FG
           </div>
         </div>
 
-        <p className="mb-5 rounded-2xl border border-[#dfe7ee] bg-[#f7fafc] p-4 text-sm leading-6 text-[#4a5870]">
+        <p className="mb-5 border-r-2 border-[#42dfcf] bg-[#f8fafb] px-4 py-3 text-sm leading-6 text-[#475467]">
           {message || "לקוחות נכנסים עם Magic Link למייל. צוות הסוכנות יכול להיכנס גם עם קוד אדמין."}
         </p>
 
@@ -190,7 +196,7 @@ function LoginGate({ message }: { message: string }) {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               placeholder="you@addz.digital"
-              className="mt-2 h-12 w-full rounded-xl border border-[#dfe7ee] px-4 text-left text-base outline-none transition focus:border-[#35dacd]"
+              className="mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] px-3.5 text-left text-base outline-none transition focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20"
               dir="ltr"
             />
           </label>
@@ -201,13 +207,13 @@ function LoginGate({ message }: { message: string }) {
               value={accessCode}
               onChange={(event) => setAccessCode(event.target.value)}
               placeholder="ריק = שליחת Magic Link"
-              className="mt-2 h-12 w-full rounded-xl border border-[#dfe7ee] px-4 text-left text-base outline-none transition focus:border-[#35dacd]"
+              className="mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] px-3.5 text-left text-base outline-none transition focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20"
               dir="ltr"
             />
           </label>
           <button
             type="submit"
-            className="h-12 w-full rounded-xl bg-[#080123] text-base font-black text-white transition hover:bg-[#15102c]"
+            className="h-11 w-full rounded-lg bg-[#0b0c10] text-sm font-bold text-white transition hover:bg-[#24262d]"
           >
             {accessCode.trim() ? "כניסה עם קוד" : "שלח קישור כניסה"}
           </button>
@@ -225,7 +231,7 @@ function LiveDataIssue({ message }: { message: string }) {
       dir="rtl"
       className="flex min-h-screen items-center justify-center bg-[oklch(9%_0.05_285)] px-4 text-white"
     >
-      <section className="w-full max-w-lg rounded-3xl border border-white/15 bg-white p-6 text-[#080123] shadow-[0_30px_90px_rgba(0,0,0,0.35)]">
+      <section className="w-full max-w-lg rounded-xl border border-[#e4e7ec] bg-white p-7 text-[#111318] shadow-[0_20px_60px_rgba(0,0,0,0.22)]">
         <p className="text-sm font-bold text-[#65738a]">Flashy Growth Desk</p>
         <h1 className="mt-1 text-3xl font-black tracking-normal">הנתונים החיים לא נטענו</h1>
         <p className="mt-4 rounded-2xl border border-[#dfe7ee] bg-[#f7fafc] p-4 text-sm leading-6 text-[#4a5870]">
@@ -280,13 +286,6 @@ const automationFilterLabels: Record<AutomationFilterKey, string> = {
   mixed: "מעורב",
   sms: "SMS",
   email: "אימייל",
-};
-
-const overviewChannelLabels: Record<OverviewChannelFilter, string> = {
-  all: "הכל",
-  email: "Email",
-  sms: "SMS",
-  automation: "אוטומציות",
 };
 
 const costViewKeys: ViewKey[] = ["overview", "sms", "automations", "campaigns"];
@@ -567,26 +566,24 @@ function MetricCard({
   tone?: "neutral" | "good" | "warn";
 }) {
   return (
-    <article className="min-w-0 rounded-xl border border-[oklch(89%_0.008_285)] bg-white p-4 text-[oklch(15%_0.025_285)]">
+    <article className="min-w-0 rounded-xl border border-[#e4e7ec] bg-white p-3 text-[#111318] sm:p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[13px] text-[oklch(48%_0.018_285)]">{title}</p>
-          <p className="mt-2 text-[clamp(26px,2.7vw,36px)] font-bold leading-none tabular-nums">{value}</p>
+          <p className="text-xs font-medium text-[#667085]">{title}</p>
+          <p className="mt-2 text-2xl font-bold leading-none tabular-nums tracking-normal sm:text-3xl">{value}</p>
         </div>
         <div
           className={classNames(
-            "grid size-9 place-items-center rounded-lg border",
-            tone === "good" && "border-[#b8fff3] bg-[#e8fbf8] text-[#008f82]",
-            tone === "warn" && "border-[#fde68a] bg-[#fff4db] text-[#b45309]",
-            tone === "neutral" && "border-[#dfe7ee] bg-[#eef3f7] text-[#263548]",
+            "hidden size-8 place-items-center rounded-md sm:grid",
+            tone === "good" && "bg-[#ecfdf9] text-[#087f72]",
+            tone === "warn" && "bg-[#fff7ed] text-[#b45309]",
+            tone === "neutral" && "bg-[#f2f4f7] text-[#475467]",
           )}
         >
-          <Icon size={18} />
+          <Icon size={16} strokeWidth={1.8} />
         </div>
       </div>
-      <p className="mt-3 inline-flex rounded-full bg-[oklch(66%_0.16_150_/_0.13)] px-2 py-1 text-[11px] text-[oklch(43%_0.13_150)]">
-        {caption}
-      </p>
+      <p className="mt-3 text-xs leading-5 text-[#667085]">{caption}</p>
     </article>
   );
 }
@@ -599,26 +596,24 @@ function RankedInsightList({
   items: { label: string; value: string; meta: string }[];
 }) {
   return (
-    <article className="rounded-xl border border-[#dfe7ee] bg-white p-4 shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
-      <h2 className="text-lg font-bold text-[#080123]">{title}</h2>
-      <div className="mt-3 space-y-2">
+    <article className="rounded-xl border border-[#e4e7ec] bg-white p-4">
+      <h2 className="text-base font-bold text-[#111318]">{title}</h2>
+      <div className="mt-2 divide-y divide-[#eef0f2]">
         {items.length ? (
           items.map((item, index) => (
-            <div key={`${item.label}-${index}`} className="grid grid-cols-[32px_1fr] gap-3 rounded-lg bg-[#f7faf9] p-3">
-              <div className="grid size-8 place-items-center rounded-full bg-[#080123] text-sm font-bold text-white">
-                {index + 1}
-              </div>
+            <div key={`${item.label}-${index}`} className="grid grid-cols-[24px_1fr] gap-3 py-3">
+              <div className="grid size-6 place-items-center rounded-md bg-[#f2f4f7] text-xs font-bold text-[#475467]">{index + 1}</div>
               <div className="min-w-0">
                 <div className="flex items-start justify-between gap-3">
-                  <p className="truncate text-sm font-bold text-[#080123]">{item.label}</p>
-                  <span className="shrink-0 text-sm font-black text-[#007d72]">{item.value}</span>
+                  <p className="truncate text-sm font-semibold text-[#111318]">{item.label}</p>
+                  <span className="shrink-0 text-sm font-bold text-[#087f72]">{item.value}</span>
                 </div>
                 <p className="mt-1 text-xs leading-5 text-[#65738a]">{item.meta}</p>
               </div>
             </div>
           ))
         ) : (
-          <div className="rounded-lg bg-[#f7faf9] p-4 text-sm text-[#65738a]">אין מספיק נתונים בטווח הזה.</div>
+          <div className="py-6 text-sm text-[#667085]">אין מספיק נתונים בטווח הזה.</div>
         )}
       </div>
     </article>
@@ -706,24 +701,24 @@ function KPIGrid({ account, summary }: { account: FlashyAccount; summary: Metric
   ];
 
   return (
-    <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <section className="grid grid-cols-2 overflow-hidden rounded-xl border border-[#e4e7ec] bg-white xl:grid-cols-4">
       {metrics.map((metric) => (
         <article
           key={metric.label}
-          className="rounded-2xl border border-[#dfe7ee] bg-white p-5 text-[#080123] shadow-[0_10px_28px_rgba(8,1,35,0.05)]"
+          className="min-w-0 border-b border-l border-[#e4e7ec] p-3.5 text-[#111318] even:border-l-0 xl:border-b-0 xl:p-4 xl:even:border-l xl:last:border-l-0"
         >
-          <p className="text-xs font-bold text-[#65738a]">{metric.label}</p>
+          <p className="text-xs font-medium text-[#667085]">{metric.label}</p>
           <p
             className={classNames(
-              "mt-3 text-[clamp(28px,3vw,42px)] font-black leading-none tabular-nums",
-              metric.tone === "good" && "text-[#080123]",
+              "mt-2 text-2xl font-bold leading-none tabular-nums tracking-normal sm:text-3xl",
+              metric.tone === "good" && "text-[#111318]",
               metric.tone === "warn" && "text-[#9a3412]",
-              metric.tone === "neutral" && "text-[#080123]",
+              metric.tone === "neutral" && "text-[#111318]",
             )}
           >
             {metric.value}
           </p>
-          <p className="mt-3 text-xs leading-5 text-[#65738a]">{metric.detail}</p>
+          <p className="mt-2 truncate text-xs leading-5 text-[#667085]">{metric.detail}</p>
         </article>
       ))}
     </section>
@@ -1083,13 +1078,6 @@ function RevenueCostChart({
   );
   const visibleItems = sortedItems.slice(0, expanded ? sortedItems.length : 4);
   const maxRevenue = Math.max(1, ...visibleItems.map((item) => item.revenue));
-  const totalRevenue = filteredItems.reduce((total, item) => total + item.revenue, 0);
-  const totalPurchases = filteredItems.reduce((total, item) => total + item.purchases, 0);
-  const totalSmsCost = filteredItems.reduce((total, item) => total + (item.medium === "sms" ? item.cost : 0), 0);
-  const emailItems = filteredItems.filter((item) => item.medium === "email");
-  const averageEmailEngagement = emailItems.length
-    ? emailItems.reduce((total, item) => total + item.engagementRate, 0) / emailItems.length
-    : 0;
   const kindOptions: { key: ActivityKindFilter; label: string }[] = [
     { key: "all", label: "הכל" },
     { key: "campaign", label: "קמפיינים" },
@@ -1102,32 +1090,10 @@ function RevenueCostChart({
   ];
 
   return (
-    <article className="col-span-12 rounded-2xl border border-[oklch(89%_0.008_285)] bg-white p-[18px] text-[oklch(15%_0.025_285)] shadow-[0_10px_30px_rgba(8,1,35,0.05)]">
-      <div className="mb-[18px] flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h2 className="m-0 text-[22px] font-bold">פעילויות מובילות</h2>
-          <p className="mt-1 text-sm text-[oklch(48%_0.018_285)]">
-            דירוג נקי של הקמפיינים והאוטומציות לפי הכנסה, עם המדד הנכון לכל ערוץ.
-          </p>
-        </div>
-        <div className="grid grid-cols-3 gap-2 text-center text-xs sm:min-w-[330px]">
-          <div className="rounded-xl bg-[#f4f7f6] px-3 py-2">
-            <div className="text-[oklch(48%_0.018_285)]">הכנסה</div>
-            <div className="mt-1 font-bold">{formatCurrency(totalRevenue, account.currency)}</div>
-          </div>
-          <div className="rounded-xl bg-[#f4f7f6] px-3 py-2">
-            <div className="text-[oklch(48%_0.018_285)]">רכישות</div>
-            <div className="mt-1 font-bold">{formatNumber(totalPurchases)}</div>
-          </div>
-          <div className="rounded-xl bg-[#f4f7f6] px-3 py-2">
-            <div className="text-[oklch(48%_0.018_285)]">{mediumFilter === "email" ? "מעורבות" : "עלות SMS"}</div>
-            <div className="mt-1 font-bold">
-              {mediumFilter === "email" ? formatPercent(averageEmailEngagement) : formatCurrency(totalSmsCost, account.currency)}
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="mb-4 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+    <article className="col-span-12 overflow-hidden rounded-xl border border-[#e4e7ec] bg-white text-[#111318]">
+      <div className="flex flex-col gap-3 border-b border-[#eef0f2] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <h2 className="m-0 text-base font-bold">פעילויות מובילות</h2>
+        <div className="flex flex-col gap-2 sm:flex-row">
         <div className="flex flex-wrap gap-2">
           {kindOptions.map((option) => (
             <button
@@ -1137,7 +1103,7 @@ function RevenueCostChart({
                 setExpanded(false);
               }}
               className={classNames(
-                "rounded-full border px-3 py-2 text-sm transition",
+                "h-8 rounded-md border px-3 text-xs transition",
                 kindFilter === option.key
                   ? "border-transparent bg-[oklch(15%_0.025_285)] text-white"
                   : "border-[oklch(89%_0.008_285)] bg-white text-[oklch(48%_0.018_285)] hover:text-[oklch(15%_0.025_285)]",
@@ -1156,7 +1122,7 @@ function RevenueCostChart({
                 setExpanded(false);
               }}
               className={classNames(
-                "rounded-full border px-3 py-2 text-sm transition",
+                "h-8 rounded-md border px-3 text-xs transition",
                 mediumFilter === option.key
                   ? "border-transparent bg-[oklch(82%_0.135_185)] font-bold text-[oklch(15%_0.025_285)]"
                   : "border-[oklch(89%_0.008_285)] bg-white text-[oklch(48%_0.018_285)] hover:text-[oklch(15%_0.025_285)]",
@@ -1166,9 +1132,10 @@ function RevenueCostChart({
             </button>
           ))}
         </div>
+        </div>
       </div>
       {visibleItems.length ? (
-        <div className="overflow-hidden rounded-xl border border-[oklch(89%_0.008_285)]">
+        <div>
           <div className="hidden grid-cols-[44px_1fr_128px_150px_120px] gap-3 bg-[#f4f7f6] px-4 py-3 text-xs font-bold text-[oklch(48%_0.018_285)] md:grid">
             <span>דירוג</span>
             <span>פעילות</span>
@@ -1272,12 +1239,12 @@ function ChannelBreakdown({
   }[];
 }) {
   return (
-    <article className="col-span-12 rounded-2xl border border-[oklch(89%_0.008_285)] bg-white p-[18px] text-[oklch(15%_0.025_285)] shadow-[0_10px_30px_rgba(8,1,35,0.05)]">
+    <article className="col-span-12 rounded-xl border border-[#e4e7ec] bg-white text-[#111318]">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="m-0 text-[20px] font-black">פירוק ערוצים</h2>
-        <span className="text-xs font-bold text-[oklch(48%_0.018_285)]">Email / SMS / Automations</span>
+        <h2 className="m-0 px-4 pt-4 text-base font-bold">פירוק ערוצים</h2>
+        <span className="px-4 pt-4 text-xs text-[#667085]">Email / SMS / Automations</span>
       </div>
-      <div className="hidden grid-cols-[120px_1fr_130px_130px_110px_90px] gap-3 border-b border-[#eef3f7] px-2 pb-2 text-xs font-bold text-[#65738a] md:grid">
+      <div className="hidden grid-cols-[120px_1fr_130px_130px_110px_90px] gap-3 border-y border-[#eef0f2] bg-[#f8fafb] px-4 py-2 text-xs font-medium text-[#667085] md:grid">
         <span>ערוץ</span>
         <span>חלק יחסי</span>
         <span className="text-left">הכנסה</span>
@@ -1285,17 +1252,17 @@ function ChannelBreakdown({
         <span className="text-left">ROAS</span>
         <span className="text-left">רכישות</span>
       </div>
-      <div className="divide-y divide-[#eef3f7]">
+      <div className="divide-y divide-[#eef0f2]">
         {channelData.map((item) => (
-          <div key={item.channel} className="grid gap-3 px-2 py-3 text-sm md:grid-cols-[120px_1fr_130px_130px_110px_90px] md:items-center">
+          <div key={item.channel} className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[120px_1fr_130px_130px_110px_90px] md:items-center">
             <div className="flex items-center justify-between gap-2 md:block">
               <strong>{item.channel}</strong>
               <span className="text-xs font-bold text-[#65738a] md:hidden">{formatPercent(item.share)}</span>
             </div>
             <div>
-              <div className="h-2 overflow-hidden rounded-full bg-[oklch(91%_0.008_285)]">
+              <div className="h-1.5 overflow-hidden rounded-full bg-[#eaecf0]">
                 <div
-                  className="h-full rounded-full bg-[oklch(82%_0.135_185)]"
+                  className="h-full rounded-full bg-[#42dfcf]"
                   style={{ width: `${Math.max(3, item.share * 100)}%` }}
                 />
               </div>
@@ -1324,8 +1291,8 @@ function ClientSelector({
   mobile?: boolean;
 }) {
   return (
-    <div className={classNames("rounded-xl border border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.06)] p-2.5", mobile && "mb-4 lg:hidden")}>
-      <label className="mb-1.5 block text-[11px] text-[oklch(78%_0.015_285)]" htmlFor={mobile ? "client-select-mobile" : "client-select"}>
+    <div className={classNames("border-b border-white/10 pb-3", mobile && "mb-3 rounded-lg border border-[#e4e7ec] bg-white p-3 text-[#111318] lg:hidden")}>
+      <label className={classNames("mb-1.5 block text-[11px]", mobile ? "text-[#667085]" : "text-white/55")} htmlFor={mobile ? "client-select-mobile" : "client-select"}>
         לקוח פעיל
       </label>
       <div className="relative">
@@ -1333,7 +1300,12 @@ function ClientSelector({
           id={mobile ? "client-select-mobile" : "client-select"}
           value={selectedClientId}
           onChange={(event) => onChange(event.target.value)}
-          className="min-h-9 w-full appearance-none truncate rounded-lg border border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.08)] px-2.5 text-sm text-white outline-none focus:border-[oklch(82%_0.135_185)]"
+          className={classNames(
+            "min-h-9 w-full appearance-none truncate rounded-md border px-2.5 text-sm outline-none",
+            mobile
+              ? "border-[#d0d5dd] bg-white text-[#111318] focus:border-[#42dfcf]"
+              : "border-white/10 bg-white/5 text-white focus:border-[#42dfcf]",
+          )}
         >
           {clients.map((client) => (
             <option key={client.id} value={client.id} className="text-[#111]">
@@ -1341,7 +1313,7 @@ function ClientSelector({
             </option>
           ))}
         </select>
-        <ChevronDown className="pointer-events-none absolute left-2.5 top-2.5 text-white/55" size={16} />
+        <ChevronDown className={classNames("pointer-events-none absolute left-2.5 top-2.5", mobile ? "text-[#667085]" : "text-white/55")} size={16} />
       </div>
     </div>
   );
@@ -1352,9 +1324,6 @@ function Sidebar({
   selectedClientId,
   visibleViews,
   view,
-  account,
-  dataSource,
-  dataNotice,
   clientView,
   onSelectClient,
   onSelectView,
@@ -1363,17 +1332,14 @@ function Sidebar({
   selectedClientId: string;
   visibleViews: typeof views;
   view: ViewKey;
-  account: FlashyAccount;
-  dataSource: "demo" | "neon" | "loading";
-  dataNotice: string;
   clientView: boolean;
   onSelectClient: (clientId: string) => void;
   onSelectView: (view: ViewKey) => void;
 }) {
   return (
-    <aside className="sticky top-0 hidden h-screen flex-col gap-3 border-l border-[oklch(100%_0_0_/_0.18)] bg-[oklch(9%_0.05_285_/_0.94)] px-3 py-4 text-white lg:flex">
-      <div className="flex items-center gap-2 px-1 text-sm font-bold">
-        <span className="grid size-9 place-items-center rounded-[10px] border border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.06)] text-[oklch(82%_0.135_185)]">FG</span>
+    <aside className="sticky top-0 hidden h-screen flex-col gap-4 border-l border-white/10 bg-[#0b0c10] px-3 py-4 text-white lg:flex">
+      <div className="flex items-center gap-2 border-b border-white/10 px-1 pb-4 text-sm font-bold">
+        <span className="grid size-8 place-items-center rounded-md bg-[#42dfcf] text-xs font-black text-[#0b0c10]">FG</span>
         <span className="truncate">Growth Desk</span>
       </div>
       {!clientView && (
@@ -1387,10 +1353,10 @@ function Sidebar({
               key={item.key}
               onClick={() => onSelectView(item.key)}
               className={classNames(
-                "flex min-h-10 items-center gap-2 rounded-[10px] px-2.5 py-2 text-right text-sm font-medium transition",
+                "relative flex min-h-10 items-center gap-2 rounded-md px-2.5 py-2 text-right text-sm font-medium transition",
                 view === item.key
-                  ? "bg-[oklch(100%_0_0_/_0.08)] text-white"
-                  : "text-[oklch(78%_0.015_285)] hover:bg-[oklch(100%_0_0_/_0.08)] hover:text-white",
+                  ? "bg-white/10 text-white before:absolute before:inset-y-2 before:right-0 before:w-0.5 before:rounded-full before:bg-[#42dfcf]"
+                  : "text-white/60 hover:bg-white/5 hover:text-white",
               )}
             >
               <Icon className="shrink-0" size={17} />
@@ -1399,28 +1365,7 @@ function Sidebar({
           );
         })}
       </nav>
-      {!clientView && (
-        <div className="rounded-xl border border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.06)] p-2.5 text-xs leading-5 text-[oklch(78%_0.015_285)]">
-          <div className="mb-1 font-bold text-white">עלויות חשבון</div>
-          <div>SMS: {formatUsdDecimal(account.smsCreditPriceUsd)}</div>
-          <div>מנוי: {formatUsdDecimal(account.monthlySubscriptionCostUsd)}</div>
-          <div>ריטיינר: {formatCurrency(account.agencyRetainerCostIls, "ILS")}</div>
-          <button
-            onClick={() => onSelectView("settings")}
-            className="mt-2 min-h-9 w-full rounded-lg bg-[oklch(82%_0.135_185)] px-3 font-bold text-[oklch(15%_0.025_285)]"
-          >
-            הגדרות
-          </button>
-        </div>
-      )}
-      {!clientView && (
-        <div className="mt-auto rounded-xl border border-[oklch(100%_0_0_/_0.14)] bg-[oklch(100%_0_0_/_0.05)] p-2.5 text-xs leading-5 text-[oklch(78%_0.015_285)]">
-        <div className="font-bold text-white">
-          {dataSource === "neon" ? "Neon מחובר" : dataSource === "loading" ? "טוען נתונים" : "דמו"}
-        </div>
-        <div className="mt-1 line-clamp-2">{dataNotice}</div>
-        </div>
-      )}
+      <div className="mt-auto px-2 text-[11px] text-white/35">addz.digital</div>
     </aside>
   );
 }
@@ -1444,7 +1389,6 @@ function Overview({
   rangeStart: string;
   rangeEnd: string;
 }) {
-  const [channelFilter, setChannelFilter] = useState<OverviewChannelFilter>("all");
   const performanceItems: PerformanceItem[] = [
     ...emails.map((item) => ({
       id: `email-${item.id}`,
@@ -1503,12 +1447,6 @@ function Overview({
       };
     }),
   ];
-  const filteredPerformanceItems = performanceItems.filter((item) => {
-    if (channelFilter === "all") return true;
-    if (channelFilter === "email") return item.channel === "אימייל";
-    if (channelFilter === "sms") return item.channel === "SMS";
-    return item.channel === "אוטומציות";
-  });
   const channelData = ["אימייל", "SMS", "אוטומציות"].map((channel) => {
     const items = performanceItems.filter((item) => item.channel === channel);
     const revenue = items.reduce((total, item) => total + item.revenue, 0);
@@ -1540,9 +1478,6 @@ function Overview({
       return roasA - roasB || b.cost - a.cost;
     })
     .slice(0, 6);
-  const totalActivities = performanceItems.length;
-  const profitableActivities = performanceItems.filter((item) => item.revenue > item.cost).length;
-
   return (
     <section className="grid grid-cols-12 gap-3">
       <div className="col-span-12">
@@ -1564,29 +1499,7 @@ function Overview({
 
       <ChannelBreakdown account={account} channelData={channelData} />
 
-      <div className="col-span-12 flex flex-col gap-3 rounded-2xl border border-[oklch(100%_0_0_/_0.12)] bg-[oklch(100%_0_0_/_0.04)] p-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="text-xs font-bold text-[oklch(78%_0.015_285)]">
-          מציג {formatNumber(totalActivities)} פעילויות, מתוכן {formatNumber(profitableActivities)} עם החזר חיובי.
-        </div>
-        <div className="flex flex-wrap gap-2">
-        {(["all", "email", "sms", "automation"] as OverviewChannelFilter[]).map((filter) => (
-          <button
-            key={filter}
-            onClick={() => setChannelFilter(filter)}
-            className={classNames(
-              "rounded-full border px-3.5 py-2 text-sm transition",
-              channelFilter === filter
-                ? "border-transparent bg-[oklch(82%_0.135_185)] font-bold text-[oklch(15%_0.025_285)]"
-                : "border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.06)] text-[oklch(78%_0.015_285)] hover:text-white",
-            )}
-          >
-            {overviewChannelLabels[filter]}
-          </button>
-        ))}
-        </div>
-      </div>
-
-      <RevenueCostChart account={account} items={filteredPerformanceItems} />
+      <RevenueCostChart account={account} items={performanceItems} />
 
       {showDeepAnalysis && (
         <div className="col-span-12 grid gap-5 xl:grid-cols-2">
@@ -1798,12 +1711,12 @@ function ClientSmsDashboard({
 
   return (
     <section className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-3 gap-2 md:gap-3">
         <MetricCard title="הכנסות SMS" value={formatCurrency(summary.revenue, account.currency)} caption={`${formatNumber(summary.purchases)} רכישות`} icon={TrendingUp} tone="good" />
         <MetricCard title="ROAS SMS" value={formatRoas(summary.roas)} caption="קמפיינים ואוטומציות" icon={LineChart} tone="good" />
         <MetricCard title="נמענים" value={formatNumber(summary.recipients)} caption={`${formatNumber(summary.clicks)} קליקים`} icon={MessageSquareText} />
       </div>
-      <section className="grid gap-4 xl:grid-cols-[1fr_0.8fr]">
+      <section>
         <RankedInsightList
           title="SMS שעבדו הכי טוב"
           items={winners.map((item) => ({
@@ -1812,10 +1725,6 @@ function ClientSmsDashboard({
             meta: `${item.type} · ${formatRoas(item.roas)} · ${formatNumber(item.purchases)} רכישות`,
           }))}
         />
-        <article className="rounded-xl border border-[#b8fff3] bg-[#edfffb] p-4 text-[#080123]">
-          <h2 className="text-lg font-black">מה אנחנו עושים עכשיו</h2>
-          <p className="mt-3 text-sm leading-6 text-[#40506a]">טבלת הביצועים מציגה הכנסה, עלות, ROAS ורכישות לכל פעילות SMS.</p>
-        </article>
       </section>
     </section>
   );
@@ -1848,12 +1757,12 @@ function ClientAutomationDashboard({
 
   return (
     <section className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-3 gap-2 md:gap-3">
         <MetricCard title="הכנסות אוטומציות" value={formatCurrency(revenue, account.currency)} caption={`${formatNumber(automations.length)} אוטומציות`} icon={RefreshCw} tone="good" />
         <MetricCard title="רכישות" value={formatNumber(purchases)} caption="מאוטומציות בטווח" icon={CheckCircle2} tone="good" />
         <MetricCard title="מעורבות" value={formatPercent(enriched.reduce((t, i) => t + i.clickRate, 0) / Math.max(1, enriched.length))} caption="ממוצע הקלקה" icon={Activity} />
       </div>
-      <section className="grid gap-4 xl:grid-cols-[1fr_0.8fr]">
+      <section>
         <RankedInsightList
           title="אוטומציות מובילות"
           items={top.map((item) => ({
@@ -1917,7 +1826,7 @@ function ClientCampaignDashboard({
 
   return (
     <section className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-3 gap-2 md:gap-3">
         <MetricCard title="הכנסות קמפיינים" value={formatCurrency(revenue, account.currency)} caption={`${formatNumber(allCampaigns.length)} קמפיינים`} icon={Send} tone="good" />
         <MetricCard title="רכישות" value={formatNumber(purchases)} caption="אימייל ו-SMS" icon={CheckCircle2} tone="good" />
         <MetricCard title="יום חזק" value={bestDayEntry?.[0] ?? "—"} caption={bestDayEntry ? formatCurrency(bestDayEntry[1].revenue, account.currency) : "אין מספיק נתונים"} icon={CalendarDays} />
@@ -1987,7 +1896,7 @@ function SmsDashboard({
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-3 gap-2 md:gap-3">
         <MetricCard
           title="ROAS SMS"
           value={summary.roas ? `${summary.roas.toFixed(1)}x` : "אין עלות"}
@@ -2237,7 +2146,7 @@ function AutomationDashboard({
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 md:gap-3 xl:grid-cols-4">
         <MetricCard
           title="הכנסות אוטומציות"
           value={formatCurrency(automationRevenue, account.currency)}
@@ -2607,7 +2516,7 @@ function CampaignDashboard({
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 md:gap-3 xl:grid-cols-4">
         <MetricCard
           title="הכנסות קמפיינים"
           value={formatCurrency(emailRevenue + smsRevenue, account.currency)}
@@ -5201,13 +5110,13 @@ function DataTable({
   const visibleRows = expanded ? rows : rows.slice(0, 6);
 
   return (
-    <section className="overflow-hidden rounded-xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
-      <div className="flex items-center justify-between gap-3 border-b border-[#dfe7ee] p-4">
-        <h2 className="text-lg font-bold text-[#080123]">{title}</h2>
+    <section className="overflow-hidden rounded-xl border border-[#e4e7ec] bg-white">
+      <div className="flex items-center justify-between gap-3 border-b border-[#e4e7ec] px-4 py-3">
+        <h2 className="text-base font-bold text-[#111318]">{title}</h2>
         {rows.length > 6 && (
           <button
             onClick={() => setExpanded((current) => !current)}
-            className="rounded-md bg-[#eef3f7] px-3 py-1.5 text-xs font-bold text-[#263548]"
+            className="rounded-md border border-[#d0d5dd] bg-white px-3 py-1.5 text-xs font-medium text-[#475467] hover:bg-[#f8fafb]"
           >
             {expanded ? "צמצם" : `הצג הכל (${formatNumber(rows.length)})`}
           </button>
@@ -5221,9 +5130,9 @@ function DataTable({
                 <p className="truncate text-sm font-bold text-[#080123]">{row[0]}</p>
                 {row[1] && <p className="mt-1 truncate text-xs text-[#65738a]">{row[1]}</p>}
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[#eef0f2] pt-3">
                 {row.slice(2, 8).map((cell, index) => (
-                  <div key={`${rowIndex}-mobile-${index}`} className="rounded-lg bg-[#f4f7f6] p-2 text-xs">
+                  <div key={`${rowIndex}-mobile-${index}`} className="min-w-0 text-xs">
                     <p className="text-[#65738a]">{columns[index + 2]}</p>
                     <p className="mt-1 truncate font-bold text-[#080123]">{cell}</p>
                   </div>
@@ -5237,20 +5146,20 @@ function DataTable({
       </div>
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full min-w-[760px] text-right text-sm">
-          <thead className="bg-[#f4f7f6] text-[#65738a]">
+          <thead className="bg-[#f8fafb] text-[#667085]">
             <tr>
               {columns.map((column) => (
-                <th key={column} className="px-5 py-3 font-bold">
+                <th key={column} className="px-4 py-2.5 font-medium">
                   {column}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#eef3f7] text-[#263548]">
+          <tbody className="divide-y divide-[#eef0f2] text-[#344054]">
             {visibleRows.map((row, rowIndex) => (
               <tr key={rowIndex} className="hover:bg-[#f8fbfa]">
                 {row.map((cell, cellIndex) => (
-                  <td key={`${rowIndex}-${cellIndex}`} className="px-5 py-4">
+                  <td key={`${rowIndex}-${cellIndex}`} className="px-4 py-3">
                     {cell}
                   </td>
                 ))}
@@ -5280,7 +5189,7 @@ export function DashboardApp() {
   const [showDeepAnalysis, setShowDeepAnalysis] = useState(false);
   const [clientView, setClientView] = useState(false);
   const [viewerRole, setViewerRole] = useState<"admin" | "client">("admin");
-  const [dataSource, setDataSource] = useState<"demo" | "neon" | "loading">("loading");
+  const [, setDataSource] = useState<"demo" | "neon" | "loading">("loading");
   const [dataNotice, setDataNotice] = useState("טוען נתונים מ-Neon...");
   const [authRequired, setAuthRequired] = useState(false);
   const [liveDataIssue, setLiveDataIssue] = useState("");
@@ -5545,36 +5454,32 @@ export function DashboardApp() {
     <div
       dir="rtl"
       className={classNames(
-        "min-h-screen bg-[oklch(12%_0.055_285)] text-[oklch(98%_0_0)] lg:grid",
-        effectiveClientView ? "lg:grid-cols-[176px_minmax(0,1fr)]" : "lg:grid-cols-[220px_minmax(0,1fr)]",
+        "dashboard-shell min-h-screen overflow-x-hidden lg:grid",
+        effectiveClientView ? "lg:grid-cols-[160px_minmax(0,1fr)]" : "lg:grid-cols-[196px_minmax(0,1fr)]",
       )}
     >
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_0_0,oklch(82%_0.135_185_/_0.12),transparent_28rem)]" />
       <Sidebar
         clients={localClients}
         selectedClientId={selectedClientId}
         visibleViews={visibleViews}
         view={activeView}
-        account={account}
-        dataSource={dataSource}
-        dataNotice={dataNotice}
         clientView={effectiveClientView}
         onSelectClient={selectClient}
         onSelectView={setView}
       />
 
-      <div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-[oklch(100%_0_0_/_0.18)] bg-[oklch(9%_0.05_285_/_0.94)] px-4 py-3 backdrop-blur lg:hidden">
-        <strong className="shrink-0 text-lg">FG</strong>
+      <div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-white/10 bg-[#0b0c10] px-3 py-2.5 text-white lg:hidden">
+        <strong className="grid size-8 shrink-0 place-items-center rounded-md bg-[#42dfcf] text-xs text-[#0b0c10]">FG</strong>
         <div className="flex max-w-[78vw] gap-2 overflow-x-auto">
           {visibleViews.map((item) => (
             <button
               key={item.key}
               onClick={() => setView(item.key)}
               className={classNames(
-                "h-9 shrink-0 rounded-lg px-3 text-sm",
+                "h-8 shrink-0 rounded-md px-3 text-sm",
                 activeView === item.key
-                  ? "bg-[oklch(82%_0.135_185)] font-bold text-[oklch(15%_0.025_285)]"
-                  : "bg-[oklch(100%_0_0_/_0.08)] text-[oklch(78%_0.015_285)]",
+                  ? "bg-[#42dfcf] font-bold text-[#0b0c10]"
+                  : "bg-white/5 text-white/65",
               )}
             >
               {item.label}
@@ -5583,7 +5488,7 @@ export function DashboardApp() {
         </div>
       </div>
 
-      <main className="relative min-w-0 p-3 md:p-5">
+      <main className="dashboard-content relative min-w-0 p-3 text-[#111318] md:p-5 lg:p-6">
         {!effectiveClientView && (
           <ClientSelector
             clients={localClients}
@@ -5592,20 +5497,20 @@ export function DashboardApp() {
             mobile
           />
         )}
-        <header className="mb-4 flex flex-col items-start justify-between gap-3 lg:flex-row">
+        <header className="mb-4 flex flex-col items-start justify-between gap-3 border-b border-[#e4e7ec] pb-4 lg:flex-row lg:items-end">
           <div>
             {!effectiveClientView && (
-              <div className="mb-2 flex flex-wrap items-center gap-2 text-sm text-[oklch(78%_0.015_285)]">
+              <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-[#667085]">
                 <span>Flashy Account #{account.flashyAccountId}</span>
-                <span className="rounded-md bg-[oklch(82%_0.135_185)] px-2 py-1 font-bold text-[oklch(15%_0.025_285)]">פעיל</span>
+                <span className="inline-flex items-center gap-1 font-medium text-[#087f72] before:size-1.5 before:rounded-full before:bg-[#42dfcf]">פעיל</span>
                 <span>סנכרון אחרון: {new Date(account.lastSyncAt).toLocaleString("he-IL")}</span>
               </div>
             )}
-            <h1 className="m-0 text-[clamp(28px,3.5vw,48px)] font-bold leading-none tracking-normal text-white">
+            <h1 className="m-0 text-[clamp(26px,3vw,38px)] font-bold leading-tight tracking-normal text-[#111318]">
               {account.name}
             </h1>
             {effectiveClientView && (
-              <p className="mt-2 text-sm text-[oklch(78%_0.015_285)]">דוח ביצועים נקי ללקוח · {timeRanges.find((range) => range.key === timeRange)?.label}</p>
+              <p className="mt-1 text-xs text-[#667085]">ביצועים · {timeRanges.find((range) => range.key === timeRange)?.label}</p>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -5616,52 +5521,45 @@ export function DashboardApp() {
                 if (!effectiveClientView && (activeView === "settings" || activeView === "admin")) setView("overview");
               }}
               className={classNames(
-                "min-h-10 rounded-lg px-4 text-sm font-bold",
+                "h-9 rounded-md border px-3 text-sm font-medium transition",
                 effectiveClientView
-                  ? "bg-[oklch(82%_0.135_185)] text-[oklch(15%_0.025_285)]"
-                  : "border border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.08)] text-white",
+                  ? "border-[#42dfcf] bg-[#ecfdf9] text-[#087f72]"
+                  : "border-[#d0d5dd] bg-white text-[#344054] hover:bg-[#f8fafb]",
               )}
             >
               {effectiveClientView ? "תצוגת לקוח" : "תצוגת סוכנות"}
             </button>}
             {!effectiveClientView && <button
               onClick={refreshDashboardData}
-              className="min-h-10 rounded-lg border border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.08)] px-4 text-sm text-white"
+              className="h-9 rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#344054] transition hover:bg-[#f8fafb]"
             >
               <RefreshCw className="ml-2 inline" size={16} />
               רענון
             </button>}
-            {!effectiveClientView && <button
-              onClick={() => setView("ai")}
-              className="min-h-10 rounded-lg bg-[oklch(82%_0.135_185)] px-4 text-sm font-bold text-[oklch(15%_0.025_285)]"
-            >
-              <Sparkles className="ml-2 inline" size={16} />
-              צור המלצה
-            </button>}
             <button
               onClick={logout}
-              className="min-h-10 rounded-lg border border-[oklch(100%_0_0_/_0.18)] bg-[oklch(100%_0_0_/_0.08)] px-4 text-sm text-white"
+              className="h-9 rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#667085] transition hover:bg-[#f8fafb] hover:text-[#111318]"
             >
               יציאה
             </button>
           </div>
-          {refreshState && <p className="text-sm text-[oklch(78%_0.015_285)]">{refreshState}</p>}
+          {refreshState && <p className="text-xs text-[#667085]">{refreshState}</p>}
         </header>
 
         <div>
           {showTimeRange && (
-            <section className="mb-4 rounded-xl border border-[#dfe7ee] bg-white px-4 py-3 shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
+            <section className="mb-4 rounded-lg border border-[#e4e7ec] bg-white px-3 py-2.5">
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-                <div className="flex flex-wrap gap-2">
+                <div className="flex max-w-full gap-1 overflow-x-auto pb-0.5">
                     {timeRanges.map((range) => (
                       <button
                         key={range.key}
                         onClick={() => setTimeRange(range.key)}
                         className={classNames(
-                          "h-9 min-w-16 rounded-md px-3 text-sm font-medium transition",
+                          "h-8 min-w-14 shrink-0 rounded-md px-3 text-xs font-medium transition",
                           timeRange === range.key
-                            ? "bg-[#080123] text-white"
-                            : "bg-[#eef3f7] text-[#263548] hover:bg-[#dfe7ee]",
+                            ? "bg-[#111318] text-white"
+                            : "text-[#667085] hover:bg-[#f2f4f7] hover:text-[#111318]",
                         )}
                       >
                         {range.label}
@@ -5673,10 +5571,10 @@ export function DashboardApp() {
                     <button
                       onClick={() => setShowDeepAnalysis((current) => !current)}
                       className={classNames(
-                        "h-9 rounded-md px-3 text-sm font-bold transition",
+                        "h-8 rounded-md px-3 text-xs font-medium transition",
                         showDeepAnalysis
-                          ? "bg-[#080123] text-white"
-                          : "bg-[#eef3f7] text-[#263548] hover:bg-[#dfe7ee]",
+                          ? "bg-[#111318] text-white"
+                          : "border border-[#d0d5dd] bg-white text-[#475467] hover:bg-[#f8fafb]",
                       )}
                     >
                       {showDeepAnalysis ? "הסתר פירוט" : "פירוט נוסף"}

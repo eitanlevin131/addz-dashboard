@@ -17,15 +17,15 @@
 }
 
 :root {
-  --background: #080123;
-  --foreground: #070914;
-  --addz-ink: #080123;
-  --addz-muted: #65738a;
-  --addz-line: #dfe7ee;
-  --addz-mint: #6fffe5;
-  --addz-mint-soft: #e8fbf8;
+  --background: #f5f7f8;
+  --foreground: #111318;
+  --addz-ink: #0b0c10;
+  --addz-muted: #667085;
+  --addz-line: #e4e7ec;
+  --addz-mint: #42dfcf;
+  --addz-mint-soft: #ecfdf9;
   --addz-panel: #ffffff;
-  --addz-page: #f4f7f6;
+  --addz-page: #f5f7f8;
 }
 
 @theme inline {
@@ -39,6 +39,7 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: "Rag Sans", "Noto Sans Hebrew", "Segoe UI", Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
 }
 
 button,
@@ -59,4 +60,29 @@ textarea {
 
 body {
   text-rendering: geometricPrecision;
+}
+
+.dashboard-shell {
+  background: var(--addz-page);
+  color: var(--addz-ink);
+}
+
+.dashboard-content [class*="shadow-"] {
+  box-shadow: none !important;
+}
+
+.dashboard-content [class*="rounded-3xl"],
+.dashboard-content [class*="rounded-2xl"] {
+  border-radius: 12px !important;
+}
+
+.dashboard-content article,
+.dashboard-content section[class*="border"] {
+  border-color: var(--addz-line);
+}
+
+@media (max-width: 1023px) {
+  .dashboard-content {
+    padding-bottom: 88px;
+  }
 }

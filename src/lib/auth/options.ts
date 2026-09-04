@@ -1,5 +1,5 @@
 import { DrizzleAdapter } from "@auth/drizzle-adapter";
-import type { Adapter } from "next-auth/adapters";
+import type { Adapter, AdapterUser } from "next-auth/adapters";
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
@@ -115,16 +115,37 @@ const providers = databaseConfigured
   ? [emailProvider as never, adminCodeProvider]
   : [demoProvider];
 
+function createDatabaseAdapter(): Adapter | undefined {
+  if (!databaseConfigured) return undefined;
+
+  const adapter = DrizzleAdapter(getDb(), {
+    usersTable: users,
+    accountsTable: accounts,
+    sessionsTable: sessions,
+    verificationTokensTable: verificationTokens,
+  } as never) as Adapter;
+
+  return {
+    ...adapter,
+    async createUser(user: Omit<AdapterUser, "id">) {
+      if (!adapter.createUser) throw new Error("Auth adapter cannot create users");
+
+      return adapter.createUser({
+        ...user,
+        id: crypto.randomUUID(),
+        email: user.email.trim().toLowerCase(),
+      } as AdapterUser);
+    },
+    async getUserByEmail(email: string) {
+      if (!adapter.getUserByEmail) return null;
+      return adapter.getUserByEmail(email.trim().toLowerCase());
+    },
+  };
+}
+
 export const authOptions: NextAuthOptions = {
   secret: process.env.AUTH_SECRET || "local-dev-only-secret-change-in-production",
-  adapter: databaseConfigured
-    ? (DrizzleAdapter(getDb(), {
-        usersTable: users,
-        accountsTable: accounts,
-        sessionsTable: sessions,
-        verificationTokensTable: verificationTokens,
-      } as never) as Adapter)
-    : undefined,
+  adapter: createDatabaseAdapter(),
   providers,
   session: {
     strategy: "jwt",
