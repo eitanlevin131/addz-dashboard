@@ -19,7 +19,7 @@ export async function GET() {
       provider: "Auth.js",
       configured: missing.length === 0 || (missing.length === 1 && missing[0] === "DATABASE_URL"),
       missing,
-      mode: databaseConfigured ? "magic-link" : "local-demo-fallback",
+      mode: databaseConfigured ? "email-password" : "local-demo-fallback",
     },
     flashy: {
       liveCheckEndpoint: "/api/flashy/sync",

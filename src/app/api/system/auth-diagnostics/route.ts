@@ -1,11 +1,10 @@
 import { getServerSession } from "next-auth";
 import { eq } from "drizzle-orm";
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { clientUsers, users } from "@/lib/schema";
-import { getAdminSessionCookieName, readAdminSessionToken } from "@/lib/auth/admin-session";
 import { authOptions } from "@/lib/auth/options";
+import { requireOwner } from "@/lib/auth/access";
 
 function hostFromUrl(value?: string) {
   if (!value) return null;
@@ -27,11 +26,10 @@ function getAdminEmails() {
 }
 
 export async function GET(request: Request) {
+  const context = await requireOwner();
+  if (!context.ok) return context.response;
   const session = await getServerSession(authOptions);
-  const adminCookie = readAdminSessionToken(
-    (await cookies()).get(getAdminSessionCookieName())?.value,
-  );
-  const email = adminCookie?.email ?? session?.user?.email?.toLowerCase() ?? null;
+  const email = session?.user?.email?.toLowerCase() ?? null;
   const adminEmails = getAdminEmails();
   let dbUser: { id: string; role: string } | null = null;
   let clientAccessCount = 0;
@@ -60,13 +58,14 @@ export async function GET(request: Request) {
     requestHost: new URL(request.url).host,
     auth: {
       hasSession: Boolean(email),
-      hasAdminCookie: Boolean(adminCookie),
       sessionEmail: email,
       nextAuthUrlHost: hostFromUrl(process.env.NEXTAUTH_URL),
       authUrlHost: hostFromUrl(process.env.AUTH_URL),
       adminEmailMatched: email ? adminEmails.has(email) : false,
       adminEmailsConfigured: adminEmails.size,
-      clientCodeConfigured: Boolean(process.env.CLIENT_LOGIN_CODE),
+      bootstrapAdminPasswordConfigured: Boolean(
+        process.env.ADMIN_PASSWORD || process.env.ADMIN_LOGIN_CODE,
+      ),
     },
     database: {
       configured: isDatabaseConfigured(),

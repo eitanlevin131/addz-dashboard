@@ -16,7 +16,7 @@ import {
   Sparkles,
   TrendingUp,
 } from "lucide-react";
-import { signIn } from "next-auth/react";
+import { signIn, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import {
   automationReports,
@@ -91,7 +91,8 @@ type SyncedHoliday = {
 
 function LoginGate({ message }: { message: string }) {
   const [email, setEmail] = useState("");
-  const [accessCode, setAccessCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [state, setState] = useState(() => {
     if (typeof window === "undefined") return "";
     const params = new URLSearchParams(window.location.search);
@@ -99,73 +100,43 @@ function LoginGate({ message }: { message: string }) {
     if (!error) return "";
 
     const messages: Record<string, string> = {
-      EmailCreateAccount: "לא הצלחנו להשלים את פתיחת המשתמש. בקש קישור כניסה חדש ונסה שוב.",
-      Verification: "קישור הכניסה פג או שכבר נעשה בו שימוש. בקש קישור חדש.",
-      Callback: "לא הצלחנו להשלים את הכניסה. בקש קישור חדש ונסה שוב.",
+      CredentialsSignin: "האימייל או הסיסמה אינם נכונים.",
       AccessDenied: "האימייל אינו מורשה להיכנס לחשבון הזה.",
     };
 
-    return messages[error] ?? "הכניסה לא הושלמה. בקש קישור חדש ונסה שוב.";
+    return messages[error] ?? "הכניסה לא הושלמה. בדוק את הפרטים ונסה שוב.";
   });
-
-  async function runEmailDiagnostics(identifier: string) {
-    try {
-      const response = await fetch("/api/system/email-diagnostics", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: identifier }),
-      });
-      const payload = await response.json();
-      if (payload.success) {
-        return "בדיקת Resend הצליחה, אבל Magic Link נכשל. בדוק ש-AUTH_URL ו-NEXTAUTH_URL מצביעים לדומיין הלייב.";
-      }
-
-      const resendDetails = payload.resendResponse ? `\nResend: ${payload.resendResponse}` : "";
-      const fromDetails = payload.from ? `\nEMAIL_FROM: ${payload.from}` : "";
-      return `${payload.message || "בדיקת Resend נכשלה."}${fromDetails}${resendDetails}`;
-    } catch (error) {
-      return error instanceof Error ? error.message : "בדיקת Resend נכשלה.";
-    }
-  }
 
   async function submitLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const identifier = email.trim();
-    if (!identifier) return;
-
-    if (accessCode.trim()) {
-      setState("בודק קוד כניסה...");
-      const response = await fetch("/api/auth/admin-code", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: identifier, code: accessCode.trim() }),
-      });
-      const payload = await response.json();
-
-      if (!response.ok || !payload.success) {
-        setState(payload.message || "קוד הכניסה לא תקין או שהאימייל לא מורשה.");
-        return;
-      }
-
-      window.location.href = "/";
+    if (!identifier || !password) {
+      setState("צריך להזין אימייל וסיסמה.");
       return;
     }
 
-    setState("שולח קישור כניסה...");
-    const result = await signIn("email", {
+    if (submitting) return;
+    setSubmitting(true);
+    setState("מתחבר...");
+    try {
+    const result = await signIn("password", {
       email: identifier,
+      password,
       redirect: false,
       callbackUrl: "/",
     });
 
-    if (result?.error) {
-      setState("השליחה נכשלה. מריץ בדיקת Resend מדויקת...");
-      const diagnostics = await runEmailDiagnostics(identifier);
-      setState(diagnostics);
+    if (!result?.ok || result.error) {
+      setState("פרטי הכניסה אינם תקינים, או שבוצעו ניסיונות רבים. אפשר לנסות שוב בעוד 15 דקות או לפנות למנהל המערכת.");
       return;
     }
 
-    setState("נשלח קישור כניסה למייל. אחרי הכניסה הנתונים החיים ייטענו אוטומטית.");
+    window.location.href = result?.url || "/";
+    } catch {
+      setState("לא ניתן להתחבר כרגע. נסה שוב בעוד רגע.");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -185,7 +156,7 @@ function LoginGate({ message }: { message: string }) {
         </div>
 
         <p className="mb-5 border-r-2 border-[#42dfcf] bg-[#f8fafb] px-4 py-3 text-sm leading-6 text-[#475467]">
-          {message || "לקוחות נכנסים עם Magic Link למייל. צוות הסוכנות יכול להיכנס גם עם קוד אדמין."}
+          {message || "היכנסו עם האימייל והסיסמה שהוגדרו עבורכם."}
         </p>
 
         <form onSubmit={submitLogin} className="space-y-3">
@@ -196,30 +167,38 @@ function LoginGate({ message }: { message: string }) {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               placeholder="you@addz.digital"
+              autoComplete="username"
+              required
+              maxLength={254}
               className="mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] px-3.5 text-left text-base outline-none transition focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20"
               dir="ltr"
             />
           </label>
           <label className="block text-sm font-bold text-[#263548]">
-            קוד כניסה
+            סיסמה
             <input
               type="password"
-              value={accessCode}
-              onChange={(event) => setAccessCode(event.target.value)}
-              placeholder="ריק = שליחת Magic Link"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="הסיסמה שלך"
+              autoComplete="current-password"
+              required
+              maxLength={128}
               className="mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] px-3.5 text-left text-base outline-none transition focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20"
               dir="ltr"
             />
           </label>
           <button
             type="submit"
+            disabled={submitting}
             className="h-11 w-full rounded-lg bg-[#0b0c10] text-sm font-bold text-white transition hover:bg-[#24262d]"
           >
-            {accessCode.trim() ? "כניסה עם קוד" : "שלח קישור כניסה"}
+            {submitting ? "מתחבר..." : "כניסה"}
           </button>
         </form>
 
-        {state && <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-[#4a5870]">{state}</p>}
+        {state && <p role="status" className="mt-4 whitespace-pre-wrap text-sm leading-6 text-[#4a5870]">{state}</p>}
+        <p className="mt-4 text-xs text-[#667085]">שכחת סיסמה? פנה למנהל החשבון בסוכנות.</p>
       </section>
     </div>
   );
@@ -527,6 +506,7 @@ type LiveFlashyPayload = {
 
 type DashboardDataPayload = {
   viewer?: {
+    canManageUsers?: boolean;
     email: string;
     role: "admin" | "client";
   };
@@ -539,10 +519,12 @@ type DashboardDataPayload = {
 };
 
 type AdminUserAccess = {
+  isOwner: boolean;
   id: string;
   name: string;
   email: string;
   role: "admin" | "client";
+  hasPassword: boolean;
   createdAt: string;
   clients: {
     linkId: string;
@@ -4284,9 +4266,30 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
   const [users, setUsers] = useState<AdminUserAccess[]>([]);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
   const [role, setRole] = useState<"admin" | "client">("client");
   const [clientId, setClientId] = useState(clients[0]?.id ?? "");
   const [state, setState] = useState("טוען משתמשים...");
+  const [resetUserId, setResetUserId] = useState<string | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function savePassword(userId: string) {
+    if (busy || resetPassword.length < 10) return;
+    setBusy(true);
+    try {
+      const response = await fetch("/api/admin/users", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId, password: resetPassword }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message || "שינוי הסיסמה נכשל.");
+      setResetPassword("");
+      setResetUserId(null);
+      if (payload.reauthenticate) { await signOut({ callbackUrl: "/" }); return; }
+      await loadUsers();
+      setState("הסיסמה עודכנה. המשתמש יתחבר מחדש עם הסיסמה החדשה.");
+    } catch (error) {
+      setState(error instanceof Error ? error.message : "שינוי הסיסמה נכשל.");
+    } finally { setBusy(false); }
+  }
 
   async function loadUsers() {
     try {
@@ -4313,6 +4316,11 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
       return;
     }
 
+    if (password.length < 10) {
+      setState("הסיסמה חייבת להכיל לפחות 10 תווים.");
+      return;
+    }
+
     setState("שומר הרשאה...");
     try {
       const response = await fetch("/api/admin/users", {
@@ -4321,6 +4329,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
         body: JSON.stringify({
           email,
           name,
+          password,
           role,
           clientId: role === "client" ? clientId : "",
         }),
@@ -4329,6 +4338,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
       if (!response.ok || !payload.success) throw new Error(payload.message || "שמירת משתמש נכשלה");
       setEmail("");
       setName("");
+      setPassword("");
       setRole("client");
       await loadUsers();
       setState("המשתמש וההרשאות נשמרו.");
@@ -4377,9 +4387,6 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
       <div className="flex flex-col gap-2 border-b border-slate-100 pb-4 md:flex-row md:items-start md:justify-between">
         <div>
           <h2 className="text-xl font-bold text-[#080123]">משתמשים והרשאות לקוחות</h2>
-          <p className="mt-1 text-sm leading-6 text-[#65738a]">
-            כאן מוסיפים משתמש לקוח, משייכים אותו ללקוח ספציפי, או מגדירים משתמש אדמין.
-          </p>
         </div>
         <button
           onClick={loadUsers}
@@ -4389,12 +4396,13 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
         </button>
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_1fr_160px_1fr_auto]">
+      <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_130px_1fr_auto]">
         <input
           type="email"
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           placeholder="אימייל משתמש"
+          aria-label="אימייל משתמש"
           className="h-10 rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
           dir="ltr"
         />
@@ -4403,10 +4411,23 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
           value={name}
           onChange={(event) => setName(event.target.value)}
           placeholder="שם להצגה"
+          aria-label="שם להצגה"
           className="h-10 rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
+        />
+        <input
+          type="password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          placeholder="סיסמה, לפחות 10 תווים"
+          aria-label="סיסמה למשתמש החדש"
+          maxLength={128}
+          autoComplete="new-password"
+          className="h-10 rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
+          dir="ltr"
         />
         <select
           value={role}
+          aria-label="תפקיד משתמש חדש"
           onChange={(event) => setRole(event.target.value as "admin" | "client")}
           className="h-10 rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
         >
@@ -4415,6 +4436,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
         </select>
         <select
           value={clientId}
+          aria-label="לקוח לשיוך"
           onChange={(event) => setClientId(event.target.value)}
           disabled={role === "admin"}
           className="h-10 rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5] disabled:bg-slate-100"
@@ -4429,7 +4451,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
           onClick={saveUserAccess}
           className="h-10 rounded-md bg-[#080123] px-4 text-sm font-bold text-white"
         >
-          שמור
+          צור משתמש
         </button>
       </div>
 
@@ -4441,6 +4463,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
             <tr>
               <th className="p-3 text-right">משתמש</th>
               <th className="p-3 text-right">תפקיד</th>
+              <th className="p-3 text-right">התחברות</th>
               <th className="p-3 text-right">לקוחות משויכים</th>
               <th className="p-3 text-right">נוצר</th>
             </tr>
@@ -4457,12 +4480,34 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
                 <td className="p-3">
                   <select
                     value={user.role}
+                    aria-label={`תפקיד ${user.email}`}
+                    disabled={user.isOwner}
                     onChange={(event) => updateUserRole(user.id, event.target.value as "admin" | "client")}
                     className="h-9 rounded-md border border-[#dfe7ee] px-2 text-sm"
                   >
                     <option value="client">לקוח</option>
                     <option value="admin">אדמין</option>
                   </select>
+                </td>
+                <td className="p-3">
+                  <span className={classNames(
+                    "inline-flex rounded-full px-3 py-1 text-xs font-bold",
+                    user.hasPassword
+                      ? "bg-[#e8fbf8] text-[#007d72]"
+                      : "bg-[#fff0e8] text-[#9a3412]",
+                  )}>
+                    {user.hasPassword ? "סיסמה פעילה" : "חסרה סיסמה"}
+                  </span>
+                  <button type="button" className="mt-2 block text-xs font-medium text-[#087f72]" onClick={() => { setResetUserId(user.id); setResetPassword(""); }}>שינוי סיסמה</button>
+                  {resetUserId === user.id && (
+                    <form className="mt-2 space-y-2" onSubmit={(event) => { event.preventDefault(); void savePassword(user.id); }}>
+                      <input autoFocus aria-label={`סיסמה חדשה עבור ${user.email}`} type="password" autoComplete="new-password" required minLength={10} maxLength={128} dir="ltr" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} className="h-9 w-full min-w-0 rounded-md border border-[#dfe7ee] px-2" />
+                      <div className="flex gap-2">
+                        <button disabled={busy} className="rounded-md bg-[#111318] px-3 py-2 text-xs text-white">{busy ? "שומר..." : "עדכן סיסמה"}</button>
+                        <button type="button" disabled={busy} onClick={() => { setResetUserId(null); setResetPassword(""); }} className="text-xs">ביטול</button>
+                      </div>
+                    </form>
+                  )}
                 </td>
                 <td className="p-3">
                   {user.role === "admin" ? (
@@ -4511,7 +4556,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
             ))}
             {!users.length && (
               <tr>
-                <td colSpan={4} className="p-6 text-center text-[#65738a]">
+                <td colSpan={5} className="p-6 text-center text-[#65738a]">
                   אין משתמשים להצגה.
                 </td>
               </tr>
@@ -4526,10 +4571,12 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
 function AdminPanel({
   clientName,
   clients,
+  canManageUsers,
   onCreateLiveClient,
 }: {
   clientName: string;
   clients: Client[];
+  canManageUsers: boolean;
   onCreateLiveClient: (input: {
     clientName: string;
     clientEmail: string;
@@ -4625,7 +4672,7 @@ function AdminPanel({
 
     const details = [
       clientEmail.trim()
-        ? `משתמש לקוח: ${clientEmail.trim()} (Magic Link בהמשך)`
+        ? `אימייל לקוח: ${clientEmail.trim()} (צור עבורו סיסמה במסך אדמין)`
         : "לא הוזן אימייל משתמש לקוח",
       "הדוחות במסכים כעת משתמשים בדאטה החי שנמשך מ-Flashy.",
     ];
@@ -4820,7 +4867,7 @@ function AdminPanel({
           ביישום Neon + Auth.js, הבידוד ייאכף בצד שרת דרך שיוך `client_users` והרשאות באפליקציה.
         </div>
       </section>
-      <UserAccessManager clients={clients} />
+      {canManageUsers && <UserAccessManager clients={clients} />}
     </div>
   );
 }
@@ -5189,7 +5236,8 @@ export function DashboardApp() {
   const [showDeepAnalysis, setShowDeepAnalysis] = useState(false);
   const [clientView, setClientView] = useState(false);
   const [viewerRole, setViewerRole] = useState<"admin" | "client">("admin");
-  const [, setDataSource] = useState<"demo" | "neon" | "loading">("loading");
+  const [canManageUsers, setCanManageUsers] = useState(false);
+  const [dataSource, setDataSource] = useState<"demo" | "neon" | "loading">("loading");
   const [dataNotice, setDataNotice] = useState("טוען נתונים מ-Neon...");
   const [authRequired, setAuthRequired] = useState(false);
   const [liveDataIssue, setLiveDataIssue] = useState("");
@@ -5259,12 +5307,14 @@ export function DashboardApp() {
             return;
           }
           setDataSource("demo");
+          if (process.env.NODE_ENV === "production") setLiveDataIssue("החיבור לנתונים אינו מוגדר. פנה למנהל המערכת.");
           setDataNotice(payload.message || "אין חיבור Neon פעיל, מוצגים נתוני דמו.");
           return;
         }
 
         const data = payload.data as DashboardDataPayload;
         const incomingRole = data.viewer?.role ?? "admin";
+        setCanManageUsers(data.viewer?.canManageUsers === true);
         if (!data.clients.length || !data.accounts.length) {
           setDataSource("loading");
           setLiveDataIssue(
@@ -5292,10 +5342,7 @@ export function DashboardApp() {
         setDataNotice(`נטענו ${data.clients.length} לקוחות מ-Neon.`);
       } catch (error) {
         if (!cancelled) {
-          setDataSource("demo");
-          setDataNotice(
-            error instanceof Error ? error.message : "טעינת Neon נכשלה, מוצגים נתוני דמו.",
-          );
+          setLiveDataIssue(error instanceof Error ? error.message : "טעינת הנתונים נכשלה. נסה שוב בעוד רגע.");
         }
       }
     }
@@ -5332,6 +5379,7 @@ export function DashboardApp() {
 
       const data = payload.data as DashboardDataPayload;
       const incomingRole = data.viewer?.role ?? "admin";
+      setCanManageUsers(data.viewer?.canManageUsers === true);
       setViewerRole(incomingRole);
       if (incomingRole === "client") {
         setClientView(true);
@@ -5438,8 +5486,7 @@ export function DashboardApp() {
   };
 
   async function logout() {
-    await fetch("/api/auth/admin-code", { method: "DELETE" });
-    window.location.href = "/";
+    await signOut({ callbackUrl: "/" });
   }
 
   if (authRequired) {
@@ -5448,6 +5495,10 @@ export function DashboardApp() {
 
   if (liveDataIssue) {
     return <LiveDataIssue message={liveDataIssue} />;
+  }
+
+  if (dataSource === "loading") {
+    return <div dir="rtl" role="status" className="grid min-h-screen place-items-center bg-[#f5f7f8] text-sm text-[#667085]">טוען את החשבון...</div>;
   }
 
   return (
@@ -5716,6 +5767,7 @@ export function DashboardApp() {
           )}
           {activeView === "admin" && !effectiveClientView && (
             <AdminPanel
+              canManageUsers={canManageUsers}
               clientName={selectedClient.name}
               clients={localClients}
               onCreateLiveClient={createLiveClient}

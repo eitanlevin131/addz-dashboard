@@ -4,6 +4,10 @@ create table users (
   email text not null unique,
   email_verified timestamptz,
   image text,
+  password_hash text,
+  session_version integer not null default 0,
+  login_attempts integer not null default 0,
+  login_window_start timestamptz,
   role text not null default 'client' check (role in ('admin', 'client')),
   created_at timestamptz not null default now()
 );

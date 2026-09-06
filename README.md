@@ -66,7 +66,7 @@ npx drizzle-kit generate
 ```
 
 - להריץ את ה־SQL שנוצר תחת `db/migrations/` על Neon, או להריץ ידנית את `db/schema.sql` בתחילת הדרך.
-- להפעיל Auth.js עם Magic Link דרך SMTP זול/חינמי כגון Resend או ספק מייל קיים.
+- להפעיל Auth.js עם אימייל וסיסמה; משתמשים נוצרים ומשויכים ללקוחות ממסך האדמין.
 - לשמור Flashy API keys מוצפנים בצד שרת בלבד.
 - לקרוא את `GET /account`, `GET /reports/emails`, `GET /reports/sms`, `GET /reports/automations`.
 - להריץ סנכרון יומי דרך Vercel Cron ולהשאיר כפתור רענון ידני.

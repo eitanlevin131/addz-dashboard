@@ -36,6 +36,20 @@
       "when": 1779623554506,
       "tag": "0004_bouncy_beyonder",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788526479827,
+      "tag": "0005_warm_marvel_boy",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788685691324,
+      "tag": "0006_woozy_amphibian",
+      "breakpoints": true
     }
   ]
 }

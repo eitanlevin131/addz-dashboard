@@ -1,6 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth/access";
+import { requireOwner } from "@/lib/auth/access";
+import { isOwnerEmail } from "@/lib/auth/owner";
+import { hashPassword, validatePassword } from "@/lib/auth/password";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { clientUsers, clients, users } from "@/lib/schema";
 
@@ -20,7 +22,7 @@ export async function GET() {
     );
   }
 
-  const adminContext = await requireAdmin();
+  const adminContext = await requireOwner();
   if (!adminContext.ok) return adminContext.response;
 
   const db = getDb();
@@ -45,6 +47,8 @@ export async function GET() {
       name: user.name ?? "",
       email: user.email,
       role: user.role,
+      hasPassword: Boolean(user.passwordHash),
+      isOwner: isOwnerEmail(user.email),
       createdAt: user.createdAt.toISOString(),
       clients: linkRows
         .filter((link) => link.userId === user.id)
@@ -66,69 +70,76 @@ export async function POST(request: Request) {
     );
   }
 
-  const adminContext = await requireAdmin();
+  const adminContext = await requireOwner();
   if (!adminContext.ok) return adminContext.response;
 
   const body = await request.json().catch(() => ({}));
   const email = normalizeEmail(body.email);
   const name = String(body.name ?? "").trim();
+  const password = String(body.password ?? "");
   const role = normalizeRole(body.role);
   const clientId = String(body.clientId ?? "").trim();
 
-  if (!email) {
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json(
       { success: false, message: "חסר אימייל משתמש." },
       { status: 400 },
     );
   }
 
+  const passwordError = validatePassword(password);
+  if (passwordError) {
+    return NextResponse.json({ success: false, message: passwordError }, { status: 400 });
+  }
+
+  if (role === "client" && !clientId) {
+    return NextResponse.json(
+      { success: false, message: "צריך לבחור לקוח עבור משתמש לקוח." },
+      { status: 400 },
+    );
+  }
+
   const db = getDb();
+  if (clientId && role === "client") {
+    if (!/^[a-f0-9-]{36}$/i.test(clientId)) return NextResponse.json({ success: false, message: "הלקוח שנבחר אינו תקין." }, { status: 400 });
+    const [client] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, clientId));
+    if (!client) return NextResponse.json({ success: false, message: "הלקוח שנבחר לא נמצא." }, { status: 404 });
+  }
   const existingUser = await db
     .select()
     .from(users)
     .where(eq(users.email, email))
     .then((rows) => rows[0]);
-  const user =
-    existingUser ??
-    (await db
+  if (existingUser) {
+    return NextResponse.json(
+      { success: false, message: "המשתמש כבר קיים. ניתן לשנות סיסמה ברשימת המשתמשים." },
+      { status: 409 },
+    );
+  }
+
+  const passwordHash = await hashPassword(password);
+  const userId = crypto.randomUUID();
+  const insertUser = db
       .insert(users)
       .values({
-        id: crypto.randomUUID(),
+        id: userId,
         email,
         name: name || email,
+        passwordHash,
         role,
       })
-      .returning()
-      .then((rows) => rows[0]));
-
-  if (existingUser) {
-    await db
-      .update(users)
-      .set({ name: name || existingUser.name, role })
-      .where(eq(users.id, existingUser.id));
-  }
-
-  if (clientId && role === "client") {
-    const client = await db
-      .select({ id: clients.id })
-      .from(clients)
-      .where(eq(clients.id, clientId))
-      .then((rows) => rows[0]);
-
-    if (!client) {
-      return NextResponse.json(
-        { success: false, message: "הלקוח שנבחר לא נמצא." },
-        { status: 404 },
-      );
+      .returning();
+  try {
+    if (role === "client") {
+      await db.batch([insertUser, db.insert(clientUsers).values({ clientId, userId })]);
+    } else {
+      await insertUser;
     }
-
-    await db
-      .insert(clientUsers)
-      .values({ clientId, userId: user.id })
-      .onConflictDoNothing();
+  } catch {
+    return NextResponse.json({ success: false, message: "יצירת המשתמש נכשלה. בדוק אם האימייל כבר קיים." }, { status: 409 });
   }
 
-  return NextResponse.json({ success: true, data: { userId: user.id } }, { status: 201 });
+  return NextResponse.json({ success: true, data: { userId } }, { status: 201 });
 }
 
 export async function PATCH(request: Request) {
@@ -139,7 +150,7 @@ export async function PATCH(request: Request) {
     );
   }
 
-  const adminContext = await requireAdmin();
+  const adminContext = await requireOwner();
   if (!adminContext.ok) return adminContext.response;
 
   const body = await request.json().catch(() => ({}));
@@ -154,6 +165,24 @@ export async function PATCH(request: Request) {
   }
 
   const db = getDb();
+  const [target] = await db.select().from(users).where(eq(users.id, userId));
+  if (!target) return NextResponse.json({ success: false, message: "המשתמש לא נמצא." }, { status: 404 });
+
+  if (body.password !== undefined) {
+    const password = typeof body.password === "string" ? body.password : "";
+    const error = validatePassword(password);
+    if (error) return NextResponse.json({ success: false, message: error }, { status: 400 });
+    await db.update(users).set({
+      passwordHash: await hashPassword(password),
+      sessionVersion: sql`${users.sessionVersion} + 1`,
+      loginAttempts: 0,
+      loginWindowStart: null,
+    }).where(eq(users.id, userId));
+    return NextResponse.json({ success: true, reauthenticate: target.email === adminContext.access.email });
+  }
+
+  if (body.role !== "admin" && body.role !== "client") return NextResponse.json({ success: false, message: "תפקיד לא תקין." }, { status: 400 });
+  if (isOwnerEmail(target.email)) return NextResponse.json({ success: false, message: "לא ניתן לשנות את תפקיד בעל המערכת." }, { status: 400 });
   const [updated] = await db.update(users).set({ role }).where(eq(users.id, userId)).returning();
 
   if (!updated) {
@@ -174,7 +203,7 @@ export async function DELETE(request: Request) {
     );
   }
 
-  const adminContext = await requireAdmin();
+  const adminContext = await requireOwner();
   if (!adminContext.ok) return adminContext.response;
 
   const body = await request.json().catch(() => ({}));

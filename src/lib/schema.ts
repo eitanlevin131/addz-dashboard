@@ -18,6 +18,10 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   emailVerified: timestamp("email_verified", { withTimezone: true }),
   image: text("image"),
+  passwordHash: text("password_hash"),
+  sessionVersion: integer("session_version").notNull().default(0),
+  loginAttempts: integer("login_attempts").notNull().default(0),
+  loginWindowStart: timestamp("login_window_start", { withTimezone: true }),
   role: text("role").notNull().default("client"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

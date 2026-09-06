@@ -1,11 +1,10 @@
 import { getServerSession } from "next-auth";
 import { eq } from "drizzle-orm";
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { clientUsers, users } from "@/lib/schema";
-import { getAdminSessionCookieName, readAdminSessionToken } from "./admin-session";
 import { authOptions } from "./options";
+import { isOwnerEmail } from "./owner";
 
 export type AccessContext = {
   userId: string;
@@ -18,20 +17,11 @@ export function isAdminRole(role: string) {
   return role === "admin" || role === "agency";
 }
 
-function getConfiguredAdminEmails() {
-  return new Set(
-    (process.env.ADMIN_EMAILS ?? "")
-      .split(",")
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
-
 export async function getAccessContext(): Promise<
   | { ok: true; access: AccessContext }
   | { ok: false; response: NextResponse }
 > {
-  if (!isDatabaseConfigured() || process.env.AUTH_DEV_BYPASS === "true") {
+  if (process.env.NODE_ENV !== "production" && (!isDatabaseConfigured() || process.env.AUTH_DEV_BYPASS === "true")) {
     return {
       ok: true,
       access: {
@@ -43,11 +33,12 @@ export async function getAccessContext(): Promise<
     };
   }
 
+  if (!isDatabaseConfigured()) {
+    return { ok: false, response: NextResponse.json({ success: false, message: "המערכת אינה זמינה כרגע." }, { status: 503 }) };
+  }
+
   const session = await getServerSession(authOptions);
-  const adminCookie = readAdminSessionToken(
-    (await cookies()).get(getAdminSessionCookieName())?.value,
-  );
-  const email = adminCookie?.email ?? session?.user?.email?.toLowerCase();
+  const email = session?.user?.email?.toLowerCase();
 
   if (!email) {
     return {
@@ -59,32 +50,20 @@ export async function getAccessContext(): Promise<
     };
   }
 
-  if (getConfiguredAdminEmails().has(email)) {
-    return {
-      ok: true,
-      access: {
-        userId: `admin-email-${email}`,
-        email,
-        role: "admin",
-        clientIds: null,
-      },
-    };
-  }
-
   const db = getDb();
   const user = await db.select().from(users).where(eq(users.email, email)).limit(1).then((rows) => rows[0]);
 
-  if (!user) {
+  if (!user || session?.userId !== user.id || session.sessionVersion !== user.sessionVersion) {
     return {
       ok: false,
       response: NextResponse.json(
-        { success: false, message: "המשתמש לא נמצא במערכת." },
-        { status: 403 },
+        { success: false, message: "צריך להתחבר מחדש." },
+        { status: 401 },
       ),
     };
   }
 
-  const role = user.role;
+  const role = isOwnerEmail(email) ? "admin" : user.role;
 
   if (isAdminRole(role)) {
     return {
@@ -125,6 +104,15 @@ export async function requireAdmin() {
     };
   }
 
+  return context;
+}
+
+export async function requireOwner() {
+  const context = await requireAdmin();
+  if (!context.ok) return context;
+  if (!isOwnerEmail(context.access.email)) {
+    return { ok: false as const, response: NextResponse.json({ success: false, message: "ניהול משתמשים זמין לבעל המערכת בלבד." }, { status: 403 }) };
+  }
   return context;
 }
 

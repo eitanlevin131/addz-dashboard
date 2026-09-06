@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { asc, desc } from "drizzle-orm";
 import { getAccessContext, isAdminRole } from "@/lib/auth/access";
+import { isOwnerEmail } from "@/lib/auth/owner";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import {
   automationReports,
@@ -73,6 +74,7 @@ export async function GET() {
     success: true,
     data: {
       viewer: {
+        canManageUsers: isOwnerEmail(accessContext.access.email),
         email: accessContext.access.email,
         role: isAdminRole(accessContext.access.role) ? "admin" : "client",
       },
