@@ -148,6 +148,10 @@ async function syncPersistedAccount(accountId: string, startedAt: number) {
     const from = to - 60 * 60 * 24 * 90;
     const accountResponse = await validateFlashyAccount(apiKey);
     const reports = await getFlashyReports(apiKey, from, to);
+    const failedReports = reports.checks.filter((check) => !check.ok);
+    if (failedReports.length) {
+      throw new Error(`סנכרון נכשל: ${failedReports.map((check) => `${check.label}: ${check.message}`).join("; ")}`);
+    }
     const emailRows = reports.emails as RawFlashyRow[];
     const smsRows = reports.sms as RawFlashyRow[];
     const automationRows = reports.automations as RawFlashyRow[];

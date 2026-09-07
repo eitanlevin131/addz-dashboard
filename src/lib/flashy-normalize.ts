@@ -110,7 +110,8 @@ export function normalizeAutomationReports(
   accountId: string,
 ): AutomationReport[] {
   return rows.map((row, index) => {
-    const date = rawDate(row, index);
+    const reportDate = rawString(row, ["date", "report_date"]);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(reportDate) ? reportDate : rawDate(row, index);
     return {
       id: `${accountId}-automation-${rawString(row, ["automation_id"], String(index))}-${index}`,
       accountId,

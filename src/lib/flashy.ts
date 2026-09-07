@@ -84,10 +84,7 @@ export async function getFlashyReports(apiKey: string, from: number, to: number)
       apiKey,
       path: endpoints.sms,
     }),
-    flashyRequest<{ success: boolean; data: unknown[] }>({
-      apiKey,
-      path: endpoints.automations,
-    }),
+    getAutomationReportWindows(apiKey, from, to),
   ]);
 
   return {
@@ -100,6 +97,19 @@ export async function getFlashyReports(apiKey: string, from: number, to: number)
       describeReportCheck("אוטומציות", endpoints.automations, automations),
     ],
   };
+}
+
+async function getAutomationReportWindows(apiKey: string, from: number, to: number) {
+  const data: unknown[] = [];
+  for (const window of monthWindows(new Date(from * 1000), new Date(to * 1000))) {
+    const result = await flashyRequest<{ success: boolean; data: unknown[] }>({
+      apiKey,
+      path: `/reports/automations?from=${window.from}&to=${window.to}`,
+    });
+    if (!Array.isArray(result.data)) throw new Error("Invalid automation report response");
+    data.push(...result.data);
+  }
+  return { success: true, data };
 }
 
 function describeReportCheck(
@@ -138,20 +148,17 @@ export function normalizeFlashyReportMoney<Row extends Record<string, unknown>>(
 
 export function monthWindows(from: Date, to: Date) {
   const windows: { from: number; to: number }[] = [];
-  let cursor = new Date(from);
-
-  while (cursor <= to) {
-    const end = new Date(cursor);
-    end.setDate(end.getDate() + 30);
-    if (end > to) end.setTime(to.getTime());
-
-    windows.push({
-      from: Math.floor(cursor.getTime() / 1000),
-      to: Math.floor(end.getTime() / 1000),
-    });
-
-    cursor = new Date(end);
-    cursor.setDate(cursor.getDate() + 1);
+  let cursor = Math.floor(from.getTime() / 1000);
+  const last = Math.floor(to.getTime() / 1000);
+  if (!Number.isFinite(cursor) || !Number.isFinite(last) || cursor > last) {
+    throw new Error("Invalid report date range");
+  }
+  while (cursor <= last) {
+    // Flashy accepts at most 30 calendar days per automation request.
+    // End at a day boundary so adjacent requests neither repeat nor skip a day.
+    const end = Math.min(Math.floor(cursor / 86400) * 86400 + 30 * 86400 - 1, last);
+    windows.push({ from: cursor, to: end });
+    cursor = end + 1;
   }
 
   return windows;
