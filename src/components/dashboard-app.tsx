@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { signIn, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
-import { chartColors, EngagementPlot, RankedBars, RevenueCostBars, RevenueShareChart, WeekdayBars } from "@/components/reporting-charts";
+import { chartColors, EngagementPlot, RankedBars, SmsReturnChart, RevenueShareChart, WeekdayBars } from "@/components/reporting-charts";
 import { campaignTiming, measuredRate } from "@/lib/report-chart-data";
 import {
   automationReports,
@@ -1091,7 +1091,7 @@ function Sidebar({
   selectedClientId,
   visibleViews,
   view,
-  clientView,
+  hideClientSelector,
   onSelectClient,
   onSelectView,
 }: {
@@ -1099,7 +1099,7 @@ function Sidebar({
   selectedClientId: string;
   visibleViews: typeof views;
   view: ViewKey;
-  clientView: boolean;
+  hideClientSelector: boolean;
   onSelectClient: (clientId: string) => void;
   onSelectView: (view: ViewKey) => void;
 }) {
@@ -1109,7 +1109,7 @@ function Sidebar({
         <span className="grid size-8 place-items-center rounded-md bg-[#42dfcf] text-xs font-black text-[#0b0c10]">FG</span>
         <span className="truncate">Growth Desk</span>
       </div>
-      {!clientView && (
+      {!hideClientSelector && (
         <ClientSelector clients={clients} selectedClientId={selectedClientId} onChange={onSelectClient} />
       )}
       <nav className="grid gap-1" aria-label="ניווט ראשי">
@@ -1144,6 +1144,7 @@ function Overview({
   sms,
   automations,
   showDeepAnalysis,
+  canAudit,
   rangeStart,
   rangeEnd,
 }: {
@@ -1153,6 +1154,7 @@ function Overview({
   sms: SmsCampaignReport[];
   automations: AutomationReport[];
   showDeepAnalysis: boolean;
+  canAudit: boolean;
   rangeStart: string;
   rangeEnd: string;
 }) {
@@ -1251,7 +1253,7 @@ function Overview({
         <KPIGrid account={account} summary={summary} />
       </div>
 
-      {showDeepAnalysis && (
+      {showDeepAnalysis && canAudit && (
         <div className="col-span-12">
           <DataReconciliationPanel
             account={account}
@@ -1298,328 +1300,6 @@ function Overview({
   );
 }
 
-function ClientOverview({
-  account,
-  summary,
-  emails,
-  sms,
-  automations,
-}: {
-  account: FlashyAccount;
-  summary: MetricSummary;
-  emails: EmailCampaignReport[];
-  sms: SmsCampaignReport[];
-  automations: AutomationReport[];
-}) {
-  const activities: PerformanceItem[] = [
-    ...emails.map((item) => ({
-      id: `email-${item.id}`,
-      date: item.sentAt.slice(0, 10),
-      name: item.campaignName,
-      channel: "אימייל" as const,
-      kind: "campaign" as const,
-      medium: "email" as const,
-      revenue: item.revenueGenerated,
-      cost: 0,
-      purchases: item.purchases,
-      clicks: item.uniqueClicks,
-      opens: item.totalOpens,
-      recipients: item.totalRecipients,
-      engagementRate: item.totalDelivered > 0 ? item.uniqueClicks / item.totalDelivered : 0,
-    })),
-    ...sms.map((item) => ({
-      id: `sms-${item.id}`,
-      date: item.sentAt.slice(0, 10),
-      name: item.campaignName,
-      channel: "SMS" as const,
-      kind: "campaign" as const,
-      medium: "sms" as const,
-      revenue: item.revenueGenerated,
-      cost: item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate,
-      purchases: item.purchases,
-      clicks: item.totalClicks,
-      opens: 0,
-      recipients: item.totalRecipients,
-      engagementRate: item.totalDelivered > 0 ? item.totalClicks / item.totalDelivered : 0,
-    })),
-    ...automations.map((item) => {
-      const smsRecipients = getAutomationSmsRecipients(item);
-      const medium: "email" | "sms" = smsRecipients > 0 || item.channel === "sms" ? "sms" : "email";
-      const delivered = medium === "sms" ? smsRecipients : item.sentEmails ?? item.totalDelivered;
-      const clicks = medium === "sms" ? item.clickedSms ?? item.totalClicks : item.totalClicks;
-
-      return {
-        id: `automation-${item.id}`,
-        date: item.date,
-        name: item.automationName,
-        channel: "אוטומציות" as const,
-        kind: "automation" as const,
-        medium,
-        revenue: item.revenueGenerated,
-        cost: smsRecipients * account.smsCreditPriceUsd * account.usdIlsRate,
-        purchases: item.purchases,
-        clicks,
-        opens: medium === "email" ? item.openedEmails ?? item.totalOpens : 0,
-        recipients: medium === "sms" ? smsRecipients : item.totalRecipients,
-        engagementRate: delivered > 0 ? clicks / delivered : 0,
-      };
-    }),
-  ];
-  const channelData = ["אימייל", "SMS", "אוטומציות"].map((channel) => {
-    const items = activities.filter((item) => item.channel === channel);
-    const revenue = items.reduce((total, item) => total + item.revenue, 0);
-    const cost = items.reduce((total, item) => total + item.cost, 0);
-    const recipients = items.reduce((total, item) => total + item.recipients, 0);
-    const purchases = items.reduce((total, item) => total + item.purchases, 0);
-
-    return {
-      channel,
-      revenue,
-      cost,
-      profit: revenue - cost,
-      purchases,
-      count: items.length,
-      recipients,
-      roas: cost > 0 ? revenue / cost : null,
-      revenuePerRecipient: recipients > 0 ? revenue / recipients : 0,
-      share: summary.revenue > 0 ? revenue / summary.revenue : 0,
-    };
-  });
-  const recentActivities = [...activities]
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 4);
-
-  return (
-    <section className="grid grid-cols-12 gap-3">
-      <div className="col-span-12">
-        <KPIGrid account={account} summary={summary} />
-      </div>
-
-      <ChannelBreakdown account={account} channelData={channelData} showCosts={false} />
-
-      <article className="col-span-12 rounded-2xl border border-[#dfe7ee] bg-white p-5 text-[#080123] shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xl font-black">פעילויות אחרונות</h2>
-          <span className="text-xs font-bold text-[#65738a]">עד 4 פריטים</span>
-        </div>
-        <div className="mt-4 divide-y divide-[#eef3f7]">
-          {recentActivities.length ? (
-            recentActivities.map((item) => (
-              <div key={item.id} className="grid gap-3 py-3 md:grid-cols-[1fr_110px_110px_110px] md:items-center">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-bold">{item.name}</p>
-                  <p className="mt-1 text-xs text-[#65738a]">
-                    {new Date(item.date).toLocaleDateString("he-IL")} · {item.channel}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs text-[#65738a]">הכנסה</p>
-                  <p className="font-black">{formatCurrency(item.revenue, account.currency)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-[#65738a]">רכישות</p>
-                  <p className="font-black">{formatNumber(item.purchases)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-[#65738a]">{item.medium === "email" ? "קליקים" : "הקלקה"}</p>
-                  <p className="font-black">
-                    {item.medium === "email" ? formatNumber(item.clicks) : formatPercent(item.engagementRate)}
-                  </p>
-                </div>
-              </div>
-            ))
-          ) : (
-            <p className="py-6 text-center text-sm text-[#65738a]">אין פעילויות להצגה בטווח הזה.</p>
-          )}
-        </div>
-      </article>
-    </section>
-  );
-}
-
-function ClientSmsDashboard({
-  account,
-  sms,
-  automations,
-}: {
-  account: FlashyAccount;
-  sms: SmsCampaignReport[];
-  automations: AutomationReport[];
-}) {
-  const smsAutomations = automations.filter((item) => getAutomationSmsRecipients(item) > 0);
-  const summary = summarizeSms(account, sms, smsAutomations);
-  const rows = [
-    ...sms.map((item) => ({
-      id: `sms-${item.id}`,
-      name: item.campaignName,
-      type: "קמפיין",
-      revenue: item.revenueGenerated,
-      cost: item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate,
-      purchases: item.purchases,
-      recipients: item.totalRecipients,
-      clicks: item.totalClicks,
-    })),
-    ...smsAutomations.map((item) => {
-      const recipients = getAutomationSmsRecipients(item);
-
-      return {
-        id: `automation-${item.id}`,
-        name: item.automationName,
-        type: "אוטומציה",
-        revenue: item.revenueGenerated,
-        cost: recipients * account.smsCreditPriceUsd * account.usdIlsRate,
-        purchases: item.purchases,
-        recipients,
-        clicks: item.clickedSms ?? item.totalClicks,
-      };
-    }),
-  ].map((item) => ({ ...item, roas: item.cost > 0 ? item.revenue / item.cost : null }));
-  const winners = [...rows].sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0) || b.revenue - a.revenue).slice(0, 3);
-
-  return (
-    <section className="space-y-4">
-      <div className="grid grid-cols-3 gap-2 md:gap-3">
-        <MetricCard title="הכנסות SMS" value={formatCurrency(summary.revenue, account.currency)} caption={`${formatNumber(summary.purchases)} רכישות`} icon={TrendingUp} tone="good" />
-        <MetricCard title="ROAS SMS" value={formatRoas(summary.roas)} caption="קמפיינים ואוטומציות" icon={LineChart} tone="good" />
-        <MetricCard title="נמענים" value={formatNumber(summary.recipients)} caption={`${formatNumber(summary.clicks)} קליקים`} icon={MessageSquareText} />
-      </div>
-      <section>
-        <RankedBars
-          title="SMS שעבדו הכי טוב"
-          currency={account.currency}
-          rows={winners.map((item) => ({
-            id: item.id,
-            label: item.name,
-            value: item.revenue,
-            color: chartColors.sms,
-            meta: `${item.type} · ${formatNumber(item.purchases)} רכישות`,
-          }))}
-        />
-      </section>
-    </section>
-  );
-}
-
-function ClientAutomationDashboard({
-  account,
-  automations,
-}: {
-  account: FlashyAccount;
-  automations: AutomationReport[];
-}) {
-  const enriched = automations.map((item) => {
-    const smsRecipients = getAutomationSmsRecipients(item);
-    const smsCost = smsRecipients * account.smsCreditPriceUsd * account.usdIlsRate;
-    const messages = (item.sentEmails ?? (item.channel === "email" ? item.totalDelivered : 0)) + smsRecipients;
-
-    return {
-      ...item,
-      type: getAutomationType(item),
-      smsCost,
-      messages,
-      roas: smsCost > 0 ? item.revenueGenerated / smsCost : null,
-      clickRate: messages > 0 ? (item.totalClicks + (item.clickedSms ?? 0)) / messages : 0,
-    };
-  });
-  const revenue = enriched.reduce((total, item) => total + item.revenueGenerated, 0);
-  const purchases = enriched.reduce((total, item) => total + item.purchases, 0);
-  const top = [...enriched].sort((a, b) => b.revenueGenerated - a.revenueGenerated || b.purchases - a.purchases).slice(0, 3);
-
-  return (
-    <section className="space-y-4">
-      <div className="grid grid-cols-3 gap-2 md:gap-3">
-        <MetricCard title="הכנסות אוטומציות" value={formatCurrency(revenue, account.currency)} caption={`${formatNumber(automations.length)} אוטומציות`} icon={RefreshCw} tone="good" />
-        <MetricCard title="רכישות" value={formatNumber(purchases)} caption="מאוטומציות בטווח" icon={CheckCircle2} tone="good" />
-        <MetricCard title="מעורבות" value={formatPercent(enriched.reduce((t, i) => t + i.clickRate, 0) / Math.max(1, enriched.length))} caption="ממוצע הקלקה" icon={Activity} />
-      </div>
-      <section>
-        <RankedBars
-          title="אוטומציות מובילות"
-          currency={account.currency}
-          rows={top.map((item) => ({
-            id: item.id,
-            label: item.automationName,
-            value: item.revenueGenerated,
-            color: chartColors.automation,
-            meta: `${automationFilterLabels[item.type]} · ${formatNumber(item.purchases)} רכישות · ${formatPercent(item.clickRate)} הקלקה`,
-          }))}
-        />
-      </section>
-    </section>
-  );
-}
-
-function ClientCampaignDashboard({
-  account,
-  emails,
-  sms,
-}: {
-  account: FlashyAccount;
-  emails: EmailCampaignReport[];
-  sms: SmsCampaignReport[];
-}) {
-  const allCampaigns = [
-    ...emails.map((item) => ({
-      name: item.campaignName,
-      sentAt: item.sentAt,
-      channel: "אימייל",
-      revenue: item.revenueGenerated,
-      purchases: item.purchases,
-      clicks: item.totalClicks,
-      recipients: item.totalRecipients,
-      subject: item.subjectLine,
-      openRate: item.totalDelivered > 0 ? item.totalOpens / item.totalDelivered : 0,
-      clickRate: item.totalDelivered > 0 ? item.uniqueClicks / item.totalDelivered : 0,
-    })),
-    ...sms.map((item) => ({
-      name: item.campaignName,
-      sentAt: item.sentAt,
-      channel: "SMS",
-      revenue: item.revenueGenerated,
-      purchases: item.purchases,
-      clicks: item.totalClicks,
-      recipients: item.totalRecipients,
-      subject: "",
-      openRate: 0,
-      clickRate: item.totalDelivered > 0 ? item.totalClicks / item.totalDelivered : 0,
-    })),
-  ];
-  const revenue = allCampaigns.reduce((total, item) => total + item.revenue, 0);
-  const purchases = allCampaigns.reduce((total, item) => total + item.purchases, 0);
-  const dayNames = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
-  const bestCampaigns = [...allCampaigns].sort((a, b) => b.revenue - a.revenue || b.purchases - a.purchases).slice(0, 3);
-  const bestDay = allCampaigns.reduce<Record<string, { revenue: number; count: number }>>((acc, item) => {
-    const label = dayNames[new Date(item.sentAt).getDay()];
-    acc[label] = acc[label] ?? { revenue: 0, count: 0 };
-    acc[label].revenue += item.revenue;
-    acc[label].count += 1;
-    return acc;
-  }, {});
-  const bestDayEntry = Object.entries(bestDay).sort((a, b) => b[1].revenue - a[1].revenue)[0];
-
-  return (
-    <section className="space-y-4">
-      <div className="grid grid-cols-3 gap-2 md:gap-3">
-        <MetricCard title="הכנסות קמפיינים" value={formatCurrency(revenue, account.currency)} caption={`${formatNumber(allCampaigns.length)} קמפיינים`} icon={Send} tone="good" />
-        <MetricCard title="רכישות" value={formatNumber(purchases)} caption="אימייל ו-SMS" icon={CheckCircle2} tone="good" />
-        <MetricCard title="יום חזק" value={bestDayEntry?.[0] ?? "—"} caption={bestDayEntry ? formatCurrency(bestDayEntry[1].revenue, account.currency) : "אין מספיק נתונים"} icon={CalendarDays} />
-      </div>
-      <section>
-        <RankedBars
-          title="קמפיינים מובילים"
-          currency={account.currency}
-          rows={bestCampaigns.map((item, index) => ({
-            id: `${item.name}-${index}`,
-            label: item.name,
-            value: item.revenue,
-            color: item.channel === "SMS" ? chartColors.sms : chartColors.email,
-            meta: `${item.channel} · ${formatNumber(item.purchases)} רכישות · ${formatPercent(item.clickRate)} הקלקה`,
-          }))}
-        />
-      </section>
-    </section>
-  );
-}
 
 function SmsDashboard({ account, sms, automations, showDeepAnalysis }: {
   account: FlashyAccount; sms: SmsCampaignReport[]; automations: AutomationReport[]; showDeepAnalysis: boolean;
@@ -1629,19 +1309,19 @@ function SmsDashboard({ account, sms, automations, showDeepAnalysis }: {
   const summary = summarizeSms(account, sms, smsAutomations);
   const rows = [
     ...sms.map(item => ({
-      id: item.id, name: item.campaignName, type: "קמפיינים", revenue: item.revenueGenerated,
+      id: item.id, name: item.campaignName, type: "קמפיינים", revenue: item.revenueGenerated, comparable: true,
       cost: item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate,
       recipients: item.totalRecipients, clicks: item.totalClicks, purchases: item.purchases,
     })),
     ...smsAutomations.map(item => ({
-      id: item.id, name: item.automationName, type: "אוטומציות עם SMS", revenue: item.revenueGenerated,
+      id: item.id, name: item.automationName, type: "אוטומציות עם SMS", revenue: item.revenueGenerated, comparable: getAutomationType(item) === "sms",
       cost: getAutomationSmsRecipients(item) * account.smsCreditPriceUsd * account.usdIlsRate,
       recipients: getAutomationSmsRecipients(item), clicks: item.clickedSms ?? item.totalClicks, purchases: item.purchases,
     })),
   ];
-  const groups = ["קמפיינים", "אוטומציות עם SMS"].map(label => {
-    const items = rows.filter(row => row.type === label);
-    return { label, revenue: items.reduce((s,r) => s+r.revenue,0), cost: items.reduce((s,r) => s+r.cost,0), count: items.length };
+  const groups = ["קמפיינים", "אוטומציות SMS", "אוטומציות מעורבות"].map(label => {
+    const items = rows.filter(row => label === "קמפיינים" ? row.type === label : row.type !== "קמפיינים" && row.comparable === (label === "אוטומציות SMS"));
+    return { label, comparable: label !== "אוטומציות מעורבות", revenue: items.reduce((s,r) => s+r.revenue,0), cost: items.reduce((s,r) => s+r.cost,0), count: items.length };
   });
   return <div className="space-y-4">
     <div className="grid grid-cols-2 gap-2 md:gap-3 xl:grid-cols-4">
@@ -1651,13 +1331,13 @@ function SmsDashboard({ account, sms, automations, showDeepAnalysis }: {
       <MetricCard title="רכישות" value={formatNumber(summary.purchases)} caption="מהפעילות שנבחרה" icon={CheckCircle2} />
     </div>
     <div className="grid min-w-0 gap-4 2xl:grid-cols-2">
-      <RevenueCostBars groups={groups} currency={account.currency} />
+      <SmsReturnChart groups={groups} currency={account.currency} />
       <RankedBars key={sortBy} title="ביצועי פעילות SMS" currency={sortBy === "revenue" ? account.currency : undefined} unit={sortBy === "revenue" ? "הכנסה" : "הכנסה / עלות SMS"}
         controls={<select aria-label="מדד דירוג SMS" value={sortBy} onChange={e=>setSortBy(e.target.value as "revenue" | "roas")} className="h-8 rounded-md border border-[#e4e7ec] bg-white px-2 text-xs"><option value="revenue">הכנסה</option><option value="roas">הכנסה / עלות SMS</option></select>}
-        rows={rows.filter(row => sortBy === "revenue" || row.cost > 0).map(row => ({
+        rows={rows.filter(row => sortBy === "revenue" || (row.cost > 0 && row.comparable)).map(row => ({
           id: row.id, label: row.name, value: sortBy === "revenue" ? row.revenue : row.revenue / row.cost,
           color: row.type === "קמפיינים" ? chartColors.sms : chartColors.automation,
-          meta: `${row.type} · ${formatNumber(row.purchases)} רכישות · עלות ${formatCurrency(row.cost,account.currency)} · ${formatRoas(row.cost > 0 ? row.revenue/row.cost : null)}`,
+          meta: `${row.type} · ${formatNumber(row.purchases)} רכישות · עלות ${formatCurrency(row.cost,account.currency)} · ${row.comparable ? formatRoas(row.cost > 0 ? row.revenue/row.cost : null) : "כולל הכנסות אימייל"}`,
         }))} />
     </div>
     {showDeepAnalysis && <DataTable title="פירוט פעילות SMS" columns={["פעילות","סוג","נמענים","קליקים","עלות SMS","הכנסה","רכישות"]} rows={rows.map(row=>[row.name,row.type,formatNumber(row.recipients),formatNumber(row.clicks),formatCurrency(row.cost,account.currency),formatCurrency(row.revenue,account.currency),formatNumber(row.purchases)])} />}
@@ -4530,7 +4210,6 @@ export function DashboardApp() {
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [showDeepAnalysis, setShowDeepAnalysis] = useState(false);
-  const [clientView, setClientView] = useState(false);
   const [viewerRole, setViewerRole] = useState<"admin" | "client">("admin");
   const [canManageUsers, setCanManageUsers] = useState(false);
   const [dataSource, setDataSource] = useState<"demo" | "neon" | "loading">("loading");
@@ -4570,14 +4249,14 @@ export function DashboardApp() {
   const summary = summarizeAccount(account, accountEmails, accountSms, accountAutomations);
   const activeRangeBounds = getTimeRangeBounds(timeRange, customStartDate, customEndDate);
   const viewerIsAdmin = viewerRole === "admin";
-  const effectiveClientView = !viewerIsAdmin || clientView;
+  const isRestrictedUser = !viewerIsAdmin;
 
   const visibleViews = views.filter((item) => {
-    if (effectiveClientView && (item.key === "admin" || item.key === "settings")) return false;
+    if (isRestrictedUser && (item.key === "admin" || item.key === "settings")) return false;
     return !item.module || selectedClient.visibleModules.includes(item.module) || item.key === "admin";
   });
-  const effectiveShowDeepAnalysis = effectiveClientView ? false : showDeepAnalysis;
-  const activeView = effectiveClientView && (view === "settings" || view === "admin") ? "overview" : view;
+  const effectiveShowDeepAnalysis = showDeepAnalysis;
+  const activeView = isRestrictedUser && (view === "settings" || view === "admin") ? "overview" : view;
   const showTimeRange = costViewKeys.includes(activeView);
 
   useEffect(() => {
@@ -4621,7 +4300,6 @@ export function DashboardApp() {
 
         setViewerRole(incomingRole);
         if (incomingRole === "client") {
-          setClientView(true);
           setShowDeepAnalysis(false);
           setView((current) => (current === "settings" || current === "admin" ? "overview" : current));
         }
@@ -4678,7 +4356,6 @@ export function DashboardApp() {
       setCanManageUsers(data.viewer?.canManageUsers === true);
       setViewerRole(incomingRole);
       if (incomingRole === "client") {
-        setClientView(true);
         setShowDeepAnalysis(false);
         setView((current) => (current === "settings" || current === "admin" ? "overview" : current));
       }
@@ -4802,7 +4479,7 @@ export function DashboardApp() {
       dir="rtl"
       className={classNames(
         "dashboard-shell min-h-screen overflow-x-hidden lg:grid",
-        effectiveClientView ? "lg:grid-cols-[160px_minmax(0,1fr)]" : "lg:grid-cols-[196px_minmax(0,1fr)]",
+        "lg:grid-cols-[196px_minmax(0,1fr)]",
       )}
     >
       <Sidebar
@@ -4810,7 +4487,7 @@ export function DashboardApp() {
         selectedClientId={selectedClientId}
         visibleViews={visibleViews}
         view={activeView}
-        clientView={effectiveClientView}
+        hideClientSelector={localClients.length < 2}
         onSelectClient={selectClient}
         onSelectView={setView}
       />
@@ -4836,7 +4513,7 @@ export function DashboardApp() {
       </div>
 
       <main className="dashboard-content relative min-w-0 p-3 text-[#111318] md:p-5 lg:p-6">
-        {!effectiveClientView && (
+        {localClients.length > 1 && (
           <ClientSelector
             clients={localClients}
             selectedClientId={selectedClientId}
@@ -4846,7 +4523,7 @@ export function DashboardApp() {
         )}
         <header className="mb-4 flex flex-col items-start justify-between gap-3 border-b border-[#e4e7ec] pb-4 lg:flex-row lg:items-end">
           <div>
-            {!effectiveClientView && (
+            {!isRestrictedUser && (
               <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-[#667085]">
                 <span>Flashy Account #{account.flashyAccountId}</span>
                 <span className="inline-flex items-center gap-1 font-medium text-[#087f72] before:size-1.5 before:rounded-full before:bg-[#42dfcf]">פעיל</span>
@@ -4856,27 +4533,12 @@ export function DashboardApp() {
             <h1 className="m-0 text-[clamp(26px,3vw,38px)] font-bold leading-tight tracking-normal text-[#111318]">
               {account.name}
             </h1>
-            {effectiveClientView && (
+            {isRestrictedUser && (
               <p className="mt-1 text-xs text-[#667085]">ביצועים · {timeRanges.find((range) => range.key === timeRange)?.label}</p>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {viewerIsAdmin && <button
-              onClick={() => {
-                setClientView((current) => !current);
-                setShowDeepAnalysis(false);
-                if (!effectiveClientView && (activeView === "settings" || activeView === "admin")) setView("overview");
-              }}
-              className={classNames(
-                "h-9 rounded-md border px-3 text-sm font-medium transition",
-                effectiveClientView
-                  ? "border-[#42dfcf] bg-[#ecfdf9] text-[#087f72]"
-                  : "border-[#d0d5dd] bg-white text-[#344054] hover:bg-[#f8fafb]",
-              )}
-            >
-              {effectiveClientView ? "תצוגת לקוח" : "תצוגת סוכנות"}
-            </button>}
-            {!effectiveClientView && <button
+            {!isRestrictedUser && <button
               onClick={refreshDashboardData}
               className="h-9 rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#344054] transition hover:bg-[#f8fafb]"
             >
@@ -4914,7 +4576,7 @@ export function DashboardApp() {
                     ))}
                 </div>
                 <div className="flex items-center gap-2">
-                  {!effectiveClientView && costViewKeys.includes(activeView) && (
+                  {costViewKeys.includes(activeView) && (
                     <button
                       onClick={() => setShowDeepAnalysis((current) => !current)}
                       className={classNames(
@@ -4954,72 +4616,40 @@ export function DashboardApp() {
             </section>
           )}
           {activeView === "overview" && (
-            effectiveClientView ? (
-              <ClientOverview
-                account={account}
-                summary={summary}
-                emails={accountEmails}
-                sms={accountSms}
-                automations={accountAutomations}
-              />
-            ) : (
-              <Overview
+            <Overview
                 account={account}
                 summary={summary}
                 emails={accountEmails}
                 sms={accountSms}
                 automations={accountAutomations}
                 showDeepAnalysis={effectiveShowDeepAnalysis}
+                canAudit={viewerIsAdmin}
                 rangeStart={activeRangeBounds.start}
                 rangeEnd={activeRangeBounds.end}
               />
-            )
           )}
           {activeView === "sms" && (
-            effectiveClientView ? (
-              <ClientSmsDashboard
-                account={account}
-                sms={accountSms}
-                automations={accountAutomations}
-              />
-            ) : (
-              <SmsDashboard
+            <SmsDashboard
                 account={account}
                 sms={accountSms}
                 automations={accountAutomations}
                 showDeepAnalysis={effectiveShowDeepAnalysis}
               />
-            )
           )}
           {activeView === "automations" && (
-            effectiveClientView ? (
-              <ClientAutomationDashboard
-                account={account}
-                automations={accountAutomations}
-              />
-            ) : (
-              <AutomationDashboard
+            <AutomationDashboard
                 account={account}
                 automations={accountAutomations}
                 showDeepAnalysis={effectiveShowDeepAnalysis}
               />
-            )
           )}
           {activeView === "campaigns" && (
-            effectiveClientView ? (
-              <ClientCampaignDashboard
-                account={account}
-                emails={accountEmails}
-                sms={accountSms}
-              />
-            ) : (
-              <CampaignDashboard
+            <CampaignDashboard
                 account={account}
                 emails={accountEmails}
                 sms={accountSms}
                 showDeepAnalysis={effectiveShowDeepAnalysis}
               />
-            )
           )}
           {activeView === "planner" && (
             <Planner
@@ -5032,7 +4662,7 @@ export function DashboardApp() {
             />
           )}
           {activeView === "ai" && (
-            effectiveClientView ? (
+            isRestrictedUser ? (
               <ClientAiSummary
                 account={account}
                 summary={summary}
@@ -5053,7 +4683,7 @@ export function DashboardApp() {
               />
             )
           )}
-          {activeView === "settings" && !effectiveClientView && (
+          {activeView === "settings" && !isRestrictedUser && (
             <AccountSettings
               key={account.id}
               client={selectedClient}
@@ -5061,7 +4691,7 @@ export function DashboardApp() {
               onUpdateAccount={updateAccountSettings}
             />
           )}
-          {activeView === "admin" && !effectiveClientView && (
+          {activeView === "admin" && !isRestrictedUser && (
             <AdminPanel
               canManageUsers={canManageUsers}
               clientName={selectedClient.name}
@@ -5071,7 +4701,7 @@ export function DashboardApp() {
           )}
         </div>
       </main>
-      {!effectiveClientView && (
+      {!isRestrictedUser && (
         <FloatingAiChat
           clientId={selectedClient.id}
           view={activeView}

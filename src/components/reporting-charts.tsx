@@ -2,7 +2,8 @@
 
 import { useId, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import { smsReturnRatio } from "@/lib/report-chart-data";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/metrics";
 
 export const chartColors = { email: "#24282f", sms: "#20b9a8", automation: "#6389d9", cost: "#b77a35", muted: "#dce2e6" };
@@ -111,25 +112,35 @@ export function RankedBars({ title, rows, currency, unit = "הכנסה", detail,
   </ChartFrame>;
 }
 
-export function RevenueCostBars({ groups, currency }: { groups: { label: string; revenue: number; cost: number; count: number }[]; currency: string }) {
-  const chartId = useId();
-  return <ChartFrame title="הכנסה מול עלות SMS" detail="קמפיינים לעומת אוטומציות עם SMS" controls={<Legend items={[{ label: "הכנסה", color: chartColors.sms }, { label: "עלות SMS", color: chartColors.cost }]} />}>
-    {!groups.some(row => row.count > 0) ? <EmptyChart /> : <>
-      <div className="h-[250px] min-w-0 px-3" dir="ltr" role="img" aria-label={groups.map(row => `${row.label}: הכנסה ${formatCurrency(row.revenue, currency)}, עלות SMS ${formatCurrency(row.cost, currency)}`).join(". ")}>
-        <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 480, height: 250 }}>
-          <BarChart id={chartId} data={groups} margin={{ top: 25, right: 16, bottom: 0, left: 0 }} barGap={8}>
-            <CartesianGrid vertical={false} stroke="#edf0f2" strokeDasharray="3 3" />
-            <XAxis dataKey="label" tickFormatter={(label: string) => label.replace(" עם SMS", "")} axisLine={false} tickLine={false} tick={{ fill: "#475467", fontSize: 12 }} height={34} />
-            <YAxis tickFormatter={compact} axisLine={false} tickLine={false} width={46} tick={{ fill: "#98a2b3", fontSize: 10 }} />
-            <Tooltip formatter={(value) => formatCurrency(Number(value), currency)} cursor={{ fill: "#f5f7f8" }} contentStyle={{ direction: "rtl", fontSize: 12, borderRadius: 8, borderColor: "#e4e7ec" }} />
-            <Bar dataKey="revenue" name="הכנסה" fill={chartColors.sms} maxBarSize={42} radius={[3, 3, 0, 0]} isAnimationActive={false}><LabelList dataKey="revenue" position="top" formatter={(value) => compact(Number(value))} fill="#475467" fontSize={11} /></Bar>
-            <Bar dataKey="cost" name="עלות SMS" fill={chartColors.cost} maxBarSize={42} radius={[3, 3, 0, 0]} isAnimationActive={false}><LabelList dataKey="cost" position="top" formatter={(value) => compact(Number(value))} fill="#8d602a" fontSize={11} /></Bar>
-          </BarChart>
-        </ResponsiveContainer>
+export function SmsReturnChart({ groups, currency }: { groups: { label: string; revenue: number; cost: number; count: number; comparable: boolean }[]; currency: string }) {
+  const rows = groups.filter(row => row.count > 0).map(row => ({ ...row, ratio: row.comparable ? smsReturnRatio(row.revenue, row.cost) : null }));
+  const max = Math.max(1, ...rows.map(row => row.ratio ?? 0));
+  const min = Math.min(0, ...rows.map(row => row.ratio ?? 0));
+  const span = max - min;
+  const zero = -min / span * 100;
+  return <ChartFrame title="כמה הכנסה מתקבלת לכל שקל SMS" detail="הכנסה מיוחסת חלקי עלות SMS">
+    {!groups.some(row => row.count > 0) ? <EmptyChart /> : <div className="space-y-6 px-4 pb-4 sm:px-5">
+      <div className="flex justify-between border-b border-[#e4e7ec] pb-2 text-xs tabular-nums text-[#667085]" dir="ltr"><span>{formatNumberRatio(min)}</span><span>{formatNumberRatio(max)}</span></div>
+      {rows.map(row => <div key={row.label}>
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <h3 className="text-sm font-bold">{row.label}</h3>
+          {row.comparable ? <b className="text-3xl tabular-nums" dir="ltr">{row.ratio !== null ? formatNumberRatio(row.ratio) : "—"}</b> : <span className="text-xs text-[#667085]">אימייל + SMS</span>}
+        </div>
+        {row.comparable && <div className="relative h-7 rounded-sm bg-[#f1f4f5]" dir="ltr" role="img" aria-label={row.ratio === null ? "אין עלות SMS לחישוב יחס" : `${row.ratio.toFixed(2)} הכנסה לכל שקל עלות SMS`}>
+          {row.ratio !== null && <div className="absolute inset-y-0 rounded-sm" style={{ left: `${row.ratio >= 0 ? zero : (row.ratio - min) / span * 100}%`, width: `${Math.abs(row.ratio) / span * 100}%`, background: row.ratio < 1 ? chartColors.cost : chartColors.sms }} />}
+          <i className="absolute inset-y-0 border-l border-dashed border-[#475467]" style={{ left: `${(1 - min) / span * 100}%` }} />
+        </div>}
+        <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs text-[#667085]">
+          <span>הכנסה <b className="font-medium text-[#24282f]">{formatCurrency(row.revenue, currency)}</b></span>
+          <span>עלות SMS <b className="font-medium text-[#24282f]">{formatCurrency(row.cost, currency)}</b></span>
+        </div>
+        {row.comparable && row.ratio === null && <p className="mt-2 text-xs text-[#667085]">אין עלות SMS לחישוב יחס</p>}
+      </div>)}
+      <div className="space-y-1 border-t border-[#eef0f2] pt-3 text-[11px] text-[#667085]">
+        <p>הקו המקווקו: הכנסה של ₪1 לכל ₪1 בעלות SMS.</p>
+        <p>אוטומציות מעורבות אינן נכללות בהשוואת ההחזר: ההכנסה כוללת גם אימייל.</p>
       </div>
-      <div className="grid grid-cols-2 gap-4 border-t border-[#eef0f2] px-4 py-3 sm:px-5">{groups.map(row => <div key={row.label} className="min-w-0 text-xs"><p className="font-bold">{row.label}</p><p className="mt-1 tabular-nums text-[#667085]">הכנסה {formatCurrency(row.revenue, currency)}</p><p className="tabular-nums text-[#667085]">עלות {formatCurrency(row.cost, currency)}</p></div>)}</div>
-      <p className="px-4 pb-4 text-[11px] text-[#667085] sm:px-5">הכנסות מאוטומציות מעורבות כוללות גם אימייל; העלות היא של SMS בלבד.</p>
-    </>}
+    </div>}
   </ChartFrame>;
 }
 

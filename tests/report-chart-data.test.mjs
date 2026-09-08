@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { campaignTiming, measuredRate } from "../src/lib/report-chart-data.ts";
+import { campaignTiming, measuredRate, smsReturnRatio } from "../src/lib/report-chart-data.ts";
 
 test("campaigns are grouped by account timezone, not the viewer clock", () => {
   const rows = [{ sentAt: "2026-09-06T22:30:00Z", revenue: 200, purchases: 2 }, { sentAt: "2026-09-06T23:30:00Z", revenue: 0, purchases: 0 }];
@@ -11,6 +11,15 @@ test("campaigns are grouped by account timezone, not the viewer clock", () => {
   assert.equal(usa.days[0].count, 2);
   assert.equal(israel.days.reduce((s,r)=>s+r.revenue,0), 200);
   assert.equal(israel.hours.reduce((s,r)=>s+r.purchases,0), 2);
+});
+
+test("SMS return distinguishes no revenue from an unavailable cost", () => {
+  assert.equal(smsReturnRatio(100, 10), 10);
+  assert.equal(smsReturnRatio(0, 10), 0);
+  assert.equal(smsReturnRatio(100, 0), null);
+  assert.equal(smsReturnRatio(100, -1), null);
+  assert.equal(smsReturnRatio(NaN, 10), null);
+  assert.equal(smsReturnRatio(-20, 10), -2);
 });
 
 test("missing observations remain distinct from a real zero", () => {

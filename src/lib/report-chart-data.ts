@@ -31,3 +31,7 @@ export function campaignTiming(rows: { sentAt: string; revenue: number; purchase
 export function measuredRate(numerator: number, denominator: number): number | null {
   return Number.isFinite(numerator) && denominator > 0 && Number.isFinite(denominator) ? numerator / denominator : null;
 }
+
+export function smsReturnRatio(revenue: number, cost: number): number | null {
+  return Number.isFinite(revenue) && Number.isFinite(cost) && cost > 0 ? revenue / cost : null;
+}
