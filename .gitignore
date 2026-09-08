@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/output/playwright/
+/.playwright-cli/
 /.cache/
 /.tmp/
 

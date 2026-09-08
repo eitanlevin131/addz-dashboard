@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { signIn, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
+import { chartColors, EngagementPlot, RankedBars, RevenueCostBars, RevenueShareChart, WeekdayBars } from "@/components/reporting-charts";
+import { campaignTiming, measuredRate } from "@/lib/report-chart-data";
 import {
   automationReports,
   clients,
@@ -279,12 +281,7 @@ function formatUsdDecimal(value: number) {
 }
 
 function formatRoas(value: number | null | undefined) {
-  return value && Number.isFinite(value) ? `${value.toFixed(1)}x` : "אין עלות";
-}
-
-function boundedPercent(value: number, maxValue: number) {
-  if (maxValue <= 0) return 0;
-  return Math.max(3, Math.min(100, (value / maxValue) * 100));
+  return value != null && Number.isFinite(value) ? `${value.toFixed(1)}x` : "אין עלות";
 }
 
 function classNames(...classes: Array<string | false | null | undefined>) {
@@ -566,38 +563,6 @@ function MetricCard({
         </div>
       </div>
       <p className="mt-3 text-xs leading-5 text-[#667085]">{caption}</p>
-    </article>
-  );
-}
-
-function RankedInsightList({
-  title,
-  items,
-}: {
-  title: string;
-  items: { label: string; value: string; meta: string }[];
-}) {
-  return (
-    <article className="rounded-xl border border-[#e4e7ec] bg-white p-4">
-      <h2 className="text-base font-bold text-[#111318]">{title}</h2>
-      <div className="mt-2 divide-y divide-[#eef0f2]">
-        {items.length ? (
-          items.map((item, index) => (
-            <div key={`${item.label}-${index}`} className="grid grid-cols-[24px_1fr] gap-3 py-3">
-              <div className="grid size-6 place-items-center rounded-md bg-[#f2f4f7] text-xs font-bold text-[#475467]">{index + 1}</div>
-              <div className="min-w-0">
-                <div className="flex items-start justify-between gap-3">
-                  <p className="truncate text-sm font-semibold text-[#111318]">{item.label}</p>
-                  <span className="shrink-0 text-sm font-bold text-[#087f72]">{item.value}</span>
-                </div>
-                <p className="mt-1 text-xs leading-5 text-[#65738a]">{item.meta}</p>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="py-6 text-sm text-[#667085]">אין מספיק נתונים בטווח הזה.</div>
-        )}
-      </div>
     </article>
   );
 }
@@ -1040,225 +1005,45 @@ function DataReconciliationPanel({
   );
 }
 
-function RevenueCostChart({
-  account,
-  items,
-}: {
-  account: FlashyAccount;
-  items: PerformanceItem[];
-}) {
+function RevenueCostChart({ account, items }: { account: FlashyAccount; items: PerformanceItem[] }) {
   const [kindFilter, setKindFilter] = useState<ActivityKindFilter>("all");
   const [mediumFilter, setMediumFilter] = useState<ActivityMediumFilter>("all");
-  const [expanded, setExpanded] = useState(false);
-  const filteredItems = items.filter((item) => {
-    const kindMatches = kindFilter === "all" || item.kind === kindFilter;
-    const mediumMatches = mediumFilter === "all" || item.medium === mediumFilter;
-    return kindMatches && mediumMatches;
-  });
-  const sortedItems = [...filteredItems].sort(
-    (a, b) => b.revenue - a.revenue || b.purchases - a.purchases || b.engagementRate - a.engagementRate,
-  );
-  const visibleItems = sortedItems.slice(0, expanded ? sortedItems.length : 4);
-  const maxRevenue = Math.max(1, ...visibleItems.map((item) => item.revenue));
-  const kindOptions: { key: ActivityKindFilter; label: string }[] = [
-    { key: "all", label: "הכל" },
-    { key: "campaign", label: "קמפיינים" },
-    { key: "automation", label: "אוטומציות" },
-  ];
-  const mediumOptions: { key: ActivityMediumFilter; label: string }[] = [
-    { key: "all", label: "הכל" },
-    { key: "email", label: "Email" },
-    { key: "sms", label: "SMS" },
-  ];
-
-  return (
-    <article className="col-span-12 overflow-hidden rounded-xl border border-[#e4e7ec] bg-white text-[#111318]">
-      <div className="flex flex-col gap-3 border-b border-[#eef0f2] px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-        <h2 className="m-0 text-base font-bold">פעילויות מובילות</h2>
-        <div className="flex flex-col gap-2 sm:flex-row">
-        <div className="flex flex-wrap gap-2">
-          {kindOptions.map((option) => (
-            <button
-              key={option.key}
-              onClick={() => {
-                setKindFilter(option.key);
-                setExpanded(false);
-              }}
-              className={classNames(
-                "h-8 rounded-md border px-3 text-xs transition",
-                kindFilter === option.key
-                  ? "border-transparent bg-[oklch(15%_0.025_285)] text-white"
-                  : "border-[oklch(89%_0.008_285)] bg-white text-[oklch(48%_0.018_285)] hover:text-[oklch(15%_0.025_285)]",
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {mediumOptions.map((option) => (
-            <button
-              key={option.key}
-              onClick={() => {
-                setMediumFilter(option.key);
-                setExpanded(false);
-              }}
-              className={classNames(
-                "h-8 rounded-md border px-3 text-xs transition",
-                mediumFilter === option.key
-                  ? "border-transparent bg-[oklch(82%_0.135_185)] font-bold text-[oklch(15%_0.025_285)]"
-                  : "border-[oklch(89%_0.008_285)] bg-white text-[oklch(48%_0.018_285)] hover:text-[oklch(15%_0.025_285)]",
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        </div>
-      </div>
-      {visibleItems.length ? (
-        <div>
-          <div className="hidden grid-cols-[44px_1fr_128px_150px_120px] gap-3 bg-[#f4f7f6] px-4 py-3 text-xs font-bold text-[oklch(48%_0.018_285)] md:grid">
-            <span>דירוג</span>
-            <span>פעילות</span>
-            <span className="text-left">הכנסה</span>
-            <span className="text-left">מדד מרכזי</span>
-            <span className="text-left">נפח</span>
-          </div>
-          <div className="divide-y divide-[oklch(89%_0.008_285)]">
-            {visibleItems.map((item, index) => (
-              <div
-                key={item.id}
-                className={classNames(
-                  "grid gap-3 px-4 py-4 md:grid-cols-[44px_1fr_128px_150px_120px] md:items-center",
-                  index === 0 && "bg-[oklch(82%_0.135_185_/_0.12)]",
-                )}
-              >
-                <div className="flex items-center justify-between md:block">
-                  <span className="grid size-8 place-items-center rounded-full bg-[oklch(15%_0.025_285)] text-sm font-bold text-white">
-                    {index + 1}
-                  </span>
-                  <span className="text-xs font-bold text-[oklch(48%_0.018_285)] md:hidden">
-                    {item.medium === "sms" ? "SMS" : "Email"}
-                  </span>
-                </div>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="min-w-0 truncate text-sm font-bold md:text-base">{item.name}</p>
-                    <span className="rounded-full bg-[#eef3f7] px-2 py-1 text-[11px] font-bold text-[oklch(48%_0.018_285)]">
-                      {item.kind === "campaign" ? "קמפיין" : "אוטומציה"}
-                    </span>
-                    <span className="rounded-full bg-[#eef3f7] px-2 py-1 text-[11px] font-bold text-[oklch(48%_0.018_285)]">
-                      {item.medium === "email" ? "Email" : "SMS"}
-                    </span>
-                  </div>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[oklch(91%_0.008_285)]">
-                    <div
-                      className="h-full rounded-full bg-[oklch(82%_0.135_185)]"
-                      style={{ width: `${boundedPercent(item.revenue, maxRevenue)}%` }}
-                    />
-                  </div>
-                </div>
-                <div className="text-left">
-                  <div className="text-base font-bold">{formatCurrency(item.revenue, account.currency)}</div>
-                  <div className="text-xs text-[oklch(48%_0.018_285)]">{formatNumber(item.purchases)} רכישות</div>
-                </div>
-                <div className="text-left">
-                  <div className="text-base font-bold">
-                    {item.medium === "sms"
-                      ? item.cost > 0
-                        ? formatRoas(item.revenue / item.cost)
-                        : "ROAS —"
-                      : formatPercent(item.engagementRate)}
-                  </div>
-                  <div className="text-xs text-[oklch(48%_0.018_285)]">
-                    {item.medium === "sms"
-                      ? item.cost > 0
-                        ? `עלות ${formatCurrency(item.cost, account.currency)}`
-                        : "אין עלות SMS"
-                      : `${formatNumber(item.opens)} פתיחות / ${formatNumber(item.clicks)} קליקים`}
-                  </div>
-                </div>
-                <div className="text-left">
-                  <div className="text-base font-bold">{formatNumber(item.recipients)}</div>
-                  <div className="text-xs text-[oklch(48%_0.018_285)]">נמענים</div>
-                </div>
-              </div>
-            ))}
-          </div>
-          {sortedItems.length > 4 && (
-            <button
-              onClick={() => setExpanded((current) => !current)}
-              className="min-h-11 w-full bg-[#f4f7f6] px-4 text-sm font-bold text-[oklch(15%_0.025_285)] transition hover:bg-[oklch(82%_0.135_185_/_0.18)]"
-            >
-              {expanded ? "הצג פחות" : `הצג הכל (${formatNumber(sortedItems.length)})`}
-            </button>
+  const filteredItems = items.filter(item => (kindFilter === "all" || item.kind === kindFilter) && (mediumFilter === "all" || item.medium === mediumFilter));
+  return <div className="col-span-12 min-w-0">
+    <RankedBars
+      key={`${kindFilter}-${mediumFilter}`}
+      title="הפעילויות שמייצרות הכנסה"
+      currency={account.currency}
+      controls={<div className="flex flex-wrap gap-2">
+        <div className="flex rounded-md bg-[#f1f4f5] p-0.5" role="group" aria-label="סוג פעילות">
+          {([{ key: "all", label: "הכל" }, { key: "campaign", label: "קמפיינים" }, { key: "automation", label: "אוטומציות" }] as const).map(option =>
+            <button key={option.key} aria-pressed={kindFilter === option.key} onClick={() => setKindFilter(option.key)} className={`min-h-8 rounded px-2.5 text-xs ${kindFilter === option.key ? "bg-white font-bold shadow-sm" : "text-[#667085]"}`}>{option.label}</button>
           )}
         </div>
-      ) : (
-        <div className="grid min-h-48 place-items-center rounded-xl bg-[#f4f7f6] text-sm text-[#65738a]">—</div>
-      )}
-    </article>
-  );
+        <div className="flex rounded-md bg-[#f1f4f5] p-0.5" role="group" aria-label="ערוץ פעילות">
+          {([{ key: "all", label: "הכל" }, { key: "email", label: "Email" }, { key: "sms", label: "SMS" }] as const).map(option =>
+            <button key={option.key} aria-pressed={mediumFilter === option.key} onClick={() => setMediumFilter(option.key)} className={`min-h-8 rounded px-2.5 text-xs ${mediumFilter === option.key ? "bg-white font-bold shadow-sm" : "text-[#667085]"}`}>{option.label}</button>
+          )}
+        </div>
+      </div>}
+      rows={filteredItems.map(item => ({
+        id: item.id, label: item.name, value: item.revenue,
+        color: item.kind === "automation" ? chartColors.automation : item.medium === "sms" ? chartColors.sms : chartColors.email,
+        meta: `${item.channel} · ${formatNumber(item.purchases)} רכישות · ${formatNumber(item.recipients)} נמענים`,
+      }))}
+    />
+  </div>;
 }
 
-function ChannelBreakdown({
-  account,
-  channelData,
-}: {
+function ChannelBreakdown({ account, channelData, showCosts = true }: {
   account: FlashyAccount;
-  channelData: {
-    channel: string;
-    revenue: number;
-    cost: number;
-    profit: number;
-    count: number;
-    purchases: number;
-    recipients: number;
-    roas: number | null;
-    revenuePerRecipient: number;
-    share: number;
-  }[];
+  channelData: { channel: string; revenue: number; cost: number; count: number; purchases: number }[];
+  showCosts?: boolean;
 }) {
-  return (
-    <article className="col-span-12 rounded-xl border border-[#e4e7ec] bg-white text-[#111318]">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <h2 className="m-0 px-4 pt-4 text-base font-bold">פירוק ערוצים</h2>
-        <span className="px-4 pt-4 text-xs text-[#667085]">Email / SMS / Automations</span>
-      </div>
-      <div className="hidden grid-cols-[120px_1fr_130px_130px_110px_90px] gap-3 border-y border-[#eef0f2] bg-[#f8fafb] px-4 py-2 text-xs font-medium text-[#667085] md:grid">
-        <span>ערוץ</span>
-        <span>חלק יחסי</span>
-        <span className="text-left">הכנסה</span>
-        <span className="text-left">עלות</span>
-        <span className="text-left">ROAS</span>
-        <span className="text-left">רכישות</span>
-      </div>
-      <div className="divide-y divide-[#eef0f2]">
-        {channelData.map((item) => (
-          <div key={item.channel} className="grid gap-3 px-4 py-3 text-sm md:grid-cols-[120px_1fr_130px_130px_110px_90px] md:items-center">
-            <div className="flex items-center justify-between gap-2 md:block">
-              <strong>{item.channel}</strong>
-              <span className="text-xs font-bold text-[#65738a] md:hidden">{formatPercent(item.share)}</span>
-            </div>
-            <div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-[#eaecf0]">
-                <div
-                  className="h-full rounded-full bg-[#42dfcf]"
-                  style={{ width: `${Math.max(3, item.share * 100)}%` }}
-                />
-              </div>
-              <p className="mt-1 text-xs text-[#65738a]">{formatPercent(item.share)} מההכנסה · {formatNumber(item.count)} פעילויות</p>
-            </div>
-            <span className="text-left font-black">{formatCurrency(item.revenue, account.currency)}</span>
-            <span className="text-left font-bold text-[#65738a]">{item.cost > 0 ? formatCurrency(item.cost, account.currency) : "—"}</span>
-            <span className="text-left font-black">{formatRoas(item.roas)}</span>
-            <span className="text-left font-bold">{formatNumber(item.purchases)}</span>
-          </div>
-        ))}
-      </div>
-    </article>
-  );
+  return <div className="col-span-12 min-w-0"><RevenueShareChart currency={account.currency} showCosts={showCosts} segments={channelData.map(row => ({
+    label: row.channel, revenue: row.revenue, count: row.count, purchases: row.purchases, cost: row.cost,
+    color: row.channel === "אימייל" ? chartColors.email : row.channel === "SMS" ? chartColors.sms : chartColors.automation,
+  }))} /></div>;
 }
 
 function ClientSelector({
@@ -1610,7 +1395,7 @@ function ClientOverview({
         <KPIGrid account={account} summary={summary} />
       </div>
 
-      <ChannelBreakdown account={account} channelData={channelData} />
+      <ChannelBreakdown account={account} channelData={channelData} showCosts={false} />
 
       <article className="col-span-12 rounded-2xl border border-[#dfe7ee] bg-white p-5 text-[#080123] shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
         <div className="flex items-center justify-between gap-3">
@@ -1699,12 +1484,15 @@ function ClientSmsDashboard({
         <MetricCard title="נמענים" value={formatNumber(summary.recipients)} caption={`${formatNumber(summary.clicks)} קליקים`} icon={MessageSquareText} />
       </div>
       <section>
-        <RankedInsightList
+        <RankedBars
           title="SMS שעבדו הכי טוב"
-          items={winners.map((item) => ({
+          currency={account.currency}
+          rows={winners.map((item) => ({
+            id: item.id,
             label: item.name,
-            value: formatCurrency(item.revenue, account.currency),
-            meta: `${item.type} · ${formatRoas(item.roas)} · ${formatNumber(item.purchases)} רכישות`,
+            value: item.revenue,
+            color: chartColors.sms,
+            meta: `${item.type} · ${formatNumber(item.purchases)} רכישות`,
           }))}
         />
       </section>
@@ -1745,11 +1533,14 @@ function ClientAutomationDashboard({
         <MetricCard title="מעורבות" value={formatPercent(enriched.reduce((t, i) => t + i.clickRate, 0) / Math.max(1, enriched.length))} caption="ממוצע הקלקה" icon={Activity} />
       </div>
       <section>
-        <RankedInsightList
+        <RankedBars
           title="אוטומציות מובילות"
-          items={top.map((item) => ({
+          currency={account.currency}
+          rows={top.map((item) => ({
+            id: item.id,
             label: item.automationName,
-            value: formatCurrency(item.revenueGenerated, account.currency),
+            value: item.revenueGenerated,
+            color: chartColors.automation,
             meta: `${automationFilterLabels[item.type]} · ${formatNumber(item.purchases)} רכישות · ${formatPercent(item.clickRate)} הקלקה`,
           }))}
         />
@@ -1814,11 +1605,14 @@ function ClientCampaignDashboard({
         <MetricCard title="יום חזק" value={bestDayEntry?.[0] ?? "—"} caption={bestDayEntry ? formatCurrency(bestDayEntry[1].revenue, account.currency) : "אין מספיק נתונים"} icon={CalendarDays} />
       </div>
       <section>
-        <RankedInsightList
+        <RankedBars
           title="קמפיינים מובילים"
-          items={bestCampaigns.map((item) => ({
+          currency={account.currency}
+          rows={bestCampaigns.map((item, index) => ({
+            id: `${item.name}-${index}`,
             label: item.name,
-            value: formatCurrency(item.revenue, account.currency),
+            value: item.revenue,
+            color: item.channel === "SMS" ? chartColors.sms : chartColors.email,
             meta: `${item.channel} · ${formatNumber(item.purchases)} רכישות · ${formatPercent(item.clickRate)} הקלקה`,
           }))}
         />
@@ -1827,549 +1621,95 @@ function ClientCampaignDashboard({
   );
 }
 
-function SmsDashboard({
-  account,
-  sms,
-  automations,
-  showDeepAnalysis,
-}: {
-  account: FlashyAccount;
-  sms: SmsCampaignReport[];
-  automations: AutomationReport[];
-  showDeepAnalysis: boolean;
+function SmsDashboard({ account, sms, automations, showDeepAnalysis }: {
+  account: FlashyAccount; sms: SmsCampaignReport[]; automations: AutomationReport[]; showDeepAnalysis: boolean;
 }) {
-  const [showAllSmsWinners, setShowAllSmsWinners] = useState(false);
-  const [showAllSmsRisks, setShowAllSmsRisks] = useState(false);
-  const smsAutomations = automations.filter((item) => getAutomationSmsRecipients(item) > 0);
+  const [sortBy, setSortBy] = useState<"revenue" | "roas">("revenue");
+  const smsAutomations = automations.filter(item => getAutomationSmsRecipients(item) > 0);
   const summary = summarizeSms(account, sms, smsAutomations);
   const rows = [
-    ...sms.map((item) => ({
-      name: item.campaignName,
-      type: "קמפיין",
-      recipients: item.totalRecipients,
-      revenue: item.revenueGenerated,
+    ...sms.map(item => ({
+      id: item.id, name: item.campaignName, type: "קמפיינים", revenue: item.revenueGenerated,
       cost: item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate,
-      purchases: item.purchases,
-      clicks: item.totalClicks,
+      recipients: item.totalRecipients, clicks: item.totalClicks, purchases: item.purchases,
     })),
-    ...smsAutomations.map((item) => ({
-      name: item.automationName,
-      type: "אוטומציה",
-      recipients: getAutomationSmsRecipients(item),
-      revenue: item.revenueGenerated,
+    ...smsAutomations.map(item => ({
+      id: item.id, name: item.automationName, type: "אוטומציות עם SMS", revenue: item.revenueGenerated,
       cost: getAutomationSmsRecipients(item) * account.smsCreditPriceUsd * account.usdIlsRate,
-      purchases: item.purchases,
-      clicks: item.clickedSms ?? item.totalClicks,
+      recipients: getAutomationSmsRecipients(item), clicks: item.clickedSms ?? item.totalClicks, purchases: item.purchases,
     })),
-  ].map((row) => ({
-    ...row,
-    roas: row.cost > 0 ? row.revenue / row.cost : null,
-    clickRate: row.recipients > 0 ? row.clicks / row.recipients : 0,
-  }));
-  const smsWinners = [...rows].sort(
-    (a, b) => (b.roas ?? 0) - (a.roas ?? 0) || b.revenue - a.revenue || b.purchases - a.purchases,
-  );
-  const smsNeedsAttention = [...rows]
-    .filter((row) => row.cost > 0)
-    .sort((a, b) => (a.roas ?? 0) - (b.roas ?? 0) || b.cost - a.cost);
-  const visibleSmsWinners = smsWinners.slice(0, showAllSmsWinners ? smsWinners.length : 4);
-  const visibleSmsRisks = smsNeedsAttention.slice(0, showAllSmsRisks ? smsNeedsAttention.length : 4);
-  const maxSmsRevenue = Math.max(1, ...visibleSmsWinners.map((row) => row.revenue));
-
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-3 gap-2 md:gap-3">
-        <MetricCard
-          title="ROAS SMS"
-          value={summary.roas ? `${summary.roas.toFixed(1)}x` : "אין עלות"}
-          caption="קמפיינים ואוטומציות יחד"
-          icon={MessageSquareText}
-          tone="good"
-        />
-        <MetricCard
-          title="עלות SMS"
-          value={formatCurrency(summary.smsCost, account.currency)}
-          caption={`${formatCurrency(summary.smsCostUsd, "USD")} לפי ${formatNumber(
-            summary.recipients,
-          )} נמענים`}
-          icon={Activity}
-        />
-        <MetricCard
-          title="הכנסות SMS"
-          value={formatCurrency(summary.revenue, account.currency)}
-          caption={`${formatNumber(summary.purchases)} רכישות`}
-          icon={TrendingUp}
-          tone="good"
-        />
-      </div>
-      <section className="grid gap-5 xl:grid-cols-2">
-        <article className="overflow-hidden rounded-2xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
-          <div className="border-b border-[#eef3f7] p-4">
-            <h2 className="text-xl font-bold text-[#080123]">SMS משתלמים</h2>
-          </div>
-          {visibleSmsWinners.length ? (
-            <div className="divide-y divide-[#eef3f7]">
-              {visibleSmsWinners.map((row, index) => (
-                <div key={`${row.type}-${row.name}`} className="grid gap-3 p-4 md:grid-cols-[36px_1fr_115px_105px] md:items-center">
-                  <div className="grid size-8 place-items-center rounded-full bg-[#080123] text-sm font-bold text-white">
-                    {index + 1}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate text-sm font-bold text-[#080123]">{row.name}</p>
-                      <span className="rounded-full bg-[#eef3f7] px-2 py-1 text-[11px] font-bold text-[#65738a]">
-                        {row.type}
-                      </span>
-                    </div>
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#e5eaef]">
-                      <div
-                        className="h-full rounded-full bg-[oklch(82%_0.135_185)]"
-                        style={{ width: `${boundedPercent(row.revenue, maxSmsRevenue)}%` }}
-                      />
-                    </div>
-                    <p className="mt-2 text-xs text-[#65738a]">
-                      {formatNumber(row.recipients)} נמענים · {formatNumber(row.clicks)} קליקים
-                    </p>
-                  </div>
-                  <div className="text-left">
-                    <div className="text-base font-bold text-[#080123]">{formatRoas(row.roas)}</div>
-                    <div className="text-xs text-[#65738a]">{formatCurrency(row.cost, account.currency)} עלות</div>
-                  </div>
-                  <div className="text-left">
-                    <div className="text-base font-bold text-[#080123]">
-                      {formatCurrency(row.revenue, account.currency)}
-                    </div>
-                    <div className="text-xs text-[#65738a]">{formatNumber(row.purchases)} רכישות</div>
-                  </div>
-                </div>
-              ))}
-              {smsWinners.length > 4 && (
-                <button
-                  onClick={() => setShowAllSmsWinners((current) => !current)}
-                  className="min-h-11 w-full bg-[#f4f7f6] px-4 text-sm font-bold text-[#080123] transition hover:bg-[oklch(82%_0.135_185_/_0.18)]"
-                >
-                  {showAllSmsWinners ? "הצג פחות" : `הצג הכל (${formatNumber(smsWinners.length)})`}
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="p-8 text-center text-sm text-[#65738a]">אין SMS להצגה בטווח הזה.</div>
-          )}
-        </article>
-
-        <article className="overflow-hidden rounded-2xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
-          <div className="border-b border-[#eef3f7] p-4">
-            <h2 className="text-xl font-bold text-[#080123]">SMS לבדיקה</h2>
-          </div>
-          {visibleSmsRisks.length ? (
-            <div className="divide-y divide-[#eef3f7]">
-              {visibleSmsRisks.map((row) => (
-                <div key={`${row.type}-${row.name}`} className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-[#080123]">{row.name}</p>
-                      <p className="mt-1 text-xs text-[#65738a]">
-                        {row.type} · {formatNumber(row.recipients)} נמענים · {formatPercent(row.clickRate)} הקלקה
-                      </p>
-                    </div>
-                    <span className="shrink-0 rounded-full bg-[#fff6df] px-2 py-1 text-xs font-bold text-[#9a5b00]">
-                      {formatRoas(row.roas)}
-                    </span>
-                  </div>
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                    <div className="rounded-lg bg-[#f4f7f6] p-2">
-                      <div className="text-[#65738a]">עלות</div>
-                      <div className="mt-1 font-bold text-[#080123]">{formatCurrency(row.cost, account.currency)}</div>
-                    </div>
-                    <div className="rounded-lg bg-[#f4f7f6] p-2">
-                      <div className="text-[#65738a]">הכנסה</div>
-                      <div className="mt-1 font-bold text-[#080123]">
-                        {formatCurrency(row.revenue, account.currency)}
-                      </div>
-                    </div>
-                    <div className="rounded-lg bg-[#f4f7f6] p-2">
-                      <div className="text-[#65738a]">רכישות</div>
-                      <div className="mt-1 font-bold text-[#080123]">{formatNumber(row.purchases)}</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {smsNeedsAttention.length > 4 && (
-                <button
-                  onClick={() => setShowAllSmsRisks((current) => !current)}
-                  className="min-h-11 w-full bg-[#f4f7f6] px-4 text-sm font-bold text-[#080123] transition hover:bg-[oklch(82%_0.135_185_/_0.18)]"
-                >
-                  {showAllSmsRisks ? "הצג פחות" : `הצג הכל (${formatNumber(smsNeedsAttention.length)})`}
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="p-8 text-center text-sm text-[#65738a]">אין SMS בעייתיים בטווח הזה.</div>
-          )}
-        </article>
-      </section>
-      {showDeepAnalysis && (
-      <>
-      <DataTable
-        title="פירוק SMS"
-        columns={["שם", "סוג", "נמענים", "קליקים", "עלות", "הכנסה", "רכישות", "ROAS"]}
-        rows={rows.map((row) => [
-          row.name,
-          row.type,
-          formatNumber(row.recipients),
-          formatNumber(row.clicks),
-          formatCurrency(row.cost, account.currency),
-          formatCurrency(row.revenue, account.currency),
-          formatNumber(row.purchases),
-          formatRoas(row.roas),
-          ])}
-      />
-      </>
-      )}
+  ];
+  const groups = ["קמפיינים", "אוטומציות עם SMS"].map(label => {
+    const items = rows.filter(row => row.type === label);
+    return { label, revenue: items.reduce((s,r) => s+r.revenue,0), cost: items.reduce((s,r) => s+r.cost,0), count: items.length };
+  });
+  return <div className="space-y-4">
+    <div className="grid grid-cols-2 gap-2 md:gap-3 xl:grid-cols-4">
+      <MetricCard title="הכנסות פעילות SMS" value={formatCurrency(summary.revenue, account.currency)} caption="קמפיינים ואוטומציות עם SMS" icon={TrendingUp} tone="good" />
+      <MetricCard title="עלות SMS" value={formatCurrency(summary.smsCost, account.currency)} caption={`${formatNumber(summary.recipients)} הודעות`} icon={MessageSquareText} />
+      <MetricCard title="הכנסה / עלות SMS" value={formatRoas(summary.roas)} caption="כולל הכנסות אוטומציות מעורבות" icon={LineChart} />
+      <MetricCard title="רכישות" value={formatNumber(summary.purchases)} caption="מהפעילות שנבחרה" icon={CheckCircle2} />
     </div>
-  );
+    <div className="grid min-w-0 gap-4 2xl:grid-cols-2">
+      <RevenueCostBars groups={groups} currency={account.currency} />
+      <RankedBars key={sortBy} title="ביצועי פעילות SMS" currency={sortBy === "revenue" ? account.currency : undefined} unit={sortBy === "revenue" ? "הכנסה" : "הכנסה / עלות SMS"}
+        controls={<select aria-label="מדד דירוג SMS" value={sortBy} onChange={e=>setSortBy(e.target.value as "revenue" | "roas")} className="h-8 rounded-md border border-[#e4e7ec] bg-white px-2 text-xs"><option value="revenue">הכנסה</option><option value="roas">הכנסה / עלות SMS</option></select>}
+        rows={rows.filter(row => sortBy === "revenue" || row.cost > 0).map(row => ({
+          id: row.id, label: row.name, value: sortBy === "revenue" ? row.revenue : row.revenue / row.cost,
+          color: row.type === "קמפיינים" ? chartColors.sms : chartColors.automation,
+          meta: `${row.type} · ${formatNumber(row.purchases)} רכישות · עלות ${formatCurrency(row.cost,account.currency)} · ${formatRoas(row.cost > 0 ? row.revenue/row.cost : null)}`,
+        }))} />
+    </div>
+    {showDeepAnalysis && <DataTable title="פירוט פעילות SMS" columns={["פעילות","סוג","נמענים","קליקים","עלות SMS","הכנסה","רכישות"]} rows={rows.map(row=>[row.name,row.type,formatNumber(row.recipients),formatNumber(row.clicks),formatCurrency(row.cost,account.currency),formatCurrency(row.revenue,account.currency),formatNumber(row.purchases)])} />}
+  </div>;
 }
 
-function AutomationDashboard({
-  account,
-  automations,
-  showDeepAnalysis,
-}: {
-  account: FlashyAccount;
-  automations: AutomationReport[];
-  showDeepAnalysis: boolean;
+function AutomationDashboard({ account, automations, showDeepAnalysis }: {
+  account: FlashyAccount; automations: AutomationReport[]; showDeepAnalysis: boolean;
 }) {
   const [filter, setFilter] = useState<AutomationFilterKey>("all");
-  const [showAllTopAutomations, setShowAllTopAutomations] = useState(false);
-  const [showAllAttentionAutomations, setShowAllAttentionAutomations] = useState(false);
-  const enrichedAutomations = automations.map((item) => {
-    const smsRecipients = getAutomationSmsRecipients(item);
-    const smsCost = smsRecipients * account.smsCreditPriceUsd * account.usdIlsRate;
-    const emailSent = item.sentEmails ?? (item.channel === "email" ? item.totalDelivered : 0);
-    const emailOpens = item.openedEmails ?? item.totalOpens;
-    const emailClicks = item.clickedEmails ?? item.totalClicks;
-    const totalMessages = emailSent + smsRecipients;
-    const completionBase = item.totalEntered ?? item.totalRecipients;
-
+  const rows = automations.map(item => ({
+    ...item, type: getAutomationType(item),
+    messages: (item.sentEmails ?? (item.channel === "email" ? item.totalDelivered : 0)) + getAutomationSmsRecipients(item),
+    smsCost: getAutomationSmsRecipients(item) * account.smsCreditPriceUsd * account.usdIlsRate,
+  }));
+  const filtered = rows.filter(row => filter === "all" || row.type === filter);
+  const revenue = filtered.reduce((s,r)=>s+r.revenueGenerated,0);
+  const purchases = filtered.reduce((s,r)=>s+r.purchases,0);
+  const messages = filtered.reduce((s,r)=>s+r.messages,0);
+  const cost = filtered.reduce((s,r)=>s+r.smsCost,0);
+  const segments = (["email","sms","mixed"] as const).map(type=>{
+    const items=filtered.filter(row=>row.type===type);
     return {
-      ...item,
-      automationType: getAutomationType(item),
-      smsRecipients,
-      smsCost,
-      emailSent,
-      emailOpens,
-      emailClicks,
-      totalMessages,
-      completionRate: completionBase > 0 ? (item.totalCompleted ?? 0) / completionBase : 0,
-      openRate: emailSent > 0 ? emailOpens / emailSent : 0,
-      clickRate: totalMessages > 0 ? (emailClicks + (item.clickedSms ?? 0)) / totalMessages : 0,
-      roas: smsCost > 0 ? item.revenueGenerated / smsCost : null,
+      label: automationFilterLabels[type], revenue: items.reduce((s,r)=>s+r.revenueGenerated,0),
+      purchases: items.reduce((s,r)=>s+r.purchases,0), count: items.length,
+      color: type==="email" ? chartColors.email : type==="sms" ? chartColors.sms : chartColors.automation,
     };
   });
-  const filteredAutomations = enrichedAutomations.filter(
-    (item) => filter === "all" || item.automationType === filter,
-  );
-  const automationRevenue = filteredAutomations.reduce(
-    (total, item) => total + item.revenueGenerated,
-    0,
-  );
-  const automationSmsCost = filteredAutomations.reduce((total, item) => total + item.smsCost, 0);
-  const automationSmsSent = filteredAutomations.reduce(
-    (total, item) => total + item.smsRecipients,
-    0,
-  );
-  const automationPurchases = filteredAutomations.reduce((total, item) => total + item.purchases, 0);
-  const automationSegments = (["email", "sms", "mixed"] as AutomationFilterKey[])
-    .map((type) => {
-      const items = enrichedAutomations.filter((item) => item.automationType === type);
-      const revenue = items.reduce((total, item) => total + item.revenueGenerated, 0);
-      const smsCost = items.reduce((total, item) => total + item.smsCost, 0);
-      const clicks = items.reduce((total, item) => total + item.totalClicks + (item.clickedSms ?? 0), 0);
-      const messages = items.reduce((total, item) => total + item.totalMessages, 0);
-
-      return {
-        type,
-        items,
-        revenue,
-        smsCost,
-        clicks,
-        messages,
-        roas: smsCost > 0 ? revenue / smsCost : null,
-      };
-    })
-    .filter((segment) => segment.items.length > 0);
-  const weakAutomations = filteredAutomations.filter(
-    (item) =>
-      (item.sentEmails ?? 0) + item.smsRecipients > 0 &&
-      item.revenueGenerated === 0 &&
-      item.totalClicks === 0,
-  ).length;
-  const topAutomations = [...filteredAutomations]
-    .sort((a, b) => b.revenueGenerated - a.revenueGenerated || b.purchases - a.purchases || b.clickRate - a.clickRate);
-  const attentionAutomations = [...filteredAutomations]
-    .filter(
-      (item) =>
-        item.revenueGenerated === 0 ||
-        item.totalClicks === 0 ||
-        (item.smsCost > 0 && item.revenueGenerated < item.smsCost) ||
-        (item.failedMessages ?? 0) > 0,
-    )
-    .sort((a, b) => {
-      const scoreA = (a.smsCost > 0 && a.revenueGenerated < a.smsCost ? 0 : 1) + (a.totalClicks > 0 ? 1 : 0) + (a.revenueGenerated > 0 ? 1 : 0);
-      const scoreB = (b.smsCost > 0 && b.revenueGenerated < b.smsCost ? 0 : 1) + (b.totalClicks > 0 ? 1 : 0) + (b.revenueGenerated > 0 ? 1 : 0);
-      return scoreA - scoreB || b.smsCost - a.smsCost;
-    });
-  const visibleTopAutomations = topAutomations.slice(0, showAllTopAutomations ? topAutomations.length : 4);
-  const visibleAttentionAutomations = attentionAutomations.slice(
-    0,
-    showAllAttentionAutomations ? attentionAutomations.length : 4,
-  );
-  const maxAutomationRevenue = Math.max(1, ...visibleTopAutomations.map((item) => item.revenueGenerated));
-
-  return (
-    <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-2 md:gap-3 xl:grid-cols-4">
-        <MetricCard
-          title="הכנסות אוטומציות"
-          value={formatCurrency(automationRevenue, account.currency)}
-          caption={`${formatNumber(filteredAutomations.length)} אוטומציות בטווח`}
-          icon={TrendingUp}
-          tone="good"
-        />
-        <MetricCard
-          title="עלות SMS באוטומציות"
-          value={formatCurrency(automationSmsCost, account.currency)}
-          caption={`${formatNumber(automationSmsSent)} הודעות SMS שנשלחו`}
-          icon={MessageSquareText}
-        />
-        <MetricCard
-          title="ROAS SMS אוטומציות"
-          value={formatRoas(automationSmsCost > 0 ? automationRevenue / automationSmsCost : null)}
-          caption="לפי עלות SMS בלבד"
-          icon={LineChart}
-          tone="good"
-        />
-        <MetricCard
-          title="דורשות בדיקה"
-          value={formatNumber(weakAutomations)}
-          caption={`${formatNumber(automationPurchases)} רכישות בטווח`}
-          icon={Activity}
-          tone={weakAutomations > 0 ? "warn" : "neutral"}
-        />
-      </div>
-
-      <section className="rounded-xl border border-[#dfe7ee] bg-white p-4 shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <h2 className="text-lg font-bold text-[#080123]">סינון אוטומציות</h2>
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-            {(["all", "mixed", "sms", "email"] as AutomationFilterKey[]).map((item) => (
-              <button
-                key={item}
-                onClick={() => setFilter(item)}
-                className={classNames(
-                  "h-9 rounded-md px-3 text-sm font-medium transition",
-                  filter === item
-                    ? "bg-[#080123] text-white"
-                    : "bg-slate-100 text-[#263548] hover:bg-slate-200",
-                )}
-              >
-                {automationFilterLabels[item]}
-              </button>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-3 md:grid-cols-3">
-        {automationSegments.map((segment) => (
-          <button
-            key={segment.type}
-            onClick={() => setFilter(segment.type)}
-            className={classNames(
-              "rounded-xl border p-4 text-right transition",
-              filter === segment.type
-                ? "border-[#6fffe5] bg-[#edfffb] text-[#080123]"
-                : "border-[#dfe7ee] bg-white text-[#080123] hover:border-[#b8fff3]",
-            )}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-bold">{automationFilterLabels[segment.type]}</span>
-              <span className="rounded-full bg-[#eef3f7] px-2 py-1 text-xs text-[#65738a]">
-                {formatNumber(segment.items.length)}
-              </span>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-[#65738a]">
-              <div>
-                <p>הכנסה</p>
-                <p className="mt-1 text-base font-black text-[#080123]">
-                  {formatCurrency(segment.revenue, account.currency)}
-                </p>
-              </div>
-              <div>
-                <p>{segment.smsCost > 0 ? "ROAS SMS" : "הקלקה"}</p>
-                <p className="mt-1 text-base font-black text-[#080123]">
-                  {segment.smsCost > 0
-                    ? formatRoas(segment.roas)
-                    : formatPercent(segment.messages > 0 ? segment.clicks / segment.messages : 0)}
-                </p>
-              </div>
-            </div>
-          </button>
-        ))}
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-[1.35fr_0.9fr]">
-        <article className="overflow-hidden rounded-2xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
-          <div className="border-b border-[#eef3f7] p-4">
-            <h2 className="text-xl font-bold text-[#080123]">אוטומציות מובילות</h2>
-          </div>
-          {visibleTopAutomations.length ? (
-            <div className="divide-y divide-[#eef3f7]">
-              {visibleTopAutomations.map((item, index) => (
-                <div key={item.id} className="grid gap-3 p-4 md:grid-cols-[36px_1fr_130px_130px] md:items-center">
-                  <div className="grid size-8 place-items-center rounded-full bg-[#080123] text-sm font-bold text-white">
-                    {index + 1}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="truncate text-sm font-bold text-[#080123]">{item.automationName}</p>
-                      <span className="rounded-full bg-[#eef3f7] px-2 py-1 text-[11px] font-bold text-[#65738a]">
-                        {automationFilterLabels[item.automationType]}
-                      </span>
-                    </div>
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#e5eaef]">
-                      <div
-                        className="h-full rounded-full bg-[oklch(82%_0.135_185)]"
-                        style={{ width: `${boundedPercent(item.revenueGenerated, maxAutomationRevenue)}%` }}
-                      />
-                    </div>
-                    <p className="mt-2 text-xs text-[#65738a]">
-                      {formatNumber(item.totalMessages)} הודעות · {formatPercent(item.clickRate)} הקלקה
-                    </p>
-                  </div>
-                  <div className="text-left">
-                    <div className="text-base font-bold text-[#080123]">
-                      {formatCurrency(item.revenueGenerated, account.currency)}
-                    </div>
-                    <div className="text-xs text-[#65738a]">{formatNumber(item.purchases)} רכישות</div>
-                  </div>
-                  <div className="text-left">
-                    <div className="text-base font-bold text-[#080123]">
-                      {item.smsCost > 0 ? formatRoas(item.roas) : formatPercent(item.openRate)}
-                    </div>
-                    <div className="text-xs text-[#65738a]">
-                      {item.smsCost > 0
-                        ? `עלות ${formatCurrency(item.smsCost, account.currency)}`
-                        : `${formatNumber(item.emailOpens)} פתיחות`}
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {topAutomations.length > 4 && (
-                <button
-                  onClick={() => setShowAllTopAutomations((current) => !current)}
-                  className="min-h-11 w-full bg-[#f4f7f6] px-4 text-sm font-bold text-[#080123] transition hover:bg-[oklch(82%_0.135_185_/_0.18)]"
-                >
-                  {showAllTopAutomations ? "הצג פחות" : `הצג הכל (${formatNumber(topAutomations.length)})`}
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="p-8 text-center text-sm text-[#65738a]">אין אוטומציות להצגה בטווח הזה.</div>
-          )}
-        </article>
-
-        <article className="overflow-hidden rounded-2xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
-          <div className="border-b border-[#eef3f7] p-4">
-            <h2 className="text-xl font-bold text-[#080123]">דורשות טיפול</h2>
-          </div>
-          {visibleAttentionAutomations.length ? (
-            <div className="divide-y divide-[#eef3f7]">
-              {visibleAttentionAutomations.map((item) => (
-                <div key={item.id} className="p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-[#080123]">{item.automationName}</p>
-                      <p className="mt-1 text-xs text-[#65738a]">
-                        {automationFilterLabels[item.automationType]} · {formatNumber(item.totalMessages)} הודעות
-                      </p>
-                    </div>
-                    <span className="shrink-0 rounded-full bg-[#fff6df] px-2 py-1 text-xs font-bold text-[#9a5b00]">
-                      בדיקה
-                    </span>
-                  </div>
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-                    <div className="rounded-lg bg-[#f4f7f6] p-2">
-                      <div className="text-[#65738a]">הכנסה</div>
-                      <div className="mt-1 font-bold text-[#080123]">
-                        {formatCurrency(item.revenueGenerated, account.currency)}
-                      </div>
-                    </div>
-                    <div className="rounded-lg bg-[#f4f7f6] p-2">
-                      <div className="text-[#65738a]">קליקים</div>
-                      <div className="mt-1 font-bold text-[#080123]">{formatNumber(item.totalClicks)}</div>
-                    </div>
-                    <div className="rounded-lg bg-[#f4f7f6] p-2">
-                      <div className="text-[#65738a]">עלות SMS</div>
-                      <div className="mt-1 font-bold text-[#080123]">
-                        {item.smsCost > 0 ? formatCurrency(item.smsCost, account.currency) : "—"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-              {attentionAutomations.length > 4 && (
-                <button
-                  onClick={() => setShowAllAttentionAutomations((current) => !current)}
-                  className="min-h-11 w-full bg-[#f4f7f6] px-4 text-sm font-bold text-[#080123] transition hover:bg-[oklch(82%_0.135_185_/_0.18)]"
-                >
-                  {showAllAttentionAutomations ? "הצג פחות" : `הצג הכל (${formatNumber(attentionAutomations.length)})`}
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="p-8 text-center text-sm text-[#65738a]">לא זוהו אוטומציות בעייתיות בטווח הזה.</div>
-          )}
-        </article>
-      </section>
-
-      {showDeepAnalysis && (
-      <>
-      <DataTable
-        title="אוטומציות אימייל ו־SMS"
-        columns={[
-          "אוטומציה",
-          "סוג",
-          "נכנסו",
-          "הושלמו",
-          "אימיילים",
-          "פתיחות",
-          "קליקים",
-          "SMS",
-          "עלות SMS",
-          "רכישות",
-          "הכנסה",
-          "ROAS",
-        ]}
-        rows={filteredAutomations.map((item) => [
-          item.automationName,
-          automationFilterLabels[item.automationType],
-          formatNumber(item.totalEntered ?? item.totalRecipients),
-          formatNumber(item.totalCompleted ?? 0),
-          formatNumber(item.sentEmails ?? (item.channel === "email" ? item.totalDelivered : 0)),
-          formatNumber(item.openedEmails ?? item.totalOpens),
-          formatNumber(item.totalClicks),
-          formatNumber(item.smsRecipients),
-          formatCurrency(item.smsCost, account.currency),
-          formatNumber(item.purchases),
-          formatCurrency(item.revenueGenerated, account.currency),
-          item.roas ? `${item.roas.toFixed(1)}x` : "אין עלות",
-        ])}
-      />
-      </>
-      )}
+  return <div className="space-y-4">
+    <div className="flex flex-wrap justify-end gap-1" role="group" aria-label="סוג אוטומציה">
+      {(["all","email","sms","mixed"] as const).map(type=><button key={type} onClick={()=>setFilter(type)} aria-pressed={filter===type} className={`min-h-9 rounded-md px-3 text-sm ${filter===type ? "bg-[#24282f] text-white" : "bg-white text-[#667085]"}`}>{automationFilterLabels[type]}</button>)}
     </div>
-  );
+    <div className="grid grid-cols-2 gap-2 md:gap-3 xl:grid-cols-4">
+      <MetricCard title="הכנסות אוטומציות" value={formatCurrency(revenue,account.currency)} caption={`${filtered.length} אוטומציות`} icon={TrendingUp} tone="good" />
+      <MetricCard title="רכישות" value={formatNumber(purchases)} caption="מאוטומציות בטווח" icon={CheckCircle2} />
+      <MetricCard title="הודעות" value={formatNumber(messages)} caption="אימייל ו־SMS" icon={Send} />
+      <MetricCard title="עלות SMS" value={formatCurrency(cost,account.currency)} caption="ללא עלות אימייל" icon={MessageSquareText} />
+    </div>
+    <div className="grid min-w-0 gap-4 2xl:grid-cols-2">
+      <RevenueShareChart title="הכנסות לפי סוג אוטומציה" segments={segments} currency={account.currency} />
+      <RankedBars key={filter} title="הכנסות לפי אוטומציה" currency={account.currency} rows={filtered.map(row=>({
+        id: row.id, label: row.automationName, value: row.revenueGenerated,
+        color: row.type==="email" ? chartColors.email : row.type==="sms" ? chartColors.sms : chartColors.automation,
+        meta: `${automationFilterLabels[row.type]} · ${formatNumber(row.purchases)} רכישות · ${formatNumber(row.messages)} הודעות`,
+      }))} />
+    </div>
+    {showDeepAnalysis && <DataTable title="פירוט אוטומציות" columns={["אוטומציה","סוג","נכנסו","הושלמו","אימיילים","פתיחות אימייל","קליקים","SMS","עלות SMS","רכישות","הכנסה","הכנסה / עלות SMS"]} rows={filtered.map(row=>[
+      row.automationName,automationFilterLabels[row.type],formatNumber(row.totalEntered ?? row.totalRecipients),formatNumber(row.totalCompleted ?? 0),
+      formatNumber(row.sentEmails ?? (row.channel === "email" ? row.totalDelivered : 0)),formatNumber(row.openedEmails ?? row.totalOpens),
+      formatNumber(row.totalClicks),formatNumber(getAutomationSmsRecipients(row)),formatCurrency(row.smsCost,account.currency),formatNumber(row.purchases),formatCurrency(row.revenueGenerated,account.currency),formatRoas(row.smsCost > 0 ? row.revenueGenerated / row.smsCost : null),
+    ])} />}
+  </div>;
 }
 
 function CampaignDashboard({
@@ -2451,37 +1791,8 @@ function CampaignDashboard({
       };
     }),
   ];
-  const dayNames = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
-  const aggregateBy = (keyGetter: (item: (typeof allCampaignsForDecision)[number]) => string) => {
-    const groups = new Map<
-      string,
-      { label: string; revenue: number; purchases: number; clicks: number; recipients: number; count: number }
-    >();
-
-    for (const item of allCampaignsForDecision) {
-      const label = keyGetter(item);
-      const current =
-        groups.get(label) ?? { label, revenue: 0, purchases: 0, clicks: 0, recipients: 0, count: 0 };
-      current.revenue += item.revenue;
-      current.purchases += item.purchases;
-      current.clicks += item.clicks;
-      current.recipients += item.recipients;
-      current.count += 1;
-      groups.set(label, current);
-    }
-
-    return Array.from(groups.values()).sort(
-      (a, b) =>
-        b.revenue - a.revenue ||
-        b.purchases - a.purchases ||
-        b.clicks / Math.max(1, b.recipients) - a.clicks / Math.max(1, a.recipients),
-    );
-  };
-  const bestDays = aggregateBy((item) => dayNames[new Date(item.sentAt).getDay()]).slice(0, 3);
-  const bestHours = aggregateBy((item) => {
-    const hour = new Date(item.sentAt).getHours();
-    return `${String(hour).padStart(2, "0")}:00`;
-  }).slice(0, 3);
+  const timing = campaignTiming(allCampaignsForDecision, account.timezone);
+  const bestHours = timing.hours.map(row => ({ ...row, average: row.count > 0 ? row.revenue / row.count : 0 }));
   const subjectWinners = [...emails]
     .map((item) => ({
       subject: item.subjectLine,
@@ -2528,35 +1839,20 @@ function CampaignDashboard({
         />
       </div>
 
-      <section className="grid gap-3 xl:grid-cols-3">
-        <RankedInsightList
-          title="ימים חזקים"
-          items={bestDays.map((item) => ({
-            label: item.label,
-            value: formatCurrency(item.revenue, account.currency),
-            meta: `${formatNumber(item.count)} קמפיינים · ${formatNumber(item.purchases)} רכישות`,
-          }))}
-        />
-        <RankedInsightList
-          title="שעות טובות"
-          items={bestHours.map((item) => ({
-            label: item.label,
-            value: formatCurrency(item.revenue, account.currency),
-            meta: `${formatNumber(item.clicks)} קליקים · ${formatNumber(item.purchases)} רכישות`,
-          }))}
-        />
-        <RankedInsightList
-          title="שורות נושא"
-          items={subjectWinners.slice(0, 3).map((item) => ({
-            label: item.subject || item.campaign,
-            value: formatCurrency(item.revenue, account.currency),
-            meta: `${formatPercent(item.openRate)} פתיחה · ${formatPercent(item.clickRate)} הקלקה`,
-          }))}
-        />
-      </section>
+      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+        <WeekdayBars groups={timing.days} currency={account.currency} timezone={timing.timezone} />
+        <EngagementPlot rows={[...emails].sort((a,b)=>b.revenueGenerated-a.revenueGenerated).slice(0,4).map(item=>({
+          id: item.id, label: item.subjectLine || item.campaignName, revenue: item.revenueGenerated, currency: account.currency,
+          opens: measuredRate(item.totalOpens,item.totalDelivered), clicks: measuredRate(item.uniqueClicks,item.totalDelivered),
+        }))} />
+      </div>
 
       {showDeepAnalysis && (
       <>
+      <RankedBars title="הכנסה לפי שעת שליחה" detail={`ממוצע לקמפיין · ${timing.timezone}`} currency={account.currency} rows={bestHours.map(item=>({
+        id: item.label, label: item.label, value: item.average, color: chartColors.sms,
+        meta: `${item.count} קמפיינים · ${formatNumber(item.purchases)} רכישות`,
+      }))} />
       <DataTable
         title="שורות נושא שעבדו"
         columns={["שורת נושא", "קמפיין", "הכנסה", "קליקים", "מעורבות"]}

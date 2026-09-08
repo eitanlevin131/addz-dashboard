@@ -1,0 +1,180 @@
+"use client";
+
+import { useId, useState, type ReactNode } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { formatCurrency, formatNumber, formatPercent } from "@/lib/metrics";
+
+export const chartColors = { email: "#24282f", sms: "#20b9a8", automation: "#6389d9", cost: "#b77a35", muted: "#dce2e6" };
+const compact = (value: number) => new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+const valid = (value: number) => Number.isFinite(value) ? value : 0;
+
+function ChartFrame({ title, detail, controls, children }: { title: string; detail?: string; controls?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="report-chart min-w-0 overflow-hidden rounded-lg border border-[#e4e7ec] bg-white text-[#111318]" aria-label={title}>
+      <header className="flex flex-wrap items-center justify-between gap-3 px-4 pb-3 pt-4 sm:px-5">
+        <div className="min-w-0">
+          <h2 className="text-base font-bold">{title}</h2>
+          {detail && <p className="mt-1 text-xs text-[#667085]">{detail}</p>}
+        </div>
+        {controls}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function EmptyChart() {
+  return <div className="grid min-h-48 place-content-center gap-2 text-center"><span className="text-3xl text-[#98a2b3]">—</span><p className="text-sm text-[#667085]">אין נתונים בטווח שנבחר</p></div>;
+}
+
+function Legend({ items }: { items: { label: string; color: string }[] }) {
+  return <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#667085]">{items.map(item => <span key={item.label} className="inline-flex items-center gap-1.5"><i className="size-2 shrink-0 rounded-sm" style={{ background: item.color }} />{item.label}</span>)}</div>;
+}
+
+export type RevenueSegment = { label: string; revenue: number; color: string; count: number; purchases: number; cost?: number };
+
+export function RevenueShareChart({ title = "מאיפה מגיעות ההכנסות", segments, currency, showCosts = false }: { title?: string; segments: RevenueSegment[]; currency: string; showCosts?: boolean }) {
+  const total = segments.reduce((sum, row) => sum + valid(row.revenue), 0);
+  const hasActivity = segments.some(row => row.count > 0);
+  const canDraw = total > 0 && segments.every(row => row.revenue >= 0);
+  const chartId = useId();
+  return (
+    <ChartFrame title={title} detail="הכנסות מיוחסות · חלק יחסי מהסכום הכולל">
+      {!hasActivity ? <EmptyChart /> : <div className="grid min-w-0 items-center gap-2 px-4 pb-4 sm:px-5 xl:grid-cols-[240px_minmax(0,1fr)] xl:gap-6">
+        <div className="relative mx-auto h-[228px] w-[228px]" role="img" aria-label={segments.map(row => `${row.label}: ${formatCurrency(row.revenue, currency)}`).join(", ")}>
+          <div dir="ltr" className="h-full w-full" aria-hidden="true">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 228, height: 228 }}>
+              <PieChart>
+                <Pie id={chartId} data={canDraw ? segments : [{ label: "ללא הכנסה חיובית", revenue: 1, color: chartColors.muted }]} dataKey="revenue" nameKey="label" innerRadius={78} outerRadius={103} startAngle={90} endAngle={-270} paddingAngle={canDraw ? 2 : 0} stroke="none" isAnimationActive={false}>
+                  {(canDraw ? segments : [{ color: chartColors.muted }]).map((row, index) => <Cell key={index} fill={row.color} />)}
+                </Pie>
+                {canDraw && <Tooltip formatter={(value) => formatCurrency(Number(value), currency)} contentStyle={{ direction: "rtl", borderRadius: 8, borderColor: "#e4e7ec", fontSize: 12 }} />}
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1">
+            <span className="text-xs text-[#667085]">סך ההכנסות</span>
+            <b className="max-w-[154px] break-words text-center text-xl tabular-nums" dir="ltr">{formatCurrency(total, currency)}</b>
+          </div>
+        </div>
+        <div className="min-w-0 divide-y divide-[#eef0f2]">
+          {segments.map(row => <div key={row.label} className="py-3 first:pt-0 last:pb-0">
+            <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+              <span className="flex items-center gap-2 text-sm font-bold"><i className="h-3 w-1 rounded-sm" style={{ background: row.color }} />{row.label}</span>
+              <span className="flex items-baseline gap-3"><b className="text-lg tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</b><span className="w-12 text-left text-xs tabular-nums text-[#667085]">{canDraw ? formatPercent(row.revenue / total) : "—"}</span></span>
+            </div>
+            <div className="mt-1 flex flex-wrap justify-between gap-x-4 gap-y-1 pr-3 text-xs text-[#667085]">
+              <span>{formatNumber(row.count)} פעילויות · {formatNumber(row.purchases)} רכישות</span>
+              {showCosts && <span>{row.cost && row.cost > 0 ? `עלות SMS ${formatCurrency(row.cost, currency)} · ${formatNumberRatio(row.revenue / row.cost)} הכנסה / עלות SMS` : "עלות SMS —"}</span>}
+            </div>
+          </div>)}
+        </div>
+      </div>}
+    </ChartFrame>
+  );
+}
+
+function formatNumberRatio(value: number) { return `${value.toFixed(1)}x`; }
+
+export type RankingRow = { id: string; label: string; value: number; color?: string; meta?: string };
+
+export function RankedBars({ title, rows, currency, unit = "הכנסה", detail, controls, limit = 4 }: { title: string; rows: RankingRow[]; currency?: string; unit?: string; detail?: string; controls?: ReactNode; limit?: number }) {
+  const [expanded, setExpanded] = useState(false);
+  const sorted = [...rows].sort((a, b) => b.value - a.value);
+  const visible = sorted.slice(0, expanded ? sorted.length : limit);
+  const max = Math.max(0, ...rows.map(row => valid(row.value)));
+  const min = Math.min(0, ...rows.map(row => valid(row.value)));
+  const span = max - min || 1;
+  const zero = -min / span * 100;
+  const format = (value: number) => currency ? formatCurrency(value, currency) : unit === "הכנסה / עלות SMS" ? formatNumberRatio(value) : formatNumber(value);
+  return <ChartFrame title={title} detail={detail} controls={controls}>
+    {!rows.length ? <EmptyChart /> : <>
+      <div className="px-4 pb-4 sm:px-5">
+        <div dir="ltr" className="mb-2 flex justify-between border-b border-[#e4e7ec] pb-1 text-[10px] tabular-nums text-[#667085]"><span>{format(min)}</span><span>{unit}</span><span>{format(max)}</span></div>
+        <ol className="space-y-4">
+          {visible.map((row, i) => <li key={row.id}>
+            <div className="mb-1.5 grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3">
+              <span className="min-w-0 text-sm leading-5 [overflow-wrap:anywhere]"><span className="ml-2 text-[11px] tabular-nums text-[#98a2b3]">{String(i + 1).padStart(2, "0")}</span>{row.label}</span>
+              <b className="text-sm tabular-nums" dir="ltr">{format(row.value)}</b>
+            </div>
+            <div className="relative h-4 overflow-hidden rounded-sm bg-[#f1f4f5]" dir="ltr" aria-hidden="true">
+              <div className="absolute inset-y-0 rounded-sm" style={{ left: `${row.value >= 0 ? zero : (row.value - min) / span * 100}%`, width: `${Math.abs(row.value) / span * 100}%`, background: row.value < 0 ? chartColors.cost : row.color ?? chartColors.sms }} />
+              {min < 0 && <i className="absolute inset-y-0 w-px bg-[#667085]" style={{ left: `${zero}%` }} />}
+            </div>
+            {row.meta && <p className="mt-1 text-xs leading-5 text-[#667085]">{row.meta}</p>}
+          </li>)}
+        </ol>
+      </div>
+      {rows.length > limit && <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)} className="flex min-h-10 w-full items-center justify-center gap-1.5 border-t border-[#eef0f2] text-xs font-bold hover:bg-[#f5f8f7]">{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}{expanded ? "הצג פחות" : `כל הפעילויות (${rows.length})`}</button>}
+    </>}
+  </ChartFrame>;
+}
+
+export function RevenueCostBars({ groups, currency }: { groups: { label: string; revenue: number; cost: number; count: number }[]; currency: string }) {
+  const chartId = useId();
+  return <ChartFrame title="הכנסה מול עלות SMS" detail="קמפיינים לעומת אוטומציות עם SMS" controls={<Legend items={[{ label: "הכנסה", color: chartColors.sms }, { label: "עלות SMS", color: chartColors.cost }]} />}>
+    {!groups.some(row => row.count > 0) ? <EmptyChart /> : <>
+      <div className="h-[250px] min-w-0 px-3" dir="ltr" role="img" aria-label={groups.map(row => `${row.label}: הכנסה ${formatCurrency(row.revenue, currency)}, עלות SMS ${formatCurrency(row.cost, currency)}`).join(". ")}>
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 480, height: 250 }}>
+          <BarChart id={chartId} data={groups} margin={{ top: 25, right: 16, bottom: 0, left: 0 }} barGap={8}>
+            <CartesianGrid vertical={false} stroke="#edf0f2" strokeDasharray="3 3" />
+            <XAxis dataKey="label" tickFormatter={(label: string) => label.replace(" עם SMS", "")} axisLine={false} tickLine={false} tick={{ fill: "#475467", fontSize: 12 }} height={34} />
+            <YAxis tickFormatter={compact} axisLine={false} tickLine={false} width={46} tick={{ fill: "#98a2b3", fontSize: 10 }} />
+            <Tooltip formatter={(value) => formatCurrency(Number(value), currency)} cursor={{ fill: "#f5f7f8" }} contentStyle={{ direction: "rtl", fontSize: 12, borderRadius: 8, borderColor: "#e4e7ec" }} />
+            <Bar dataKey="revenue" name="הכנסה" fill={chartColors.sms} maxBarSize={42} radius={[3, 3, 0, 0]} isAnimationActive={false}><LabelList dataKey="revenue" position="top" formatter={(value) => compact(Number(value))} fill="#475467" fontSize={11} /></Bar>
+            <Bar dataKey="cost" name="עלות SMS" fill={chartColors.cost} maxBarSize={42} radius={[3, 3, 0, 0]} isAnimationActive={false}><LabelList dataKey="cost" position="top" formatter={(value) => compact(Number(value))} fill="#8d602a" fontSize={11} /></Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="grid grid-cols-2 gap-4 border-t border-[#eef0f2] px-4 py-3 sm:px-5">{groups.map(row => <div key={row.label} className="min-w-0 text-xs"><p className="font-bold">{row.label}</p><p className="mt-1 tabular-nums text-[#667085]">הכנסה {formatCurrency(row.revenue, currency)}</p><p className="tabular-nums text-[#667085]">עלות {formatCurrency(row.cost, currency)}</p></div>)}</div>
+      <p className="px-4 pb-4 text-[11px] text-[#667085] sm:px-5">הכנסות מאוטומציות מעורבות כוללות גם אימייל; העלות היא של SMS בלבד.</p>
+    </>}
+  </ChartFrame>;
+}
+
+export function EngagementPlot({ rows }: { rows: { id: string; label: string; opens: number | null; clicks: number | null; revenue: number; currency: string }[] }) {
+  const maximum = Math.max(1, ...rows.flatMap(row => [row.opens ?? 0, row.clicks ?? 0]));
+  return <ChartFrame title="שורות נושא · פתיחה מול הקלקה" detail="קמפייני האימייל המובילים בהכנסה · מתוך הודעות שנמסרו" controls={<Legend items={[{ label: "פתיחה", color: chartColors.email }, { label: "הקלקה", color: chartColors.sms }]} />}>
+    {!rows.length ? <EmptyChart /> : <div className="px-4 pb-4 sm:px-5">
+      <div dir="ltr" className="mb-3 flex justify-between text-[10px] text-[#98a2b3]"><span>0%</span><span>{formatPercent(maximum / 2)}</span><span>{formatPercent(maximum)}</span></div>
+      <ol className="space-y-5">{rows.slice(0, 4).map(row => {
+        const a = row.opens === null ? null : row.opens / maximum * 100;
+        const b = row.clicks === null ? null : row.clicks / maximum * 100;
+        return <li key={row.id}>
+          <p className="text-sm leading-5 [overflow-wrap:anywhere]">{row.label}</p>
+          <div dir="ltr" className="relative mx-1.5 my-3 h-3" aria-hidden="true">
+            <div className="absolute inset-x-0 top-1 h-1 rounded-full bg-[#edf0f2]" />
+            {a !== null && b !== null && <div className="absolute top-1 h-1 bg-[#ccd8d7]" style={{ left: `${Math.min(a, b)}%`, width: `${Math.abs(a - b)}%` }} />}
+            {a !== null && <i className="absolute top-0 size-3 -translate-x-1/2 rounded-full border-2 border-white" style={{ left: `${a}%`, background: chartColors.email }} />}
+            {b !== null && <i className="absolute top-0 size-3 -translate-x-1/2 rounded-full border-2 border-white" style={{ left: `${b}%`, background: chartColors.sms }} />}
+          </div>
+          <div className="flex flex-wrap justify-between gap-2 text-[11px] tabular-nums text-[#667085]"><span>פתיחה <b className="text-[#24282f]">{row.opens === null ? "—" : formatPercent(row.opens)}</b> · הקלקה <b className="text-[#078575]">{row.clicks === null ? "—" : formatPercent(row.clicks)}</b></span><span>{formatCurrency(row.revenue, row.currency)}</span></div>
+        </li>;
+      })}</ol>
+    </div>}
+  </ChartFrame>;
+}
+
+export function WeekdayBars({ groups, currency, timezone }: { groups: { label: string; revenue: number; count: number }[]; currency: string; timezone: string }) {
+  const [average, setAverage] = useState(true);
+  const data = groups.map(row => ({ ...row, value: row.count > 0 ? (average ? row.revenue / row.count : row.revenue) : null }));
+  const max = Math.max(0, ...data.map(row => row.value ?? 0));
+  const min = Math.min(0, ...data.map(row => row.value ?? 0));
+  const span = max - min || 1;
+  const baseline = max / span * 180;
+  return <ChartFrame title="ביצועים לפי יום שליחה" detail={`שיוך לפי מועד השליחה · ${timezone}`} controls={<div className="flex rounded-md bg-[#f1f4f5] p-0.5" role="group" aria-label="מדד ליום שליחה">{[{ value: true, label: "ממוצע לקמפיין" }, { value: false, label: "סך הכנסה" }].map(option => <button key={option.label} aria-pressed={average === option.value} onClick={() => setAverage(option.value)} className={`min-h-8 rounded px-2 text-xs ${average === option.value ? "bg-white font-bold shadow-sm" : "text-[#667085]"}`}>{option.label}</button>)}</div>}>
+    {!groups.some(row => row.count > 0) ? <EmptyChart /> : <div className="px-4 pb-4 sm:px-5">
+      <div className="flex justify-between text-[10px] text-[#667085]"><span>{average ? "הכנסה ממוצעת לקמפיין" : "הכנסה"}</span><span>{currency}</span></div>
+      <div className="mt-4 grid h-[220px] grid-cols-7 gap-1 border-b border-[#e4e7ec] sm:gap-3" role="img" aria-label={data.map(row => `${row.label}: ${row.value === null ? "לא נשלחו קמפיינים" : formatCurrency(row.value, currency)}`).join(", ")}>
+        {data.map(row => <div key={row.label} className="relative min-w-0" title={`${row.label}: ${row.value === null ? "—" : formatCurrency(row.value, currency)} · ${row.count} קמפיינים`}>
+          <b className="absolute inset-x-0 text-center text-[10px] tabular-nums sm:text-xs" style={{ top: `${20 + (max - Math.max(0, row.value ?? 0)) / span * 180 - 20}px` }}>{row.value === null ? "—" : compact(row.value)}</b>
+          <div className="absolute left-1/2 w-full max-w-10 -translate-x-1/2 rounded-sm" style={{ top: `${20 + (max - Math.max(0, row.value ?? 0)) / span * 180}px`, height: `${Math.abs(row.value ?? 0) / span * 180}px`, background: (row.value ?? 0) < 0 ? chartColors.cost : row.value === max && max > 0 ? chartColors.sms : "#b7c9c6" }} />
+          {min < 0 && <div className="absolute inset-x-0 border-t border-[#98a2b3]" style={{ top: `${20 + baseline}px` }} />}
+        </div>)}
+      </div>
+      <div className="mt-2 grid grid-cols-7 gap-1 text-center text-[11px]">{data.map(row => <div key={row.label}><b>{row.label}</b><p className="mt-1 text-[10px] tabular-nums text-[#667085]">{row.count || "—"}</p></div>)}</div>
+      <p className="mt-3 text-[11px] text-[#667085]">מספר קמפיינים</p>
+    </div>}
+  </ChartFrame>;
+}
