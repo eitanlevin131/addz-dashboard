@@ -10,7 +10,8 @@ function moduleUrl(source) {
 const metricsUrl = moduleUrl(await readFile(new URL("../src/lib/metrics.ts", import.meta.url), "utf8"));
 const flashySource = (await readFile(new URL("../src/lib/flashy.ts", import.meta.url), "utf8")).replace('"./metrics"', JSON.stringify(metricsUrl));
 const { monthWindows, getFlashyReports } = await import(moduleUrl(flashySource));
-const normalizeSource = (await readFile(new URL("../src/lib/flashy-normalize.ts", import.meta.url), "utf8")).replace('"@/lib/metrics"', JSON.stringify(metricsUrl));
+const timeUrl = moduleUrl(await readFile(new URL("../src/lib/report-time.ts", import.meta.url), "utf8"));
+const normalizeSource = (await readFile(new URL("../src/lib/flashy-normalize.ts", import.meta.url), "utf8")).replace('"@/lib/metrics"', JSON.stringify(metricsUrl)).replace('"@/lib/report-time"', JSON.stringify(timeUrl));
 const { normalizeAutomationReports } = await import(moduleUrl(normalizeSource));
 
 test("90-day windows cover every second once and no more than 30 calendar days", () => {

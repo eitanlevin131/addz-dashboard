@@ -4,6 +4,8 @@ import { requireAdmin } from "@/lib/auth/access";
 import { decryptSecret } from "@/lib/crypto";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { getFlashyReports } from "@/lib/flashy";
+import { latestCampaignReports, latestAutomationReports } from "@/lib/report-identity";
+import { accountDate, reportDateInstant } from "@/lib/report-time";
 import {
   normalizeAutomationReports,
   normalizeEmailReports,
@@ -94,10 +96,8 @@ export async function POST(request: Request) {
   const accountId = String(body.accountId ?? "");
   const start = body.start ? new Date(String(body.start)) : new Date(Date.now() - 29 * 24 * 60 * 60 * 1000);
   const end = body.end ? new Date(String(body.end)) : new Date();
-  start.setHours(0, 0, 0, 0);
-  end.setHours(23, 59, 59, 999);
 
-  if (!accountId || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+  if (!accountId || Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) {
     return NextResponse.json(
       { success: false, message: "חסר חשבון או טווח תאריכים תקין." },
       { status: 400 },
@@ -124,28 +124,31 @@ export async function POST(request: Request) {
     db.select().from(automationReports).where(eq(automationReports.flashyAccountId, account.id)),
   ]);
 
-  const dbEmails = emailRows.filter((item) => dateInRange(item.sentAt, start, end));
-  const dbSms = smsRows.filter((item) => dateInRange(item.sentAt, start, end));
-  const dbAutomations = automationRows.filter((item) => dateInRange(item.reportDate, start, end));
+  const dbEmails = latestCampaignReports(emailRows).filter((item) => dateInRange(item.sentAt, start, end));
+  const dbSms = latestCampaignReports(smsRows).filter((item) => dateInRange(item.sentAt, start, end));
+  const dbAutomations = latestAutomationReports(automationRows).filter((item) => dateInRange(reportDateInstant(item.reportDate, account.timezone), start, end));
 
   const apiKey = decryptSecret(account.encryptedApiKey);
   const extendedStart = new Date(start);
   extendedStart.setDate(extendedStart.getDate() - 7);
   const reports = await getFlashyReports(
     apiKey,
-    Math.floor(start.getTime() / 1000),
-    Math.floor(end.getTime() / 1000),
+    Date.parse(`${accountDate(start, account.timezone)}T00:00:00Z`) / 1000,
+    Date.parse(`${accountDate(end, account.timezone)}T23:59:59Z`) / 1000,
   );
   const extendedReports = await getFlashyReports(
     apiKey,
-    Math.floor(extendedStart.getTime() / 1000),
-    Math.floor(end.getTime() / 1000),
+    Date.parse(`${accountDate(extendedStart, account.timezone)}T00:00:00Z`) / 1000,
+    Date.parse(`${accountDate(end, account.timezone)}T23:59:59Z`) / 1000,
   );
-  const liveEmails = normalizeEmailReports(reports.emails as RawFlashyRow[], account.id);
-  const liveSms = normalizeSmsReports(reports.sms as RawFlashyRow[], account.id);
-  const liveAutomations = normalizeAutomationReports(reports.automations as RawFlashyRow[], account.id);
-  const extendedEmails = normalizeEmailReports(extendedReports.emails as RawFlashyRow[], account.id);
-  const extendedSms = normalizeSmsReports(extendedReports.sms as RawFlashyRow[], account.id);
+  if (reports.checks.some(check => !check.ok) || extendedReports.checks.some(check => !check.ok)) {
+    return NextResponse.json({ success: false, message: "בדיקת Flashy לא הושלמה. אין להסיק פער מתוך תשובה חלקית.", checks: reports.checks }, { status: 502 });
+  }
+  const liveEmails = normalizeEmailReports(reports.emails as RawFlashyRow[], account.id, account.timezone).filter(item => dateInRange(item.sentAt, start, end));
+  const liveSms = normalizeSmsReports(reports.sms as RawFlashyRow[], account.id, account.timezone).filter(item => dateInRange(item.sentAt, start, end));
+  const liveAutomations = normalizeAutomationReports(reports.automations as RawFlashyRow[], account.id).filter(item => dateInRange(reportDateInstant(item.date, account.timezone), start, end));
+  const extendedEmails = normalizeEmailReports(extendedReports.emails as RawFlashyRow[], account.id, account.timezone);
+  const extendedSms = normalizeSmsReports(extendedReports.sms as RawFlashyRow[], account.id, account.timezone);
 
   const dbCampaignRevenue =
     sumBy(dbEmails, (item) => toNumber(item.revenueGenerated)) +

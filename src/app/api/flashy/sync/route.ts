@@ -36,7 +36,11 @@ export async function POST(request: Request) {
     if (!adminContext.ok) return adminContext.response;
 
     if (!apiKey && accountId) {
-      return syncPersistedAccount(accountId, startedAt);
+      const lookbackDays = body.lookbackDays === undefined ? 90 : Number(body.lookbackDays);
+      if (!Number.isInteger(lookbackDays) || lookbackDays < 1 || lookbackDays > 365) {
+        return NextResponse.json({ success: false, message: "טווח סנכרון לא תקין" }, { status: 400 });
+      }
+      return syncPersistedAccount(accountId, startedAt, lookbackDays);
     }
   }
 
@@ -118,7 +122,7 @@ export async function POST(request: Request) {
   });
 }
 
-async function syncPersistedAccount(accountId: string, startedAt: number) {
+async function syncPersistedAccount(accountId: string, startedAt: number, lookbackDays: number) {
   const db = getDb();
   const account = await db
     .select()
@@ -145,7 +149,7 @@ async function syncPersistedAccount(accountId: string, startedAt: number) {
   try {
     const apiKey = decryptSecret(account.encryptedApiKey);
     const to = Math.floor(Date.now() / 1000);
-    const from = to - 60 * 60 * 24 * 90;
+    const from = to - 60 * 60 * 24 * lookbackDays;
     const accountResponse = await validateFlashyAccount(apiKey);
     const reports = await getFlashyReports(apiKey, from, to);
     const failedReports = reports.checks.filter((check) => !check.ok);
@@ -155,8 +159,8 @@ async function syncPersistedAccount(accountId: string, startedAt: number) {
     const emailRows = reports.emails as RawFlashyRow[];
     const smsRows = reports.sms as RawFlashyRow[];
     const automationRows = reports.automations as RawFlashyRow[];
-    const normalizedEmails = normalizeEmailReports(emailRows, account.id);
-    const normalizedSms = normalizeSmsReports(smsRows, account.id);
+    const normalizedEmails = normalizeEmailReports(emailRows, account.id, accountResponse.data.timezone || account.timezone);
+    const normalizedSms = normalizeSmsReports(smsRows, account.id, accountResponse.data.timezone || account.timezone);
     const normalizedAutomations = normalizeAutomationReports(automationRows, account.id);
 
     if (normalizedEmails.length) {
@@ -175,7 +179,7 @@ async function syncPersistedAccount(accountId: string, startedAt: number) {
             totalClicks: report.totalClicks,
             purchases: report.purchases,
             revenueGenerated: String(report.revenueGenerated),
-            raw: emailRows[index] ?? {},
+            raw: { ...emailRows[index], _syncStartedAt: syncRun.startedAt.getTime() },
           })),
         )
         .onConflictDoUpdate({
@@ -212,7 +216,7 @@ async function syncPersistedAccount(accountId: string, startedAt: number) {
             totalClicks: report.totalClicks,
             purchases: report.purchases,
             revenueGenerated: String(report.revenueGenerated),
-            raw: smsRows[index] ?? {},
+            raw: { ...smsRows[index], _syncStartedAt: syncRun.startedAt.getTime() },
           })),
         )
         .onConflictDoUpdate({
@@ -257,7 +261,7 @@ async function syncPersistedAccount(accountId: string, startedAt: number) {
             failedMessages: report.failedMessages ?? 0,
             purchases: report.purchases,
             revenueGenerated: String(report.revenueGenerated),
-            raw: automationRows[index] ?? {},
+            raw: { ...automationRows[index], _syncStartedAt: syncRun.startedAt.getTime() },
           })),
         )
         .onConflictDoUpdate({

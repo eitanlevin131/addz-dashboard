@@ -3,6 +3,7 @@ import { asc, desc } from "drizzle-orm";
 import { getAccessContext, isAdminRole } from "@/lib/auth/access";
 import { isOwnerEmail } from "@/lib/auth/owner";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
+import { latestCampaignReports, latestAutomationReports } from "@/lib/report-identity";
 import {
   automationReports,
   clients,
@@ -69,6 +70,15 @@ export async function GET() {
   );
   const visibleAccountIdSet = new Set(visibleAccountRows.map((account) => account.id));
   const visiblePlanRows = planRows.filter((plan) => plan.clientId && visibleClientIdSet.has(plan.clientId));
+  const permitted = <T extends { flashyAccountId: string | null }>(rows: T[]) => rows.filter(row => row.flashyAccountId && visibleAccountIdSet.has(row.flashyAccountId));
+  let currentEmails: typeof emailRows, currentSms: typeof smsRows, currentAutomations: typeof automationRows;
+  try {
+    currentEmails = latestCampaignReports(permitted(emailRows));
+    currentSms = latestCampaignReports(permitted(smsRows));
+    currentAutomations = latestAutomationReports(permitted(automationRows));
+  } catch (error) {
+    return NextResponse.json({ success: false, code: "REPORTS_REQUIRE_RESYNC", message: error instanceof Error ? error.message : "נדרש סנכרון דוחות" }, { status: 409 });
+  }
 
   return NextResponse.json({
     success: true,
@@ -105,7 +115,7 @@ export async function GET() {
           lastSyncAt: account.lastSyncAt?.toISOString() ?? account.createdAt.toISOString(),
         }),
       ),
-      emailReports: emailRows.filter((report) => report.flashyAccountId && visibleAccountIdSet.has(report.flashyAccountId)).map(
+      emailReports: currentEmails.map(
         (report): EmailCampaignReport => ({
           id: report.id,
           accountId: report.flashyAccountId ?? "",
@@ -116,7 +126,7 @@ export async function GET() {
           totalRecipients: report.totalRecipients,
           totalDelivered: report.totalDelivered,
           totalOpens: report.totalOpens,
-          uniqueClicks: 0,
+          uniqueClicks: toNumber((report.raw as Record<string, unknown>)?.unique_clicks),
           totalClicks: report.totalClicks,
           purchases: report.purchases,
           revenueGenerated: toNumber(report.revenueGenerated),
@@ -125,7 +135,7 @@ export async function GET() {
           spam: 0,
         }),
       ),
-      smsReports: smsRows.filter((report) => report.flashyAccountId && visibleAccountIdSet.has(report.flashyAccountId)).map(
+      smsReports: currentSms.map(
         (report): SmsCampaignReport => ({
           id: report.id,
           accountId: report.flashyAccountId ?? "",
@@ -134,14 +144,14 @@ export async function GET() {
           sentAt: report.sentAt.toISOString(),
           totalRecipients: report.totalRecipients,
           totalDelivered: report.totalDelivered,
-          uniqueClicks: 0,
+          uniqueClicks: toNumber((report.raw as Record<string, unknown>)?.unique_clicks),
           totalClicks: report.totalClicks,
           purchases: report.purchases,
           revenueGenerated: toNumber(report.revenueGenerated),
           unsubscribed: 0,
         }),
       ),
-      automationReports: automationRows.filter((report) => report.flashyAccountId && visibleAccountIdSet.has(report.flashyAccountId)).map(
+      automationReports: currentAutomations.map(
         (report): AutomationReport => ({
           id: report.id,
           accountId: report.flashyAccountId ?? "",

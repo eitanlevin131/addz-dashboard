@@ -20,6 +20,7 @@ import { signIn, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { chartColors, EngagementPlot, RankedBars, SmsReturnChart, RevenueShareChart, WeekdayBars } from "@/components/reporting-charts";
 import { campaignTiming, measuredRate } from "@/lib/report-chart-data";
+import { accountLocalTimestamp, reportRange, reportDateInstant } from "@/lib/report-time";
 import {
   automationReports,
   clients,
@@ -301,62 +302,21 @@ function getAutomationType(report: AutomationReport): AutomationFilterKey {
   return "email";
 }
 
-function filterByTimeRange<T>(
-  items: T[],
-  rangeKey: TimeRangeKey,
-  getDate: (item: T) => string,
-  customStartDate: string,
-  customEndDate: string,
-) {
-  const range = timeRanges.find((item) => item.key === rangeKey);
-  if (rangeKey === "custom") {
-    const start = customStartDate ? new Date(`${customStartDate}T00:00:00`) : null;
-    const end = customEndDate ? new Date(`${customEndDate}T23:59:59`) : null;
-
-    return items.filter((item) => {
-      const date = new Date(getDate(item));
-      return (!start || date >= start) && (!end || date <= end);
-    });
-  }
-
-  if (!range?.days) return items;
-
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - range.days);
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
-
-  return items.filter((item) => {
-    const date = new Date(getDate(item));
-    return date >= start && date <= end;
+function filterByTimeRange<T>(items: T[], rangeKey: TimeRangeKey, getDate: (item: T) => string, customStartDate: string, customEndDate: string, timezone: string) {
+  const bounds = getTimeRangeBounds(rangeKey, customStartDate, customEndDate, timezone);
+  return items.filter(item => {
+    const date = new Date(reportDateInstant(getDate(item), timezone)).getTime();
+    return (!bounds.start || date >= Date.parse(bounds.start)) && (!bounds.end || date <= Date.parse(bounds.end));
   });
 }
 
-function getTimeRangeBounds(
-  rangeKey: TimeRangeKey,
-  customStartDate: string,
-  customEndDate: string,
-) {
+function getTimeRangeBounds(rangeKey: TimeRangeKey, customStartDate: string, customEndDate: string, timezone: string) {
   if (rangeKey === "all") return { start: "", end: "" };
-
-  if (rangeKey === "custom") {
-    return {
-      start: customStartDate ? new Date(`${customStartDate}T00:00:00`).toISOString() : "",
-      end: customEndDate ? new Date(`${customEndDate}T23:59:59`).toISOString() : "",
-    };
-  }
-
-  const range = timeRanges.find((item) => item.key === rangeKey);
-  if (!range?.days) return { start: "", end: "" };
-
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - range.days);
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
-
-  return { start: start.toISOString(), end: end.toISOString() };
+  if (rangeKey === "custom") return {
+    start: customStartDate ? accountLocalTimestamp(customStartDate, "00:00:00", timezone) : "",
+    end: customEndDate ? accountLocalTimestamp(customEndDate, "23:59:59", timezone) : "",
+  };
+  return reportRange(timeRanges.find(item => item.key === rangeKey)?.days ?? 30, timezone);
 }
 
 function consolidateAutomations(automations: AutomationReport[]): AutomationReport[] {
@@ -4229,6 +4189,7 @@ export function DashboardApp() {
     (item) => item.sentAt,
     customStartDate,
     customEndDate,
+    account.timezone,
   );
   const accountSms = filterByTimeRange(
     allAccountSms,
@@ -4236,6 +4197,7 @@ export function DashboardApp() {
     (item) => item.sentAt,
     customStartDate,
     customEndDate,
+    account.timezone,
   );
   const accountAutomationRows = filterByTimeRange(
     byAccount(localAutomationReports, account.id),
@@ -4243,11 +4205,12 @@ export function DashboardApp() {
     (item) => item.date,
     customStartDate,
     customEndDate,
+    account.timezone,
   );
   const accountAutomations = consolidateAutomations(accountAutomationRows);
   const accountPlans = localNewsletterPlans.filter((plan) => plan.clientId === selectedClient.id);
   const summary = summarizeAccount(account, accountEmails, accountSms, accountAutomations);
-  const activeRangeBounds = getTimeRangeBounds(timeRange, customStartDate, customEndDate);
+  const activeRangeBounds = getTimeRangeBounds(timeRange, customStartDate, customEndDate, account.timezone);
   const viewerIsAdmin = viewerRole === "admin";
   const isRestrictedUser = !viewerIsAdmin;
 
@@ -4558,6 +4521,9 @@ export function DashboardApp() {
         <div>
           {showTimeRange && (
             <section className="mb-4 rounded-lg border border-[#e4e7ec] bg-white px-3 py-2.5">
+              {activeRangeBounds.start && activeRangeBounds.end && <p className="mb-2 text-xs tabular-nums text-[#667085]">
+                {new Date(activeRangeBounds.start).toLocaleDateString("he-IL", { timeZone: account.timezone })} עד {new Date(activeRangeBounds.end).toLocaleDateString("he-IL", { timeZone: account.timezone })}
+              </p>}
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex max-w-full gap-1 overflow-x-auto pb-0.5">
                     {timeRanges.map((range) => (

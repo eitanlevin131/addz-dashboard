@@ -124,8 +124,8 @@ export async function POST(request: Request) {
     const emailRows = reports.emails as RawFlashyRow[];
     const smsRows = reports.sms as RawFlashyRow[];
     const automationRows = reports.automations as RawFlashyRow[];
-    const normalizedEmails = normalizeEmailReports(emailRows, account.id);
-    const normalizedSms = normalizeSmsReports(smsRows, account.id);
+    const normalizedEmails = normalizeEmailReports(emailRows, account.id, flashyAccount.timezone || account.timezone);
+    const normalizedSms = normalizeSmsReports(smsRows, account.id, flashyAccount.timezone || account.timezone);
     const normalizedAutomations = normalizeAutomationReports(automationRows, account.id);
 
     if (normalizedEmails.length) {
@@ -144,7 +144,7 @@ export async function POST(request: Request) {
             totalClicks: report.totalClicks,
             purchases: report.purchases,
             revenueGenerated: String(report.revenueGenerated),
-            raw: emailRows[index] ?? {},
+            raw: { ...emailRows[index], _syncStartedAt: syncRun.startedAt.getTime() },
           })),
         )
         .onConflictDoUpdate({
@@ -181,7 +181,7 @@ export async function POST(request: Request) {
             totalClicks: report.totalClicks,
             purchases: report.purchases,
             revenueGenerated: String(report.revenueGenerated),
-            raw: smsRows[index] ?? {},
+            raw: { ...smsRows[index], _syncStartedAt: syncRun.startedAt.getTime() },
           })),
         )
         .onConflictDoUpdate({
@@ -226,7 +226,7 @@ export async function POST(request: Request) {
             failedMessages: report.failedMessages ?? 0,
             purchases: report.purchases,
             revenueGenerated: String(report.revenueGenerated),
-            raw: automationRows[index] ?? {},
+            raw: { ...automationRows[index], _syncStartedAt: syncRun.startedAt.getTime() },
           })),
         )
         .onConflictDoUpdate({

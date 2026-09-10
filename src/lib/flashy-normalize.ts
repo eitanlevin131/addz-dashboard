@@ -1,4 +1,5 @@
 import { parseMoney } from "@/lib/metrics";
+import { accountLocalTimestamp } from "@/lib/report-time";
 import type {
   AutomationReport,
   Channel,
@@ -29,17 +30,14 @@ export function rawNumber(row: RawFlashyRow, keys: string[]) {
   return 0;
 }
 
-export function rawDate(row: RawFlashyRow, fallbackIndex: number) {
+export function rawDate(row: RawFlashyRow, _fallbackIndex: number, timezone = "UTC") {
   const timestamp = rawNumber(row, ["created_at", "timestamp", "sent_at"]);
   if (timestamp > 1_000_000_000) return new Date(timestamp * 1000).toISOString();
 
   const date = rawString(row, ["sent_date", "date", "report_date"], "");
   const time = rawString(row, ["sent_time", "time"], "00:00:00");
-  if (date) return new Date(`${date}T${time}`).toISOString();
-
-  const fallback = new Date();
-  fallback.setDate(fallback.getDate() - fallbackIndex);
-  return fallback.toISOString();
+  if (date) return accountLocalTimestamp(date, time, timezone);
+  throw new Error("Missing report date; refusing to invent a send date");
 }
 
 export function inferChannel(row: RawFlashyRow): Channel {
@@ -64,6 +62,7 @@ export function inferChannel(row: RawFlashyRow): Channel {
 export function normalizeEmailReports(
   rows: RawFlashyRow[],
   accountId: string,
+  timezone = "UTC",
 ): EmailCampaignReport[] {
   return rows.map((row, index) => ({
     id: `${accountId}-email-${rawString(row, ["campaign_id"], String(index))}-${index}`,
@@ -71,7 +70,7 @@ export function normalizeEmailReports(
     campaignId: rawNumber(row, ["campaign_id", "id"]) || index + 1,
     campaignName: rawString(row, ["campaign_name", "name", "title"], `קמפיין אימייל ${index + 1}`),
     subjectLine: rawString(row, ["subject_line", "subject"], "ללא שורת נושא"),
-    sentAt: rawDate(row, index),
+    sentAt: rawDate(row, index, timezone),
     totalRecipients: rawNumber(row, ["total_recipients", "recipients", "sent"]),
     totalDelivered: rawNumber(row, ["total_delivered", "delivered"]),
     totalOpens: rawNumber(row, ["total_opens", "opens"]),
@@ -88,13 +87,14 @@ export function normalizeEmailReports(
 export function normalizeSmsReports(
   rows: RawFlashyRow[],
   accountId: string,
+  timezone = "UTC",
 ): SmsCampaignReport[] {
   return rows.map((row, index) => ({
     id: `${accountId}-sms-${rawString(row, ["campaign_id"], String(index))}-${index}`,
     accountId,
     campaignId: rawNumber(row, ["campaign_id", "id"]) || index + 1,
     campaignName: rawString(row, ["campaign_name", "name", "title"], `קמפיין SMS ${index + 1}`),
-    sentAt: rawDate(row, index),
+    sentAt: rawDate(row, index, timezone),
     totalRecipients: rawNumber(row, ["total_recipients", "recipients", "sent"]),
     totalDelivered: rawNumber(row, ["total_delivered", "delivered"]),
     uniqueClicks: rawNumber(row, ["unique_clicks"]),
