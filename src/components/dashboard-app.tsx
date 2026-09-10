@@ -870,12 +870,12 @@ function KPIGrid({
   const totalCost = summary.smsCost + summary.fixedCosts;
   const metrics = [
     {
-      label: "הכנסות מפעילות",
+      label: "הכנסה מיוחסת לפעילות",
       value: formatCurrency(summary.revenue, account.currency),
       rawValue: summary.revenue,
       previousValue: previousSummary?.revenue ?? null,
       formatPrevious: (value: number) => formatCurrency(value, account.currency),
-      detail: "קמפיינים שנשלחו ואוטומציות שפעלו בטווח",
+      detail: "לפי מועד שליחת הקמפיין או פעילות האוטומציה",
       tone: "good" as const,
     },
     {
@@ -995,7 +995,7 @@ function DataReconciliationPanel({
     ? Math.abs(reconcileResult.delta.campaignRevenue) > 1 ||
       Math.abs(reconcileResult.delta.automationRevenue) > 1
     : false;
-  const uiHasGap = Math.abs(campaignUiDelta) > 1 || Math.abs(automationUiDelta) > 1;
+  const hasSalesOverviewDifference = Math.abs(campaignUiDelta) > 1 || Math.abs(automationUiDelta) > 1;
   const qaConclusion = reconcileResult
     ? apiHasGap
       ? {
@@ -1003,12 +1003,12 @@ function DataReconciliationPanel({
           body: "צריך לבדוק את רשימת הפריטים עם הפערים לפני שמציגים מסקנות ללקוח.",
           tone: "warn" as const,
         }
-      : uiHasGap
+      : hasSalesOverviewDifference
         ? {
-            title: reconcileResult.boundaryCampaignCandidates.length
-              ? "יש פער מול Sales Overview, כנראה בגלל קמפיינים מוקדמים"
-              : "יש פער מול Sales Overview, אבל לא מול דוחות ה־API",
-            body: "דוחות הפעילות מסננים קמפיינים לפי מועד השליחה. Sales Overview מסנן רכישות לפי מועד ההמרה ולכן עשוי לכלול קמפיינים שנשלחו לפני הטווח.",
+            title: "Sales Overview משתמש בהגדרת זמן אחרת",
+            body: reconcileResult.boundaryCampaignCandidates.length
+              ? "ה־API תואם לדאשבורד. Sales Overview כולל רכישות שבוצעו בטווח גם אם הקמפיין נשלח קודם; נמצאו למטה קמפיינים מוקדמים לבדיקה."
+              : "ה־API תואם לדאשבורד. Sales Overview מסנן לפי מועד הרכישה, בעוד דוחות הפעילות מסננים לפי מועד שליחת הקמפיין או פעילות האוטומציה.",
             tone: "neutral" as const,
           }
         : {
@@ -1067,7 +1067,7 @@ function DataReconciliationPanel({
         <div>
           <h2 className="text-xl font-black">בדיקת אמינות נתונים</h2>
           <p className="mt-1 text-sm leading-6 text-[#65738a]">
-            אימות דוחות הפעילות מול Flashy API והשוואה אבחונית ל־Sales Overview.
+            אימות מול Flashy API והשוואת שיטת המדידה מול Sales Overview.
           </p>
         </div>
         <div className="w-full rounded-xl border border-[#eef3f7] bg-[#fbfcfc] p-3 lg:max-w-[380px]">
@@ -1103,7 +1103,7 @@ function DataReconciliationPanel({
             השווה מול Flashy עכשיו
           </button>
           <p className="mt-2 text-xs leading-5 text-[#65738a]">
-            השדות הידניים אינם משנים את נתוני הדאשבורד; הם משמשים רק לאבחון פערי ייחוס.
+            נתוני Sales Overview משמשים להשוואת הגדרות זמן בלבד ואינם משנים את הדאשבורד.
           </p>
         </div>
       </div>
@@ -1137,15 +1137,15 @@ function DataReconciliationPanel({
           <p className="mt-1 text-xs text-[#65738a]">קרדיטים × מחיר × שער</p>
         </div>
         <div className="rounded-xl bg-[#f7faf9] p-4">
-          <p className="text-xs font-black text-[#65738a]">פער מול Sales Overview</p>
-          <p className={classNames("mt-1 text-xl font-black", Math.abs(campaignUiDelta + automationUiDelta) > 1 ? "text-[#9a3412]" : "text-[#007d72]")}>
+          <p className="text-xs font-black text-[#65738a]">הפרש מול Sales Overview</p>
+          <p className="mt-1 text-xl font-black text-[#40506a]">
             {flashyUiCampaignValue || flashyUiAutomationValue
               ? formatCurrency(campaignUiDelta + automationUiDelta, account.currency)
               : "—"}
           </p>
           <p className="mt-1 text-xs text-[#65738a]">
             {flashyUiCampaignValue || flashyUiAutomationValue
-              ? `קמפיינים ${formatCurrency(campaignUiDelta, account.currency)} · אוטומציות ${formatCurrency(automationUiDelta, account.currency)}`
+              ? `הפרש הגדרות: קמפיינים ${formatCurrency(campaignUiDelta, account.currency)} · אוטומציות ${formatCurrency(automationUiDelta, account.currency)}`
               : "הזן מספרי Flashy UI להשוואה"}
           </p>
         </div>
@@ -1191,23 +1191,23 @@ function DataReconciliationPanel({
 
           {(flashyUiCampaignValue > 0 || flashyUiAutomationValue > 0) && (
             <div className="mt-3 grid gap-3 lg:grid-cols-2">
-              <div className="rounded-lg border border-[#f4d7c5] bg-[#fff8f3] p-3">
-                <p className="text-xs font-black text-[#9a3412]">פער מול Sales Overview - קמפיינים</p>
+              <div className="rounded-lg border border-[#dfe7ee] bg-white p-3">
+                <p className="text-xs font-black text-[#65738a]">השוואת הגדרות - קמפיינים</p>
                 <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
                   <span>דאשבורד: {formatCurrency(campaignRevenue, account.currency)}</span>
                   <span>Flashy UI: {formatCurrency(flashyUiCampaignValue, account.currency)}</span>
-                  <span className="font-black text-[#9a3412]">
-                    פער: {formatCurrency(campaignUiDelta, account.currency)}
+                  <span className="font-black text-[#40506a]">
+                    הפרש: {formatCurrency(campaignUiDelta, account.currency)}
                   </span>
                 </div>
               </div>
-              <div className="rounded-lg border border-[#f4d7c5] bg-[#fff8f3] p-3">
-                <p className="text-xs font-black text-[#9a3412]">פער מול Sales Overview - אוטומציות</p>
+              <div className="rounded-lg border border-[#dfe7ee] bg-white p-3">
+                <p className="text-xs font-black text-[#65738a]">השוואת הגדרות - אוטומציות</p>
                 <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
                   <span>דאשבורד: {formatCurrency(automationRevenue, account.currency)}</span>
                   <span>Flashy UI: {formatCurrency(flashyUiAutomationValue, account.currency)}</span>
-                  <span className="font-black text-[#9a3412]">
-                    פער: {formatCurrency(automationUiDelta, account.currency)}
+                  <span className="font-black text-[#40506a]">
+                    הפרש: {formatCurrency(automationUiDelta, account.currency)}
                   </span>
                 </div>
               </div>
@@ -1267,19 +1267,19 @@ function DataReconciliationPanel({
               )}
 
               {reconcileResult.boundaryCampaignCandidates.length > 0 && (
-                <div className="mt-3 overflow-hidden rounded-lg border border-[#f4d7c5] bg-[#fff8f3]">
-                  <div className="border-b border-[#f4d7c5] px-3 py-2">
-                    <p className="text-xs font-black text-[#9a3412]">
-                      קמפיינים שנשלחו לפני הטווח ועשויים להסביר את פער הייחוס
+                <div className="mt-3 overflow-hidden rounded-lg border border-[#dfe7ee] bg-white">
+                  <div className="border-b border-[#dfe7ee] px-3 py-2">
+                    <p className="text-xs font-black text-[#40506a]">
+                      קמפיינים מוקדמים שעשויים להיכלל ב־Sales Overview
                     </p>
-                    <p className="mt-1 text-[11px] leading-5 text-[#7c4a2d]">
-                      הסכומים הם מדוחות הקמפיינים ואינם סכום הפער. הם מסמנים אילו קמפיינים לבדוק ב־Sales Overview.
+                    <p className="mt-1 text-[11px] leading-5 text-[#65738a]">
+                      הסכומים הם ההכנסה המיוחסת לכל קמפיין בדוח הפעילות, ולא ההכנסה שנוצרה רק בתוך הטווח.
                     </p>
                   </div>
                   {reconcileResult.boundaryCampaignCandidates.map((item) => (
-                    <div key={item.name} className="flex items-center justify-between gap-3 border-b border-[#f8e7dc] px-3 py-2 text-xs last:border-b-0">
+                    <div key={item.name} className="flex items-center justify-between gap-3 border-b border-[#eef3f7] px-3 py-2 text-xs last:border-b-0">
                       <span className="truncate font-bold">{item.name}</span>
-                      <span className="shrink-0 font-black text-[#9a3412]">
+                      <span className="shrink-0 font-black text-[#40506a]">
                         {formatCurrency(item.revenue, account.currency)}
                       </span>
                     </div>

@@ -33,6 +33,12 @@ export type AiClientProfile = {
 };
 
 export type AiContextPack = {
+  measurement: {
+    source: "Flashy activity reports API";
+    dateBasis: "campaign send date and automation activity date";
+    revenueBasis: "revenue attributed to each activity under the account attribution window";
+    limitation: string;
+  };
   account: {
     name: string;
     currency: string;
@@ -242,6 +248,12 @@ export function buildAiContextPack(input: {
   };
 
   return {
+    measurement: {
+      source: "Flashy activity reports API",
+      dateBasis: "campaign send date and automation activity date",
+      revenueBasis: "revenue attributed to each activity under the account attribution window",
+      limitation: "This is not Flashy Sales Overview revenue. Sales Overview filters purchases by conversion date and can include campaigns sent before the selected range; it is not available through the public API.",
+    },
     account: {
       name: account.name,
       currency: account.currency,
@@ -639,7 +651,7 @@ export function fallbackAgentAnswer(question: string, context: AiContextPack) {
           weak.sms.cost,
           account.currency,
         )} והחזיר ${money(weak.sms.revenue, account.currency)}. עד שמשפרים החזר, עדיף לשלוח SMS בעיקר לקהלים חמים ולא לשליחות רחבות.`
-      : `ה-SMS נראה יציב יחסית. עלות ה-SMS בטווח היא ${money(summary.smsCost, account.currency)} מול הכנסה כוללת של ${money(
+      : `ה-SMS נראה יציב יחסית. עלות ה-SMS בטווח היא ${money(summary.smsCost, account.currency)} מול הכנסה מיוחסת לפעילות של ${money(
           summary.revenue,
           account.currency,
         )}.`;
@@ -654,7 +666,7 @@ export function fallbackAgentAnswer(question: string, context: AiContextPack) {
       : "אין כרגע אוטומציה מובילה מספיק ברורה. הייתי בודק קודם אוטומציות עם שליחות אבל בלי קליקים.";
   }
 
-  return `התמונה הכללית: ההכנסות הן ${money(summary.revenue, account.currency)}, הרווח אחרי עלויות הוא ${money(
+  return `לפי דוחות הפעילות: ההכנסה המיוחסת היא ${money(summary.revenue, account.currency)}, הרווח אחרי עלויות הוא ${money(
     summary.profit,
     account.currency,
   )}, וה-ROAS הוא ${summary.roas ? `${summary.roas.toFixed(1)}x` : "לא זמין"}. הפעולה הכי טובה עכשיו היא לשכפל את הפעילות המובילה ולבדוק את נקודת החולשה הכי יקרה.`;
@@ -735,7 +747,7 @@ export async function askOpenAiAgent(input: {
         {
           role: "system",
           content:
-            "אתה סוכן AI לאופטימיזציית אימייל ו-SMS מרקטינג. ענה בעברית, קצר, חד ומבוסס רק על ה-Context Pack. אל תמציא נתונים. אם חסר מידע, אמור מה חסר.",
+            "אתה סוכן AI לאופטימיזציית אימייל ו-SMS מרקטינג. ענה בעברית, קצר, חד ומבוסס רק על ה-Context Pack. אל תמציא נתונים. התייחס תמיד ל-measurement: ההכנסות הן הכנסות מיוחסות לדוחות פעילות לפי מועד שליחה/פעילות, ולא הכנסות Sales Overview לפי מועד רכישה. אל תציג אותן כהכנסה הכוללת של החשבון. אם חסר מידע, אמור מה חסר.",
         },
         {
           role: "user",
@@ -773,7 +785,7 @@ export async function askOpenAiActionPlan(context: AiContextPack) {
         {
           role: "system",
           content:
-            "אתה מנהל אופטימיזציית Email/SMS Marketing לסוכנות. החזר JSON בלבד. אל תמציא מספרים. תן המלצות פרקטיות שמבוססות על הנתונים. כל המלצה חייבת להיות פעולה שאפשר לבצע השבוע.",
+            "אתה מנהל אופטימיזציית Email/SMS Marketing לסוכנות. החזר JSON בלבד. אל תמציא מספרים. כבד את הגדרת measurement: נתוני ההכנסה הם הכנסות מיוחסות לפעילויות לפי מועד שליחה/פעילות ואינם Sales Overview לפי מועד רכישה. תן המלצות פרקטיות שמבוססות על הנתונים. כל המלצה חייבת להיות פעולה שאפשר לבצע השבוע.",
         },
         {
           role: "user",
