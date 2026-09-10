@@ -2,6 +2,8 @@
 
 import {
   Activity,
+  ArrowDownRight,
+  ArrowUpRight,
   Bot,
   CalendarDays,
   CheckCircle2,
@@ -9,6 +11,7 @@ import {
   KeyRound,
   LineChart,
   MessageSquareText,
+  Minus,
   RefreshCw,
   Send,
   Settings,
@@ -18,9 +21,18 @@ import {
 } from "lucide-react";
 import { signIn, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
-import { chartColors, EngagementPlot, RankedBars, SmsReturnChart, RevenueShareChart, WeekdayBars } from "@/components/reporting-charts";
+import {
+  chartColors,
+  EngagementPlot,
+  PeriodComparisonChart,
+  RankedBars,
+  SmsReturnChart,
+  RevenueShareChart,
+  WeekdayBars,
+  type PeriodComparisonPoint,
+} from "@/components/reporting-charts";
 import { campaignTiming, measuredRate } from "@/lib/report-chart-data";
-import { accountLocalTimestamp, reportRange, reportDateInstant } from "@/lib/report-time";
+import { accountDate, accountLocalTimestamp, reportRange, reportDateInstant } from "@/lib/report-time";
 import {
   automationReports,
   clients,
@@ -304,6 +316,15 @@ function getAutomationType(report: AutomationReport): AutomationFilterKey {
 
 function filterByTimeRange<T>(items: T[], rangeKey: TimeRangeKey, getDate: (item: T) => string, customStartDate: string, customEndDate: string, timezone: string) {
   const bounds = getTimeRangeBounds(rangeKey, customStartDate, customEndDate, timezone);
+  return filterByBounds(items, bounds, getDate, timezone);
+}
+
+function filterByBounds<T>(
+  items: T[],
+  bounds: { start: string; end: string },
+  getDate: (item: T) => string,
+  timezone: string,
+) {
   return items.filter(item => {
     const date = new Date(reportDateInstant(getDate(item), timezone)).getTime();
     return (!bounds.start || date >= Date.parse(bounds.start)) && (!bounds.end || date <= Date.parse(bounds.end));
@@ -317,6 +338,97 @@ function getTimeRangeBounds(rangeKey: TimeRangeKey, customStartDate: string, cus
     end: customEndDate ? accountLocalTimestamp(customEndDate, "23:59:59", timezone) : "",
   };
   return reportRange(timeRanges.find(item => item.key === rangeKey)?.days ?? 30, timezone);
+}
+
+function shiftCalendarDate(value: string, days: number) {
+  const date = new Date(`${value}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function getPreviousRangeBounds(
+  bounds: { start: string; end: string },
+  timezone: string,
+) {
+  if (!bounds.start || !bounds.end) return null;
+  const currentStart = accountDate(new Date(bounds.start), timezone);
+  const currentEnd = accountDate(new Date(bounds.end), timezone);
+  const durationDays =
+    Math.round((Date.parse(currentEnd) - Date.parse(currentStart)) / 86_400_000) + 1;
+  if (!Number.isFinite(durationDays) || durationDays < 1) return null;
+
+  const previousEnd = shiftCalendarDate(currentStart, -1);
+  const previousStart = shiftCalendarDate(previousEnd, -durationDays + 1);
+  return {
+    start: accountLocalTimestamp(previousStart, "00:00:00", timezone),
+    end: accountLocalTimestamp(previousEnd, "23:59:59", timezone),
+  };
+}
+
+function enumerateCalendarDates(bounds: { start: string; end: string }, timezone: string) {
+  const start = accountDate(new Date(bounds.start), timezone);
+  const end = accountDate(new Date(bounds.end), timezone);
+  const dates: string[] = [];
+  for (let date = start; date <= end; date = shiftCalendarDate(date, 1)) dates.push(date);
+  return dates;
+}
+
+function buildPeriodComparisonPoints({
+  currentBounds,
+  previousBounds,
+  currentEmails,
+  currentSms,
+  currentAutomations,
+  previousEmails,
+  previousSms,
+  previousAutomations,
+  timezone,
+}: {
+  currentBounds: { start: string; end: string };
+  previousBounds: { start: string; end: string };
+  currentEmails: EmailCampaignReport[];
+  currentSms: SmsCampaignReport[];
+  currentAutomations: AutomationReport[];
+  previousEmails: EmailCampaignReport[];
+  previousSms: SmsCampaignReport[];
+  previousAutomations: AutomationReport[];
+  timezone: string;
+}): PeriodComparisonPoint[] {
+  type DailyRevenue = { email: number; sms: number; automations: number };
+  const current = new Map<string, DailyRevenue>();
+  const previous = new Map<string, DailyRevenue>();
+  const add = (
+    target: Map<string, DailyRevenue>,
+    dateValue: string,
+    channel: keyof DailyRevenue,
+    revenue: number,
+  ) => {
+    const date = accountDate(new Date(reportDateInstant(dateValue, timezone)), timezone);
+    const day = target.get(date) ?? { email: 0, sms: 0, automations: 0 };
+    day[channel] += revenue;
+    target.set(date, day);
+  };
+
+  currentEmails.forEach((item) => add(current, item.sentAt, "email", item.revenueGenerated));
+  currentSms.forEach((item) => add(current, item.sentAt, "sms", item.revenueGenerated));
+  currentAutomations.forEach((item) => add(current, item.date, "automations", item.revenueGenerated));
+  previousEmails.forEach((item) => add(previous, item.sentAt, "email", item.revenueGenerated));
+  previousSms.forEach((item) => add(previous, item.sentAt, "sms", item.revenueGenerated));
+  previousAutomations.forEach((item) => add(previous, item.date, "automations", item.revenueGenerated));
+
+  const currentDates = enumerateCalendarDates(currentBounds, timezone);
+  const previousDates = enumerateCalendarDates(previousBounds, timezone);
+  const dateFormatter = new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric" });
+
+  return currentDates.map((date, index) => {
+    const currentDay = current.get(date) ?? { email: 0, sms: 0, automations: 0 };
+    const previousDay = previous.get(previousDates[index]) ?? { email: 0, sms: 0, automations: 0 };
+    return {
+      label: dateFormatter.format(new Date(`${date}T12:00:00Z`)),
+      ...currentDay,
+      previousTotal: previousDay.email + previousDay.sms + previousDay.automations,
+    };
+  });
 }
 
 function consolidateAutomations(automations: AutomationReport[]): AutomationReport[] {
@@ -578,30 +690,66 @@ interface FlashyReconcileResult {
   }[];
 }
 
-function KPIGrid({ account, summary }: { account: FlashyAccount; summary: MetricSummary }) {
+function comparisonChange(current: number | null, previous: number | null) {
+  if (current === null || previous === null || !Number.isFinite(current) || !Number.isFinite(previous)) {
+    return null;
+  }
+  if (previous === 0) {
+    if (current === 0) return { direction: "same" as const, label: "ללא שינוי" };
+    return { direction: current > 0 ? "up" as const : "down" as const, label: "חדש" };
+  }
+  const change = (current - previous) / Math.abs(previous);
+  if (Math.abs(change) < 0.0005) return { direction: "same" as const, label: "ללא שינוי" };
+  return {
+    direction: change > 0 ? "up" as const : "down" as const,
+    label: `${formatPercent(Math.abs(change))} ${change > 0 ? "עלייה" : "ירידה"}`,
+  };
+}
+
+function KPIGrid({
+  account,
+  summary,
+  previousSummary,
+}: {
+  account: FlashyAccount;
+  summary: MetricSummary;
+  previousSummary: MetricSummary | null;
+}) {
   const totalCost = summary.smsCost + summary.fixedCosts;
   const metrics = [
     {
       label: "הכנסות מפעילות",
       value: formatCurrency(summary.revenue, account.currency),
+      rawValue: summary.revenue,
+      previousValue: previousSummary?.revenue ?? null,
+      formatPrevious: (value: number) => formatCurrency(value, account.currency),
       detail: "קמפיינים שנשלחו ואוטומציות שפעלו בטווח",
       tone: "good" as const,
     },
     {
       label: "רווח",
       value: formatCurrency(summary.profit, account.currency),
+      rawValue: summary.profit,
+      previousValue: previousSummary?.profit ?? null,
+      formatPrevious: (value: number) => formatCurrency(value, account.currency),
       detail: `אחרי ${formatCurrency(totalCost, account.currency)} עלות`,
       tone: summary.profit >= 0 ? "good" as const : "warn" as const,
     },
     {
       label: "ROAS",
       value: formatRoas(summary.roas),
+      rawValue: summary.roas,
+      previousValue: previousSummary?.roas ?? null,
+      formatPrevious: (value: number) => formatRoas(value),
       detail: "כולל SMS ועלויות קבועות",
       tone: "good" as const,
     },
     {
       label: "רכישות",
       value: formatNumber(summary.purchases),
+      rawValue: summary.purchases,
+      previousValue: previousSummary?.purchases ?? null,
+      formatPrevious: (value: number) => formatNumber(value),
       detail: `Conversion ${formatPercent(summary.conversionRate)}`,
       tone: "neutral" as const,
     },
@@ -609,25 +757,50 @@ function KPIGrid({ account, summary }: { account: FlashyAccount; summary: Metric
 
   return (
     <section className="grid grid-cols-2 overflow-hidden rounded-xl border border-[#e4e7ec] bg-white xl:grid-cols-4">
-      {metrics.map((metric) => (
-        <article
-          key={metric.label}
-          className="min-w-0 border-b border-l border-[#e4e7ec] p-3.5 text-[#111318] even:border-l-0 xl:border-b-0 xl:p-4 xl:even:border-l xl:last:border-l-0"
-        >
-          <p className="text-xs font-medium text-[#667085]">{metric.label}</p>
-          <p
-            className={classNames(
-              "mt-2 text-2xl font-bold leading-none tabular-nums tracking-normal sm:text-3xl",
-              metric.tone === "good" && "text-[#111318]",
-              metric.tone === "warn" && "text-[#9a3412]",
-              metric.tone === "neutral" && "text-[#111318]",
-            )}
+      {metrics.map((metric) => {
+        const comparison = comparisonChange(metric.rawValue, metric.previousValue);
+        const ComparisonIcon = comparison?.direction === "up"
+          ? ArrowUpRight
+          : comparison?.direction === "down"
+            ? ArrowDownRight
+            : Minus;
+
+        return (
+          <article
+            key={metric.label}
+            className="min-w-0 border-b border-l border-[#e4e7ec] p-3.5 text-[#111318] even:border-l-0 xl:border-b-0 xl:p-4 xl:even:border-l xl:last:border-l-0"
           >
-            {metric.value}
-          </p>
-          <p className="mt-2 truncate text-xs leading-5 text-[#667085]">{metric.detail}</p>
-        </article>
-      ))}
+            <p className="text-xs font-medium text-[#667085]">{metric.label}</p>
+            <p
+              className={classNames(
+                "mt-2 text-2xl font-bold leading-none tabular-nums tracking-normal sm:text-3xl",
+                metric.tone === "good" && "text-[#111318]",
+                metric.tone === "warn" && "text-[#9a3412]",
+                metric.tone === "neutral" && "text-[#111318]",
+              )}
+            >
+              {metric.value}
+            </p>
+            {comparison && metric.previousValue !== null && (
+              <div className="mt-2 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] tabular-nums">
+                <span
+                  className={classNames(
+                    "inline-flex items-center gap-0.5 font-bold",
+                    comparison.direction === "up" && "text-[#087f72]",
+                    comparison.direction === "down" && "text-[#b45309]",
+                    comparison.direction === "same" && "text-[#667085]",
+                  )}
+                >
+                  <ComparisonIcon size={13} strokeWidth={2} />
+                  {comparison.label}
+                </span>
+                <span className="text-[#98a2b3]">קודם {metric.formatPrevious(metric.previousValue)}</span>
+              </div>
+            )}
+            <p className="mt-2 truncate text-xs leading-5 text-[#667085]">{metric.detail}</p>
+          </article>
+        );
+      })}
     </section>
   );
 }
@@ -1103,6 +1276,9 @@ function Sidebar({
 function Overview({
   account,
   summary,
+  previousSummary,
+  comparisonPoints,
+  previousRangeLabel,
   emails,
   sms,
   automations,
@@ -1113,6 +1289,9 @@ function Overview({
 }: {
   account: FlashyAccount;
   summary: MetricSummary;
+  previousSummary: MetricSummary | null;
+  comparisonPoints: PeriodComparisonPoint[];
+  previousRangeLabel: string;
   emails: EmailCampaignReport[];
   sms: SmsCampaignReport[];
   automations: AutomationReport[];
@@ -1213,8 +1392,18 @@ function Overview({
   return (
     <section className="grid grid-cols-12 gap-3">
       <div className="col-span-12">
-        <KPIGrid account={account} summary={summary} />
+        <KPIGrid account={account} summary={summary} previousSummary={previousSummary} />
       </div>
+
+      {comparisonPoints.length > 0 && (
+        <div className="col-span-12 min-w-0">
+          <PeriodComparisonChart
+            points={comparisonPoints}
+            currency={account.currency}
+            previousRangeLabel={previousRangeLabel}
+          />
+        </div>
+      )}
 
       {showDeepAnalysis && canAudit && (
         <div className="col-span-12">
@@ -4214,6 +4403,41 @@ export function DashboardApp() {
   const accountPlans = localNewsletterPlans.filter((plan) => plan.clientId === selectedClient.id);
   const summary = summarizeAccount(account, accountEmails, accountSms, accountAutomations);
   const activeRangeBounds = getTimeRangeBounds(timeRange, customStartDate, customEndDate, account.timezone);
+  const previousRangeBounds = getPreviousRangeBounds(activeRangeBounds, account.timezone);
+  const previousEmails = previousRangeBounds
+    ? filterByBounds(allAccountEmails, previousRangeBounds, (item) => item.sentAt, account.timezone)
+    : [];
+  const previousSms = previousRangeBounds
+    ? filterByBounds(allAccountSms, previousRangeBounds, (item) => item.sentAt, account.timezone)
+    : [];
+  const previousAutomationRows = previousRangeBounds
+    ? filterByBounds(
+        byAccount(localAutomationReports, account.id),
+        previousRangeBounds,
+        (item) => item.date,
+        account.timezone,
+      )
+    : [];
+  const previousAutomations = consolidateAutomations(previousAutomationRows);
+  const previousSummary = previousRangeBounds
+    ? summarizeAccount(account, previousEmails, previousSms, previousAutomations)
+    : null;
+  const comparisonPoints = previousRangeBounds
+    ? buildPeriodComparisonPoints({
+        currentBounds: activeRangeBounds,
+        previousBounds: previousRangeBounds,
+        currentEmails: accountEmails,
+        currentSms: accountSms,
+        currentAutomations: accountAutomationRows,
+        previousEmails,
+        previousSms,
+        previousAutomations: previousAutomationRows,
+        timezone: account.timezone,
+      })
+    : [];
+  const previousRangeLabel = previousRangeBounds
+    ? `${new Date(previousRangeBounds.start).toLocaleDateString("he-IL", { timeZone: account.timezone })}–${new Date(previousRangeBounds.end).toLocaleDateString("he-IL", { timeZone: account.timezone })}`
+    : "התקופה הקודמת";
   const viewerIsAdmin = viewerRole === "admin";
   const isRestrictedUser = !viewerIsAdmin;
 
@@ -4588,6 +4812,9 @@ export function DashboardApp() {
             <Overview
                 account={account}
                 summary={summary}
+                previousSummary={previousSummary}
+                comparisonPoints={comparisonPoints}
+                previousRangeLabel={previousRangeLabel}
                 emails={accountEmails}
                 sms={accountSms}
                 automations={accountAutomations}

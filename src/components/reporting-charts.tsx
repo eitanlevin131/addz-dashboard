@@ -2,7 +2,19 @@
 
 import { useId, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
+import {
+  Bar,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  Line,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { smsReturnRatio } from "@/lib/report-chart-data";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/metrics";
 
@@ -34,6 +46,105 @@ function Legend({ items }: { items: { label: string; color: string }[] }) {
 }
 
 export type RevenueSegment = { label: string; revenue: number; color: string; count: number; purchases: number; cost?: number };
+
+export type PeriodComparisonPoint = {
+  label: string;
+  email: number;
+  sms: number;
+  automations: number;
+  previousTotal: number;
+};
+
+export function PeriodComparisonChart({
+  points,
+  currency,
+  previousRangeLabel,
+}: {
+  points: PeriodComparisonPoint[];
+  currency: string;
+  previousRangeLabel: string;
+}) {
+  const hasData = points.some(
+    (point) => point.email || point.sms || point.automations || point.previousTotal,
+  );
+
+  return (
+    <ChartFrame
+      title="הכנסות לאורך התקופה"
+      detail={`עמודות: התקופה הנוכחית לפי ערוץ · קו: ${previousRangeLabel}`}
+      controls={
+        <Legend
+          items={[
+            { label: "אימייל", color: chartColors.email },
+            { label: "SMS", color: chartColors.sms },
+            { label: "אוטומציות", color: chartColors.automation },
+            { label: "תקופה קודמת", color: "#7b8491" },
+          ]}
+        />
+      }
+    >
+      {!hasData ? (
+        <EmptyChart />
+      ) : (
+        <div
+          className="h-[300px] min-w-0 px-2 pb-3 pl-0 sm:h-[340px] sm:px-4 sm:pb-4"
+          dir="ltr"
+          role="img"
+          aria-label="השוואת הכנסות יומית לתקופה הקודמת"
+        >
+          <ResponsiveContainer
+            width="100%"
+            height="100%"
+            minWidth={0}
+            initialDimension={{ width: 900, height: 320 }}
+          >
+            <ComposedChart data={points} margin={{ top: 12, right: 4, bottom: 0, left: 0 }}>
+              <CartesianGrid vertical={false} stroke="#eef0f2" />
+              <XAxis
+                dataKey="label"
+                axisLine={{ stroke: "#dfe3e7" }}
+                tickLine={false}
+                interval="preserveStartEnd"
+                minTickGap={28}
+                tick={{ fill: "#667085", fontSize: 10 }}
+              />
+              <YAxis
+                width={54}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={compact}
+                tick={{ fill: "#667085", fontSize: 10 }}
+              />
+              <Tooltip
+                formatter={(value, name) => [formatCurrency(Number(value), currency), String(name)]}
+                contentStyle={{ direction: "rtl", borderRadius: 8, borderColor: "#e4e7ec", fontSize: 12 }}
+              />
+              <Bar dataKey="email" name="אימייל" stackId="current" fill={chartColors.email} maxBarSize={18} />
+              <Bar dataKey="sms" name="SMS" stackId="current" fill={chartColors.sms} maxBarSize={18} />
+              <Bar
+                dataKey="automations"
+                name="אוטומציות"
+                stackId="current"
+                fill={chartColors.automation}
+                maxBarSize={18}
+              />
+              <Line
+                type="monotone"
+                dataKey="previousTotal"
+                name="תקופה קודמת"
+                stroke="#7b8491"
+                strokeWidth={2}
+                strokeDasharray="5 4"
+                dot={false}
+                activeDot={{ r: 3 }}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </ChartFrame>
+  );
+}
 
 export function RevenueShareChart({ title = "מאיפה מגיעות ההכנסות", segments, currency, showCosts = false }: { title?: string; segments: RevenueSegment[]; currency: string; showCosts?: boolean }) {
   const total = segments.reduce((sum, row) => sum + valid(row.revenue), 0);
