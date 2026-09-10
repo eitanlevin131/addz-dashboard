@@ -130,7 +130,9 @@ export async function POST(request: Request) {
 
   const apiKey = decryptSecret(account.encryptedApiKey);
   const extendedStart = new Date(start);
-  extendedStart.setDate(extendedStart.getDate() - 7);
+  // Sales Overview can attribute an in-range purchase to a campaign sent before
+  // the selected range. A wider lookback surfaces likely boundary campaigns.
+  extendedStart.setDate(extendedStart.getDate() - 30);
   const reports = await getFlashyReports(
     apiKey,
     Date.parse(`${accountDate(start, account.timezone)}T00:00:00Z`) / 1000,

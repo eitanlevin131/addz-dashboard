@@ -41,7 +41,7 @@ export function RevenueShareChart({ title = "מאיפה מגיעות ההכנס�
   const canDraw = total > 0 && segments.every(row => row.revenue >= 0);
   const chartId = useId();
   return (
-    <ChartFrame title={title} detail="הכנסות מיוחסות · חלק יחסי מהסכום הכולל">
+    <ChartFrame title={title} detail="הכנסות מדוחות הפעילות · חלק יחסי מהסכום הכולל">
       {!hasActivity ? <EmptyChart /> : <div className="grid min-w-0 items-center gap-2 px-4 pb-4 sm:px-5 xl:grid-cols-[240px_minmax(0,1fr)] xl:gap-6">
         <div className="relative mx-auto h-[228px] w-[228px]" role="img" aria-label={segments.map(row => `${row.label}: ${formatCurrency(row.revenue, currency)}`).join(", ")}>
           <div dir="ltr" className="h-full w-full" aria-hidden="true">

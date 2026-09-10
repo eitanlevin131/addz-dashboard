@@ -582,9 +582,9 @@ function KPIGrid({ account, summary }: { account: FlashyAccount; summary: Metric
   const totalCost = summary.smsCost + summary.fixedCosts;
   const metrics = [
     {
-      label: "הכנסות",
+      label: "הכנסות מפעילות",
       value: formatCurrency(summary.revenue, account.currency),
-      detail: "מיוחסות לקמפיינים ואוטומציות",
+      detail: "קמפיינים שנשלחו ואוטומציות שפעלו בטווח",
       tone: "good" as const,
     },
     {
@@ -681,14 +681,14 @@ function DataReconciliationPanel({
       : uiHasGap
         ? {
             title: reconcileResult.boundaryCampaignCandidates.length
-              ? "יש פער מול UI, כנראה בגלל קמפיין גבול"
-              : "יש פער מול UI, אבל לא מול API",
-            body: "הדאשבורד תואם ל־Flashy API. המספר הידני משמש לאבחון בלבד ולא משנה את הדוחות.",
+              ? "יש פער מול Sales Overview, כנראה בגלל קמפיינים מוקדמים"
+              : "יש פער מול Sales Overview, אבל לא מול דוחות ה־API",
+            body: "דוחות הפעילות מסננים קמפיינים לפי מועד השליחה. Sales Overview מסנן רכישות לפי מועד ההמרה ולכן עשוי לכלול קמפיינים שנשלחו לפני הטווח.",
             tone: "neutral" as const,
           }
         : {
-            title: "אין פער מול Flashy API",
-            body: "הדאשבורד ו־Flashy API מחזירים את אותם מספרים בטווח הנבחר.",
+            title: "דוחות הפעילות תואמים ל־Flashy API",
+            body: "הבדיקה מאמתת את נתוני הקמפיינים והאוטומציות מה־API. היא אינה משווה אוטומטית ל־Sales Overview, שאינו זמין דרך ה־API הציבורי.",
             tone: "good" as const,
           }
     : null;
@@ -742,13 +742,13 @@ function DataReconciliationPanel({
         <div>
           <h2 className="text-xl font-black">בדיקת אמינות נתונים</h2>
           <p className="mt-1 text-sm leading-6 text-[#65738a]">
-            פירוק מהיר להשוואה מול Flashy: הכנסות לפי מקור וחישוב עלות SMS.
+            אימות דוחות הפעילות מול Flashy API והשוואה אבחונית ל־Sales Overview.
           </p>
         </div>
         <div className="w-full rounded-xl border border-[#eef3f7] bg-[#fbfcfc] p-3 lg:max-w-[380px]">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
             <label className="block text-sm font-bold text-[#263548]">
-              קמפיינים במסך Flashy
+              קמפיינים ב־Sales Overview
               <input
                 type="number"
                 value={flashyUiCampaignRevenue}
@@ -759,7 +759,7 @@ function DataReconciliationPanel({
               />
             </label>
             <label className="block text-sm font-bold text-[#263548]">
-              אוטומציות במסך Flashy
+              אוטומציות ב־Sales Overview
               <input
                 type="number"
                 value={flashyUiAutomationRevenue}
@@ -778,7 +778,7 @@ function DataReconciliationPanel({
             השווה מול Flashy עכשיו
           </button>
           <p className="mt-2 text-xs leading-5 text-[#65738a]">
-            הכפתור מושך נתוני Flashy API. השדות הידניים משווים מול המספר שמופיע במסך Flashy.
+            השדות הידניים אינם משנים את נתוני הדאשבורד; הם משמשים רק לאבחון פערי ייחוס.
           </p>
         </div>
       </div>
@@ -812,7 +812,7 @@ function DataReconciliationPanel({
           <p className="mt-1 text-xs text-[#65738a]">קרדיטים × מחיר × שער</p>
         </div>
         <div className="rounded-xl bg-[#f7faf9] p-4">
-          <p className="text-xs font-black text-[#65738a]">פער מול מסך Flashy</p>
+          <p className="text-xs font-black text-[#65738a]">פער מול Sales Overview</p>
           <p className={classNames("mt-1 text-xl font-black", Math.abs(campaignUiDelta + automationUiDelta) > 1 ? "text-[#9a3412]" : "text-[#007d72]")}>
             {flashyUiCampaignValue || flashyUiAutomationValue
               ? formatCurrency(campaignUiDelta + automationUiDelta, account.currency)
@@ -867,7 +867,7 @@ function DataReconciliationPanel({
           {(flashyUiCampaignValue > 0 || flashyUiAutomationValue > 0) && (
             <div className="mt-3 grid gap-3 lg:grid-cols-2">
               <div className="rounded-lg border border-[#f4d7c5] bg-[#fff8f3] p-3">
-                <p className="text-xs font-black text-[#9a3412]">פער מול מסך Flashy - קמפיינים</p>
+                <p className="text-xs font-black text-[#9a3412]">פער מול Sales Overview - קמפיינים</p>
                 <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
                   <span>דאשבורד: {formatCurrency(campaignRevenue, account.currency)}</span>
                   <span>Flashy UI: {formatCurrency(flashyUiCampaignValue, account.currency)}</span>
@@ -877,7 +877,7 @@ function DataReconciliationPanel({
                 </div>
               </div>
               <div className="rounded-lg border border-[#f4d7c5] bg-[#fff8f3] p-3">
-                <p className="text-xs font-black text-[#9a3412]">פער מול מסך Flashy - אוטומציות</p>
+                <p className="text-xs font-black text-[#9a3412]">פער מול Sales Overview - אוטומציות</p>
                 <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
                   <span>דאשבורד: {formatCurrency(automationRevenue, account.currency)}</span>
                   <span>Flashy UI: {formatCurrency(flashyUiAutomationValue, account.currency)}</span>
@@ -893,7 +893,7 @@ function DataReconciliationPanel({
             <>
               <div className="mt-3 grid gap-3 lg:grid-cols-2">
                 <div className="rounded-lg bg-white p-3">
-                  <p className="text-xs font-black text-[#65738a]">קמפיינים מול Flashy API</p>
+                  <p className="text-xs font-black text-[#65738a]">דוחות קמפיינים מול Flashy API</p>
                   <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
                     <span>דאשבורד: {formatCurrency(reconcileResult.stored.campaignRevenue, account.currency)}</span>
                     <span>Flashy API: {formatCurrency(reconcileResult.flashy.campaignRevenue, account.currency)}</span>
@@ -906,7 +906,7 @@ function DataReconciliationPanel({
                   </p>
                 </div>
                 <div className="rounded-lg bg-white p-3">
-                  <p className="text-xs font-black text-[#65738a]">אוטומציות מול Flashy API</p>
+                  <p className="text-xs font-black text-[#65738a]">דוחות אוטומציות מול Flashy API</p>
                   <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
                     <span>דאשבורד: {formatCurrency(reconcileResult.stored.automationRevenue, account.currency)}</span>
                     <span>Flashy API: {formatCurrency(reconcileResult.flashy.automationRevenue, account.currency)}</span>
@@ -945,7 +945,10 @@ function DataReconciliationPanel({
                 <div className="mt-3 overflow-hidden rounded-lg border border-[#f4d7c5] bg-[#fff8f3]">
                   <div className="border-b border-[#f4d7c5] px-3 py-2">
                     <p className="text-xs font-black text-[#9a3412]">
-                      קמפיינים סמוכים לתחילת הטווח שיכולים להסביר פער מול מסך Flashy
+                      קמפיינים שנשלחו לפני הטווח ועשויים להסביר את פער הייחוס
+                    </p>
+                    <p className="mt-1 text-[11px] leading-5 text-[#7c4a2d]">
+                      הסכומים הם מדוחות הקמפיינים ואינם סכום הפער. הם מסמנים אילו קמפיינים לבדוק ב־Sales Overview.
                     </p>
                   </div>
                   {reconcileResult.boundaryCampaignCandidates.map((item) => (
