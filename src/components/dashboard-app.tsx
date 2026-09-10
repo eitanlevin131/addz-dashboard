@@ -18,6 +18,7 @@ import {
   ShieldCheck,
   Sparkles,
   TrendingUp,
+  X,
 } from "lucide-react";
 import { signIn, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
@@ -424,6 +425,7 @@ function buildPeriodComparisonPoints({
     const currentDay = current.get(date) ?? { email: 0, sms: 0, automations: 0 };
     const previousDay = previous.get(previousDates[index]) ?? { email: 0, sms: 0, automations: 0 };
     return {
+      date,
       label: dateFormatter.format(new Date(`${date}T12:00:00Z`)),
       ...currentDay,
       previousTotal: previousDay.email + previousDay.sms + previousDay.automations,
@@ -654,6 +656,156 @@ type PerformanceItem = {
   recipients: number;
   engagementRate: number;
 };
+
+type DrilldownItem = {
+  id: string;
+  title: string;
+  subtitle: string;
+  date?: string;
+  revenue: number;
+  cost: number;
+  purchases: number;
+  recipients: number;
+  clicks: number;
+  opens?: number;
+};
+
+type DrilldownState = {
+  title: string;
+  context: string;
+  items: DrilldownItem[];
+};
+
+function performanceToDrilldown(item: PerformanceItem): DrilldownItem {
+  return {
+    id: item.id,
+    title: item.name,
+    subtitle: `${item.channel} · ${item.kind === "campaign" ? "קמפיין" : "אוטומציה"}`,
+    date: item.date,
+    revenue: item.revenue,
+    cost: item.cost,
+    purchases: item.purchases,
+    recipients: item.recipients,
+    clicks: item.clicks,
+    opens: item.opens,
+  };
+}
+
+function ChartDrilldown({
+  state,
+  currency,
+  onClose,
+}: {
+  state: DrilldownState | null;
+  currency: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!state) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [state, onClose]);
+
+  if (!state) return null;
+
+  const items = [...state.items].sort((a, b) => b.revenue - a.revenue);
+  const totals = items.reduce(
+    (result, item) => ({
+      revenue: result.revenue + item.revenue,
+      cost: result.cost + item.cost,
+      purchases: result.purchases + item.purchases,
+      recipients: result.recipients + item.recipients,
+    }),
+    { revenue: 0, cost: 0, purchases: 0, recipients: 0 },
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex justify-end bg-[#0b0c10]/35 backdrop-blur-[2px]"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="chart-drilldown-title"
+        className="flex h-full w-full max-w-[520px] flex-col bg-[#f7f9fa] shadow-[-24px_0_70px_rgba(11,12,16,0.18)]"
+      >
+        <header className="flex items-start justify-between gap-4 border-b border-[#e4e7ec] bg-white px-4 py-4 sm:px-5">
+          <div className="min-w-0">
+            <p className="text-xs font-bold text-[#087f72]">פירוט מהגרף</p>
+            <h2 id="chart-drilldown-title" className="mt-1 text-xl font-black text-[#111318]">
+              {state.title}
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-[#667085]">{state.context}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="סגירת פירוט"
+            className="grid size-9 shrink-0 place-items-center rounded-md border border-[#d0d5dd] text-[#475467] transition hover:bg-[#f2f4f7]"
+          >
+            <X size={17} />
+          </button>
+        </header>
+
+        <div className="grid grid-cols-2 gap-px border-b border-[#e4e7ec] bg-[#e4e7ec] sm:grid-cols-4">
+          {[
+            ["הכנסה", formatCurrency(totals.revenue, currency)],
+            ["עלות", formatCurrency(totals.cost, currency)],
+            ["רכישות", formatNumber(totals.purchases)],
+            ["נמענים", formatNumber(totals.recipients)],
+          ].map(([label, value]) => (
+            <div key={label} className="bg-white p-3">
+              <p className="text-[11px] text-[#667085]">{label}</p>
+              <p className="mt-1 text-base font-black tabular-nums text-[#111318]" dir="ltr">{value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
+          <div className="mb-2 flex items-center justify-between text-xs text-[#667085]">
+            <span>{formatNumber(items.length)} פעילויות</span>
+            <span>מסודר לפי הכנסה</span>
+          </div>
+          {items.length > 0 ? (
+            <div className="overflow-hidden rounded-lg border border-[#e4e7ec] bg-white">
+              {items.map((item) => (
+                <article key={item.id} className="border-b border-[#eef0f2] p-4 last:border-b-0">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold leading-5 text-[#111318] [overflow-wrap:anywhere]">{item.title}</h3>
+                      <p className="mt-1 text-[11px] text-[#667085]">
+                        {item.subtitle}{item.date ? ` · ${new Date(`${item.date}T12:00:00`).toLocaleDateString("he-IL")}` : ""}
+                      </p>
+                    </div>
+                    <b className="shrink-0 text-sm tabular-nums text-[#111318]" dir="ltr">
+                      {formatCurrency(item.revenue, currency)}
+                    </b>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[#667085]">
+                    <span>{formatNumber(item.purchases)} רכישות</span>
+                    <span>{formatNumber(item.recipients)} נמענים</span>
+                    <span>{formatNumber(item.clicks)} קליקים</span>
+                    {item.cost > 0 && <span>עלות {formatCurrency(item.cost, currency)}</span>}
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="grid min-h-48 place-content-center rounded-lg border border-[#e4e7ec] bg-white text-sm text-[#667085]">
+              אין פעילויות להצגה בבחירה הזו
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
 
 interface FlashyReconcileResult {
   stored: {
@@ -1141,7 +1293,7 @@ function DataReconciliationPanel({
   );
 }
 
-function RevenueCostChart({ account, items }: { account: FlashyAccount; items: PerformanceItem[] }) {
+function RevenueCostChart({ account, items, onSelect }: { account: FlashyAccount; items: PerformanceItem[]; onSelect: (item: PerformanceItem) => void }) {
   const [kindFilter, setKindFilter] = useState<ActivityKindFilter>("all");
   const [mediumFilter, setMediumFilter] = useState<ActivityMediumFilter>("all");
   const filteredItems = items.filter(item => (kindFilter === "all" || item.kind === kindFilter) && (mediumFilter === "all" || item.medium === mediumFilter));
@@ -1167,19 +1319,24 @@ function RevenueCostChart({ account, items }: { account: FlashyAccount; items: P
         color: item.kind === "automation" ? chartColors.automation : item.medium === "sms" ? chartColors.sms : chartColors.email,
         meta: `${item.channel} · ${formatNumber(item.purchases)} רכישות · ${formatNumber(item.recipients)} נמענים`,
       }))}
+      onSelect={(row) => {
+        const item = filteredItems.find((candidate) => candidate.id === row.id);
+        if (item) onSelect(item);
+      }}
     />
   </div>;
 }
 
-function ChannelBreakdown({ account, channelData, showCosts = true }: {
+function ChannelBreakdown({ account, channelData, showCosts = true, onSelect }: {
   account: FlashyAccount;
   channelData: { channel: string; revenue: number; cost: number; count: number; purchases: number }[];
   showCosts?: boolean;
+  onSelect: (channel: string) => void;
 }) {
   return <div className="col-span-12 min-w-0"><RevenueShareChart currency={account.currency} showCosts={showCosts} segments={channelData.map(row => ({
     label: row.channel, revenue: row.revenue, count: row.count, purchases: row.purchases, cost: row.cost,
     color: row.channel === "אימייל" ? chartColors.email : row.channel === "SMS" ? chartColors.sms : chartColors.automation,
-  }))} /></div>;
+  }))} onSelect={(segment) => onSelect(segment.label)} /></div>;
 }
 
 function ClientSelector({
@@ -1300,6 +1457,7 @@ function Overview({
   rangeStart: string;
   rangeEnd: string;
 }) {
+  const [drilldown, setDrilldown] = useState<DrilldownState | null>(null);
   const performanceItems: PerformanceItem[] = [
     ...emails.map((item) => ({
       id: `email-${item.id}`,
@@ -1401,6 +1559,15 @@ function Overview({
             points={comparisonPoints}
             currency={account.currency}
             previousRangeLabel={previousRangeLabel}
+            onSelect={(point, series) => {
+              const channel = series === "email" ? "אימייל" : series === "sms" ? "SMS" : "אוטומציות";
+              const items = performanceItems.filter((item) => item.date === point.date && item.channel === channel);
+              setDrilldown({
+                title: `${channel} · ${point.label}`,
+                context: "הפעילויות שמרכיבות את העמודה שנבחרה",
+                items: items.map(performanceToDrilldown),
+              });
+            }}
           />
         </div>
       )}
@@ -1418,9 +1585,25 @@ function Overview({
         </div>
       )}
 
-      <ChannelBreakdown account={account} channelData={channelData} />
+      <ChannelBreakdown
+        account={account}
+        channelData={channelData}
+        onSelect={(channel) => setDrilldown({
+          title: channel,
+          context: "כל הפעילויות בערוץ בטווח שנבחר",
+          items: performanceItems.filter((item) => item.channel === channel).map(performanceToDrilldown),
+        })}
+      />
 
-      <RevenueCostChart account={account} items={performanceItems} />
+      <RevenueCostChart
+        account={account}
+        items={performanceItems}
+        onSelect={(item) => setDrilldown({
+          title: item.name,
+          context: "פירוט הפעילות שנבחרה",
+          items: [performanceToDrilldown(item)],
+        })}
+      />
 
       {showDeepAnalysis && (
         <div className="col-span-12 grid gap-5 xl:grid-cols-2">
@@ -1448,6 +1631,7 @@ function Overview({
           />
         </div>
       )}
+      <ChartDrilldown state={drilldown} currency={account.currency} onClose={() => setDrilldown(null)} />
     </section>
   );
 }
@@ -1457,22 +1641,35 @@ function SmsDashboard({ account, sms, automations, showDeepAnalysis }: {
   account: FlashyAccount; sms: SmsCampaignReport[]; automations: AutomationReport[]; showDeepAnalysis: boolean;
 }) {
   const [sortBy, setSortBy] = useState<"revenue" | "roas">("revenue");
+  const [drilldown, setDrilldown] = useState<DrilldownState | null>(null);
   const smsAutomations = automations.filter(item => getAutomationSmsRecipients(item) > 0);
   const summary = summarizeSms(account, sms, smsAutomations);
   const rows = [
     ...sms.map(item => ({
-      id: item.id, name: item.campaignName, type: "קמפיינים", revenue: item.revenueGenerated, comparable: true,
+      id: item.id, date: item.sentAt.slice(0, 10), name: item.campaignName, type: "קמפיינים", revenue: item.revenueGenerated, comparable: true,
       cost: item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate,
       recipients: item.totalRecipients, clicks: item.totalClicks, purchases: item.purchases,
     })),
     ...smsAutomations.map(item => ({
-      id: item.id, name: item.automationName, type: "אוטומציות עם SMS", revenue: item.revenueGenerated, comparable: getAutomationType(item) === "sms",
+      id: item.id, date: item.date, name: item.automationName, type: "אוטומציות עם SMS", revenue: item.revenueGenerated, comparable: getAutomationType(item) === "sms",
       cost: getAutomationSmsRecipients(item) * account.smsCreditPriceUsd * account.usdIlsRate,
       recipients: getAutomationSmsRecipients(item), clicks: item.clickedSms ?? item.totalClicks, purchases: item.purchases,
     })),
   ];
+  const rowsForGroup = (label: string) => rows.filter(row => label === "קמפיינים" ? row.type === label : row.type !== "קמפיינים" && row.comparable === (label === "אוטומציות SMS"));
+  const toDrilldownItem = (row: (typeof rows)[number]): DrilldownItem => ({
+    id: row.id,
+    title: row.name,
+    subtitle: row.type,
+    date: row.date,
+    revenue: row.revenue,
+    cost: row.cost,
+    purchases: row.purchases,
+    recipients: row.recipients,
+    clicks: row.clicks,
+  });
   const groups = ["קמפיינים", "אוטומציות SMS", "אוטומציות מעורבות"].map(label => {
-    const items = rows.filter(row => label === "קמפיינים" ? row.type === label : row.type !== "קמפיינים" && row.comparable === (label === "אוטומציות SMS"));
+    const items = rowsForGroup(label);
     return { label, comparable: label !== "אוטומציות מעורבות", revenue: items.reduce((s,r) => s+r.revenue,0), cost: items.reduce((s,r) => s+r.cost,0), count: items.length };
   });
   return <div className="space-y-4">
@@ -1483,16 +1680,24 @@ function SmsDashboard({ account, sms, automations, showDeepAnalysis }: {
       <MetricCard title="רכישות" value={formatNumber(summary.purchases)} caption="מהפעילות שנבחרה" icon={CheckCircle2} />
     </div>
     <div className="grid min-w-0 gap-4 2xl:grid-cols-2">
-      <SmsReturnChart groups={groups} currency={account.currency} />
+      <SmsReturnChart groups={groups} currency={account.currency} onSelect={(label) => setDrilldown({
+        title: label,
+        context: "הפעילויות שמרכיבות את יחס ההכנסה לעלות",
+        items: rowsForGroup(label).map(toDrilldownItem),
+      })} />
       <RankedBars key={sortBy} title="ביצועי פעילות SMS" currency={sortBy === "revenue" ? account.currency : undefined} unit={sortBy === "revenue" ? "הכנסה" : "הכנסה / עלות SMS"}
         controls={<select aria-label="מדד דירוג SMS" value={sortBy} onChange={e=>setSortBy(e.target.value as "revenue" | "roas")} className="h-8 rounded-md border border-[#e4e7ec] bg-white px-2 text-xs"><option value="revenue">הכנסה</option><option value="roas">הכנסה / עלות SMS</option></select>}
         rows={rows.filter(row => sortBy === "revenue" || (row.cost > 0 && row.comparable)).map(row => ({
           id: row.id, label: row.name, value: sortBy === "revenue" ? row.revenue : row.revenue / row.cost,
           color: row.type === "קמפיינים" ? chartColors.sms : chartColors.automation,
           meta: `${row.type} · ${formatNumber(row.purchases)} רכישות · עלות ${formatCurrency(row.cost,account.currency)} · ${row.comparable ? formatRoas(row.cost > 0 ? row.revenue/row.cost : null) : "כולל הכנסות אימייל"}`,
-        }))} />
+        }))} onSelect={(selected) => {
+          const row = rows.find((candidate) => candidate.id === selected.id);
+          if (row) setDrilldown({ title: row.name, context: "פירוט פעילות SMS", items: [toDrilldownItem(row)] });
+        }} />
     </div>
     {showDeepAnalysis && <DataTable title="פירוט פעילות SMS" columns={["פעילות","סוג","נמענים","קליקים","עלות SMS","הכנסה","רכישות"]} rows={rows.map(row=>[row.name,row.type,formatNumber(row.recipients),formatNumber(row.clicks),formatCurrency(row.cost,account.currency),formatCurrency(row.revenue,account.currency),formatNumber(row.purchases)])} />}
+    <ChartDrilldown state={drilldown} currency={account.currency} onClose={() => setDrilldown(null)} />
   </div>;
 }
 
@@ -1500,6 +1705,7 @@ function AutomationDashboard({ account, automations, showDeepAnalysis }: {
   account: FlashyAccount; automations: AutomationReport[]; showDeepAnalysis: boolean;
 }) {
   const [filter, setFilter] = useState<AutomationFilterKey>("all");
+  const [drilldown, setDrilldown] = useState<DrilldownState | null>(null);
   const rows = automations.map(item => ({
     ...item, type: getAutomationType(item),
     messages: (item.sentEmails ?? (item.channel === "email" ? item.totalDelivered : 0)) + getAutomationSmsRecipients(item),
@@ -1510,6 +1716,18 @@ function AutomationDashboard({ account, automations, showDeepAnalysis }: {
   const purchases = filtered.reduce((s,r)=>s+r.purchases,0);
   const messages = filtered.reduce((s,r)=>s+r.messages,0);
   const cost = filtered.reduce((s,r)=>s+r.smsCost,0);
+  const toDrilldownItem = (row: (typeof rows)[number]): DrilldownItem => ({
+    id: row.id,
+    title: row.automationName,
+    subtitle: automationFilterLabels[row.type],
+    date: row.date,
+    revenue: row.revenueGenerated,
+    cost: row.smsCost,
+    purchases: row.purchases,
+    recipients: row.totalEntered ?? row.totalRecipients,
+    clicks: row.totalClicks,
+    opens: row.openedEmails ?? row.totalOpens,
+  });
   const segments = (["email","sms","mixed"] as const).map(type=>{
     const items=filtered.filter(row=>row.type===type);
     return {
@@ -1529,18 +1747,30 @@ function AutomationDashboard({ account, automations, showDeepAnalysis }: {
       <MetricCard title="עלות SMS" value={formatCurrency(cost,account.currency)} caption="ללא עלות אימייל" icon={MessageSquareText} />
     </div>
     <div className="grid min-w-0 gap-4 2xl:grid-cols-2">
-      <RevenueShareChart title="הכנסות לפי סוג אוטומציה" segments={segments} currency={account.currency} />
+      <RevenueShareChart title="הכנסות לפי סוג אוטומציה" segments={segments} currency={account.currency} onSelect={(segment) => {
+        const type = (["email", "sms", "mixed"] as const).find((candidate) => automationFilterLabels[candidate] === segment.label);
+        if (!type) return;
+        setDrilldown({
+          title: segment.label,
+          context: "האוטומציות שמרכיבות את פלח ההכנסה",
+          items: filtered.filter((row) => row.type === type).map(toDrilldownItem),
+        });
+      }} />
       <RankedBars key={filter} title="הכנסות לפי אוטומציה" currency={account.currency} rows={filtered.map(row=>({
         id: row.id, label: row.automationName, value: row.revenueGenerated,
         color: row.type==="email" ? chartColors.email : row.type==="sms" ? chartColors.sms : chartColors.automation,
         meta: `${automationFilterLabels[row.type]} · ${formatNumber(row.purchases)} רכישות · ${formatNumber(row.messages)} הודעות`,
-      }))} />
+      }))} onSelect={(selected) => {
+        const row = filtered.find((candidate) => candidate.id === selected.id);
+        if (row) setDrilldown({ title: row.automationName, context: "פירוט האוטומציה", items: [toDrilldownItem(row)] });
+      }} />
     </div>
     {showDeepAnalysis && <DataTable title="פירוט אוטומציות" columns={["אוטומציה","סוג","נכנסו","הושלמו","אימיילים","פתיחות אימייל","קליקים","SMS","עלות SMS","רכישות","הכנסה","הכנסה / עלות SMS"]} rows={filtered.map(row=>[
       row.automationName,automationFilterLabels[row.type],formatNumber(row.totalEntered ?? row.totalRecipients),formatNumber(row.totalCompleted ?? 0),
       formatNumber(row.sentEmails ?? (row.channel === "email" ? row.totalDelivered : 0)),formatNumber(row.openedEmails ?? row.totalOpens),
       formatNumber(row.totalClicks),formatNumber(getAutomationSmsRecipients(row)),formatCurrency(row.smsCost,account.currency),formatNumber(row.purchases),formatCurrency(row.revenueGenerated,account.currency),formatRoas(row.smsCost > 0 ? row.revenueGenerated / row.smsCost : null),
     ])} />}
+    <ChartDrilldown state={drilldown} currency={account.currency} onClose={() => setDrilldown(null)} />
   </div>;
 }
 
@@ -1555,6 +1785,7 @@ function CampaignDashboard({
   sms: SmsCampaignReport[];
   showDeepAnalysis: boolean;
 }) {
+  const [drilldown, setDrilldown] = useState<DrilldownState | null>(null);
   const emailRevenue = emails.reduce((total, item) => total + item.revenueGenerated, 0);
   const smsRevenue = sms.reduce((total, item) => total + item.revenueGenerated, 0);
   const smsCost = sms.reduce(
@@ -1562,6 +1793,54 @@ function CampaignDashboard({
     0,
   );
   const smsRoas = smsCost > 0 ? smsRevenue / smsCost : null;
+  const emailToDrilldown = (item: EmailCampaignReport): DrilldownItem => ({
+    id: item.id,
+    title: item.campaignName,
+    subtitle: item.subjectLine ? `אימייל · ${item.subjectLine}` : "אימייל",
+    date: item.sentAt.slice(0, 10),
+    revenue: item.revenueGenerated,
+    cost: 0,
+    purchases: item.purchases,
+    recipients: item.totalRecipients,
+    clicks: item.uniqueClicks,
+    opens: item.totalOpens,
+  });
+  const smsToDrilldown = (item: SmsCampaignReport): DrilldownItem => ({
+    id: item.id,
+    title: item.campaignName,
+    subtitle: "SMS",
+    date: item.sentAt.slice(0, 10),
+    revenue: item.revenueGenerated,
+    cost: item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate,
+    purchases: item.purchases,
+    recipients: item.totalRecipients,
+    clicks: item.totalClicks,
+  });
+  let campaignClock: Intl.DateTimeFormat;
+  try {
+    campaignClock = new Intl.DateTimeFormat("en-US", {
+      timeZone: account.timezone,
+      weekday: "short",
+      hour: "2-digit",
+      hourCycle: "h23",
+    });
+  } catch {
+    campaignClock = new Intl.DateTimeFormat("en-US", {
+      timeZone: "UTC",
+      weekday: "short",
+      hour: "2-digit",
+      hourCycle: "h23",
+    });
+  }
+  const campaignTimingKey = (sentAt: string) => {
+    const parts = campaignClock.formatToParts(new Date(sentAt));
+    const weekday = parts.find((part) => part.type === "weekday")?.value ?? "";
+    const dayIndex = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday);
+    return {
+      day: ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"][dayIndex] ?? "",
+      hour: `${parts.find((part) => part.type === "hour")?.value ?? "00"}:00`,
+    };
+  };
   const campaignPurchases =
     emails.reduce((total, item) => total + item.purchases, 0) +
     sms.reduce((total, item) => total + item.purchases, 0);
@@ -1672,11 +1951,21 @@ function CampaignDashboard({
       </div>
 
       <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-        <WeekdayBars groups={timing.days} currency={account.currency} timezone={timing.timezone} />
+        <WeekdayBars groups={timing.days} currency={account.currency} timezone={timing.timezone} onSelect={(label) => setDrilldown({
+          title: `קמפיינים ביום ${label}`,
+          context: "כל הקמפיינים שנשלחו ביום הזה בטווח שנבחר",
+          items: [
+            ...emails.filter((item) => campaignTimingKey(item.sentAt).day === label).map(emailToDrilldown),
+            ...sms.filter((item) => campaignTimingKey(item.sentAt).day === label).map(smsToDrilldown),
+          ],
+        })} />
         <EngagementPlot rows={[...emails].sort((a,b)=>b.revenueGenerated-a.revenueGenerated).slice(0,4).map(item=>({
           id: item.id, label: item.subjectLine || item.campaignName, revenue: item.revenueGenerated, currency: account.currency,
           opens: measuredRate(item.totalOpens,item.totalDelivered), clicks: measuredRate(item.uniqueClicks,item.totalDelivered),
-        }))} />
+        }))} onSelect={(id) => {
+          const item = emails.find((candidate) => candidate.id === id);
+          if (item) setDrilldown({ title: item.subjectLine || item.campaignName, context: "הקמפיין שמרכיב את נקודת המעורבות", items: [emailToDrilldown(item)] });
+        }} />
       </div>
 
       {showDeepAnalysis && (
@@ -1684,7 +1973,14 @@ function CampaignDashboard({
       <RankedBars title="הכנסה לפי שעת שליחה" detail={`ממוצע לקמפיין · ${timing.timezone}`} currency={account.currency} rows={bestHours.map(item=>({
         id: item.label, label: item.label, value: item.average, color: chartColors.sms,
         meta: `${item.count} קמפיינים · ${formatNumber(item.purchases)} רכישות`,
-      }))} />
+      }))} onSelect={(selected) => setDrilldown({
+        title: `שעת שליחה ${selected.id}`,
+        context: "הקמפיינים שנשלחו בשעה הזו בטווח שנבחר",
+        items: [
+          ...emails.filter((item) => campaignTimingKey(item.sentAt).hour === selected.id).map(emailToDrilldown),
+          ...sms.filter((item) => campaignTimingKey(item.sentAt).hour === selected.id).map(smsToDrilldown),
+        ],
+      })} />
       <DataTable
         title="שורות נושא שעבדו"
         columns={["שורת נושא", "קמפיין", "הכנסה", "קליקים", "מעורבות"]}
@@ -1740,6 +2036,7 @@ function CampaignDashboard({
       />
       </>
       )}
+      <ChartDrilldown state={drilldown} currency={account.currency} onClose={() => setDrilldown(null)} />
     </div>
   );
 }

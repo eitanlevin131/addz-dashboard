@@ -48,6 +48,7 @@ function Legend({ items }: { items: { label: string; color: string }[] }) {
 export type RevenueSegment = { label: string; revenue: number; color: string; count: number; purchases: number; cost?: number };
 
 export type PeriodComparisonPoint = {
+  date: string;
   label: string;
   email: number;
   sms: number;
@@ -59,14 +60,20 @@ export function PeriodComparisonChart({
   points,
   currency,
   previousRangeLabel,
+  onSelect,
 }: {
   points: PeriodComparisonPoint[];
   currency: string;
   previousRangeLabel: string;
+  onSelect?: (point: PeriodComparisonPoint, series: "email" | "sms" | "automations") => void;
 }) {
   const hasData = points.some(
     (point) => point.email || point.sms || point.automations || point.previousTotal,
   );
+  const selectPoint = (series: "email" | "sms" | "automations") => (entry: unknown) => {
+    const point = (entry as { payload?: PeriodComparisonPoint }).payload;
+    if (point) onSelect?.(point, series);
+  };
 
   return (
     <ChartFrame
@@ -119,14 +126,16 @@ export function PeriodComparisonChart({
                 formatter={(value, name) => [formatCurrency(Number(value), currency), String(name)]}
                 contentStyle={{ direction: "rtl", borderRadius: 8, borderColor: "#e4e7ec", fontSize: 12 }}
               />
-              <Bar dataKey="email" name="אימייל" stackId="current" fill={chartColors.email} maxBarSize={18} />
-              <Bar dataKey="sms" name="SMS" stackId="current" fill={chartColors.sms} maxBarSize={18} />
+              <Bar dataKey="email" name="אימייל" stackId="current" fill={chartColors.email} maxBarSize={18} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("email")} />
+              <Bar dataKey="sms" name="SMS" stackId="current" fill={chartColors.sms} maxBarSize={18} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("sms")} />
               <Bar
                 dataKey="automations"
                 name="אוטומציות"
                 stackId="current"
                 fill={chartColors.automation}
                 maxBarSize={18}
+                cursor={onSelect ? "pointer" : undefined}
+                onClick={selectPoint("automations")}
               />
               <Line
                 type="monotone"
@@ -146,11 +155,15 @@ export function PeriodComparisonChart({
   );
 }
 
-export function RevenueShareChart({ title = "מאיפה מגיעות ההכנסות", segments, currency, showCosts = false }: { title?: string; segments: RevenueSegment[]; currency: string; showCosts?: boolean }) {
+export function RevenueShareChart({ title = "מאיפה מגיעות ההכנסות", segments, currency, showCosts = false, onSelect }: { title?: string; segments: RevenueSegment[]; currency: string; showCosts?: boolean; onSelect?: (segment: RevenueSegment) => void }) {
   const total = segments.reduce((sum, row) => sum + valid(row.revenue), 0);
   const hasActivity = segments.some(row => row.count > 0);
   const canDraw = total > 0 && segments.every(row => row.revenue >= 0);
   const chartId = useId();
+  const selectSegment = (entry: unknown) => {
+    const segment = (entry as { payload?: RevenueSegment }).payload;
+    if (segment) onSelect?.(segment);
+  };
   return (
     <ChartFrame title={title} detail="הכנסות מדוחות הפעילות · חלק יחסי מהסכום הכולל">
       {!hasActivity ? <EmptyChart /> : <div className="grid min-w-0 items-center gap-2 px-4 pb-4 sm:px-5 xl:grid-cols-[240px_minmax(0,1fr)] xl:gap-6">
@@ -158,7 +171,7 @@ export function RevenueShareChart({ title = "מאיפה מגיעות ההכנס�
           <div dir="ltr" className="h-full w-full" aria-hidden="true">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 228, height: 228 }}>
               <PieChart>
-                <Pie id={chartId} data={canDraw ? segments : [{ label: "ללא הכנסה חיובית", revenue: 1, color: chartColors.muted }]} dataKey="revenue" nameKey="label" innerRadius={78} outerRadius={103} startAngle={90} endAngle={-270} paddingAngle={canDraw ? 2 : 0} stroke="none" isAnimationActive={false}>
+                <Pie id={chartId} data={canDraw ? segments : [{ label: "ללא הכנסה חיובית", revenue: 1, color: chartColors.muted }]} dataKey="revenue" nameKey="label" innerRadius={78} outerRadius={103} startAngle={90} endAngle={-270} paddingAngle={canDraw ? 2 : 0} stroke="none" isAnimationActive={false} cursor={onSelect && canDraw ? "pointer" : undefined} onClick={selectSegment}>
                   {(canDraw ? segments : [{ color: chartColors.muted }]).map((row, index) => <Cell key={index} fill={row.color} />)}
                 </Pie>
                 {canDraw && <Tooltip formatter={(value) => formatCurrency(Number(value), currency)} contentStyle={{ direction: "rtl", borderRadius: 8, borderColor: "#e4e7ec", fontSize: 12 }} />}
@@ -171,7 +184,7 @@ export function RevenueShareChart({ title = "מאיפה מגיעות ההכנס�
           </div>
         </div>
         <div className="min-w-0 divide-y divide-[#eef0f2]">
-          {segments.map(row => <div key={row.label} className="py-3 first:pt-0 last:pb-0">
+          {segments.map(row => <button type="button" disabled={!onSelect} onClick={() => onSelect?.(row)} key={row.label} className="block w-full py-3 text-right transition first:pt-0 last:pb-0 enabled:hover:bg-[#f8fbfa] enabled:focus-visible:outline-2 enabled:focus-visible:outline-[#20b9a8] disabled:cursor-default">
             <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
               <span className="flex items-center gap-2 text-sm font-bold"><i className="h-3 w-1 rounded-sm" style={{ background: row.color }} />{row.label}</span>
               <span className="flex items-baseline gap-3"><b className="text-lg tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</b><span className="w-12 text-left text-xs tabular-nums text-[#667085]">{canDraw ? formatPercent(row.revenue / total) : "—"}</span></span>
@@ -180,7 +193,7 @@ export function RevenueShareChart({ title = "מאיפה מגיעות ההכנס�
               <span>{formatNumber(row.count)} פעילויות · {formatNumber(row.purchases)} רכישות</span>
               {showCosts && <span>{row.cost && row.cost > 0 ? `עלות SMS ${formatCurrency(row.cost, currency)} · ${formatNumberRatio(row.revenue / row.cost)} הכנסה / עלות SMS` : "עלות SMS —"}</span>}
             </div>
-          </div>)}
+          </button>)}
         </div>
       </div>}
     </ChartFrame>
@@ -191,7 +204,7 @@ function formatNumberRatio(value: number) { return `${value.toFixed(1)}x`; }
 
 export type RankingRow = { id: string; label: string; value: number; color?: string; meta?: string };
 
-export function RankedBars({ title, rows, currency, unit = "הכנסה", detail, controls, limit = 4 }: { title: string; rows: RankingRow[]; currency?: string; unit?: string; detail?: string; controls?: ReactNode; limit?: number }) {
+export function RankedBars({ title, rows, currency, unit = "הכנסה", detail, controls, limit = 4, onSelect }: { title: string; rows: RankingRow[]; currency?: string; unit?: string; detail?: string; controls?: ReactNode; limit?: number; onSelect?: (row: RankingRow) => void }) {
   const [expanded, setExpanded] = useState(false);
   const sorted = [...rows].sort((a, b) => b.value - a.value);
   const visible = sorted.slice(0, expanded ? sorted.length : limit);
@@ -205,7 +218,7 @@ export function RankedBars({ title, rows, currency, unit = "הכנסה", detail,
       <div className="px-4 pb-4 sm:px-5">
         <div dir="ltr" className="mb-2 flex justify-between border-b border-[#e4e7ec] pb-1 text-[10px] tabular-nums text-[#667085]"><span>{format(min)}</span><span>{unit}</span><span>{format(max)}</span></div>
         <ol className="space-y-4">
-          {visible.map((row, i) => <li key={row.id}>
+          {visible.map((row, i) => <li key={row.id}><button type="button" disabled={!onSelect} onClick={() => onSelect?.(row)} className="block w-full rounded-md text-right transition enabled:hover:bg-[#f8fbfa] enabled:focus-visible:outline-2 enabled:focus-visible:outline-[#20b9a8] disabled:cursor-default">
             <div className="mb-1.5 grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3">
               <span className="min-w-0 text-sm leading-5 [overflow-wrap:anywhere]"><span className="ml-2 text-[11px] tabular-nums text-[#98a2b3]">{String(i + 1).padStart(2, "0")}</span>{row.label}</span>
               <b className="text-sm tabular-nums" dir="ltr">{format(row.value)}</b>
@@ -215,7 +228,7 @@ export function RankedBars({ title, rows, currency, unit = "הכנסה", detail,
               {min < 0 && <i className="absolute inset-y-0 w-px bg-[#667085]" style={{ left: `${zero}%` }} />}
             </div>
             {row.meta && <p className="mt-1 text-xs leading-5 text-[#667085]">{row.meta}</p>}
-          </li>)}
+          </button></li>)}
         </ol>
       </div>
       {rows.length > limit && <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)} className="flex min-h-10 w-full items-center justify-center gap-1.5 border-t border-[#eef0f2] text-xs font-bold hover:bg-[#f5f8f7]">{expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}{expanded ? "הצג פחות" : `כל הפעילויות (${rows.length})`}</button>}
@@ -223,7 +236,7 @@ export function RankedBars({ title, rows, currency, unit = "הכנסה", detail,
   </ChartFrame>;
 }
 
-export function SmsReturnChart({ groups, currency }: { groups: { label: string; revenue: number; cost: number; count: number; comparable: boolean }[]; currency: string }) {
+export function SmsReturnChart({ groups, currency, onSelect }: { groups: { label: string; revenue: number; cost: number; count: number; comparable: boolean }[]; currency: string; onSelect?: (label: string) => void }) {
   const rows = groups.filter(row => row.count > 0).map(row => ({ ...row, ratio: row.comparable ? smsReturnRatio(row.revenue, row.cost) : null }));
   const max = Math.max(1, ...rows.map(row => row.ratio ?? 0));
   const min = Math.min(0, ...rows.map(row => row.ratio ?? 0));
@@ -232,7 +245,7 @@ export function SmsReturnChart({ groups, currency }: { groups: { label: string; 
   return <ChartFrame title="כמה הכנסה מתקבלת לכל שקל SMS" detail="הכנסה מיוחסת חלקי עלות SMS">
     {!groups.some(row => row.count > 0) ? <EmptyChart /> : <div className="space-y-6 px-4 pb-4 sm:px-5">
       <div className="flex justify-between border-b border-[#e4e7ec] pb-2 text-xs tabular-nums text-[#667085]" dir="ltr"><span>{formatNumberRatio(min)}</span><span>{formatNumberRatio(max)}</span></div>
-      {rows.map(row => <div key={row.label}>
+      {rows.map(row => <button type="button" disabled={!onSelect} onClick={() => onSelect?.(row.label)} key={row.label} className="block w-full rounded-md text-right transition enabled:hover:bg-[#f8fbfa] enabled:focus-visible:outline-2 enabled:focus-visible:outline-[#20b9a8] disabled:cursor-default">
         <div className="mb-3 flex items-baseline justify-between gap-3">
           <h3 className="text-sm font-bold">{row.label}</h3>
           {row.comparable ? <b className="text-3xl tabular-nums" dir="ltr">{row.ratio !== null ? formatNumberRatio(row.ratio) : "—"}</b> : <span className="text-xs text-[#667085]">אימייל + SMS</span>}
@@ -246,7 +259,7 @@ export function SmsReturnChart({ groups, currency }: { groups: { label: string; 
           <span>עלות SMS <b className="font-medium text-[#24282f]">{formatCurrency(row.cost, currency)}</b></span>
         </div>
         {row.comparable && row.ratio === null && <p className="mt-2 text-xs text-[#667085]">אין עלות SMS לחישוב יחס</p>}
-      </div>)}
+      </button>)}
       <div className="space-y-1 border-t border-[#eef0f2] pt-3 text-[11px] text-[#667085]">
         <p>הקו המקווקו: הכנסה של ₪1 לכל ₪1 בעלות SMS.</p>
         <p>אוטומציות מעורבות אינן נכללות בהשוואת ההחזר: ההכנסה כוללת גם אימייל.</p>
@@ -255,7 +268,7 @@ export function SmsReturnChart({ groups, currency }: { groups: { label: string; 
   </ChartFrame>;
 }
 
-export function EngagementPlot({ rows }: { rows: { id: string; label: string; opens: number | null; clicks: number | null; revenue: number; currency: string }[] }) {
+export function EngagementPlot({ rows, onSelect }: { rows: { id: string; label: string; opens: number | null; clicks: number | null; revenue: number; currency: string }[]; onSelect?: (id: string) => void }) {
   const maximum = Math.max(1, ...rows.flatMap(row => [row.opens ?? 0, row.clicks ?? 0]));
   return <ChartFrame title="שורות נושא · פתיחה מול הקלקה" detail="קמפייני האימייל המובילים בהכנסה · מתוך הודעות שנמסרו" controls={<Legend items={[{ label: "פתיחה", color: chartColors.email }, { label: "הקלקה", color: chartColors.sms }]} />}>
     {!rows.length ? <EmptyChart /> : <div className="px-4 pb-4 sm:px-5">
@@ -263,7 +276,7 @@ export function EngagementPlot({ rows }: { rows: { id: string; label: string; op
       <ol className="space-y-5">{rows.slice(0, 4).map(row => {
         const a = row.opens === null ? null : row.opens / maximum * 100;
         const b = row.clicks === null ? null : row.clicks / maximum * 100;
-        return <li key={row.id}>
+        return <li key={row.id}><button type="button" disabled={!onSelect} onClick={() => onSelect?.(row.id)} className="block w-full rounded-md text-right transition enabled:hover:bg-[#f8fbfa] enabled:focus-visible:outline-2 enabled:focus-visible:outline-[#20b9a8] disabled:cursor-default">
           <p className="text-sm leading-5 [overflow-wrap:anywhere]">{row.label}</p>
           <div dir="ltr" className="relative mx-1.5 my-3 h-3" aria-hidden="true">
             <div className="absolute inset-x-0 top-1 h-1 rounded-full bg-[#edf0f2]" />
@@ -272,13 +285,13 @@ export function EngagementPlot({ rows }: { rows: { id: string; label: string; op
             {b !== null && <i className="absolute top-0 size-3 -translate-x-1/2 rounded-full border-2 border-white" style={{ left: `${b}%`, background: chartColors.sms }} />}
           </div>
           <div className="flex flex-wrap justify-between gap-2 text-[11px] tabular-nums text-[#667085]"><span>פתיחה <b className="text-[#24282f]">{row.opens === null ? "—" : formatPercent(row.opens)}</b> · הקלקה <b className="text-[#078575]">{row.clicks === null ? "—" : formatPercent(row.clicks)}</b></span><span>{formatCurrency(row.revenue, row.currency)}</span></div>
-        </li>;
+        </button></li>;
       })}</ol>
     </div>}
   </ChartFrame>;
 }
 
-export function WeekdayBars({ groups, currency, timezone }: { groups: { label: string; revenue: number; count: number }[]; currency: string; timezone: string }) {
+export function WeekdayBars({ groups, currency, timezone, onSelect }: { groups: { label: string; revenue: number; count: number }[]; currency: string; timezone: string; onSelect?: (label: string) => void }) {
   const [average, setAverage] = useState(true);
   const data = groups.map(row => ({ ...row, value: row.count > 0 ? (average ? row.revenue / row.count : row.revenue) : null }));
   const max = Math.max(0, ...data.map(row => row.value ?? 0));
@@ -289,11 +302,11 @@ export function WeekdayBars({ groups, currency, timezone }: { groups: { label: s
     {!groups.some(row => row.count > 0) ? <EmptyChart /> : <div className="px-4 pb-4 sm:px-5">
       <div className="flex justify-between text-[10px] text-[#667085]"><span>{average ? "הכנסה ממוצעת לקמפיין" : "הכנסה"}</span><span>{currency}</span></div>
       <div className="mt-4 grid h-[220px] grid-cols-7 gap-1 border-b border-[#e4e7ec] sm:gap-3" role="img" aria-label={data.map(row => `${row.label}: ${row.value === null ? "לא נשלחו קמפיינים" : formatCurrency(row.value, currency)}`).join(", ")}>
-        {data.map(row => <div key={row.label} className="relative min-w-0" title={`${row.label}: ${row.value === null ? "—" : formatCurrency(row.value, currency)} · ${row.count} קמפיינים`}>
+        {data.map(row => <button type="button" disabled={!onSelect || row.count === 0} onClick={() => onSelect?.(row.label)} key={row.label} className="relative min-w-0 rounded-sm enabled:cursor-pointer enabled:hover:bg-[#f8fbfa] enabled:focus-visible:outline-2 enabled:focus-visible:outline-[#20b9a8] disabled:cursor-default" title={`${row.label}: ${row.value === null ? "—" : formatCurrency(row.value, currency)} · ${row.count} קמפיינים`}>
           <b className="absolute inset-x-0 text-center text-[10px] tabular-nums sm:text-xs" style={{ top: `${20 + (max - Math.max(0, row.value ?? 0)) / span * 180 - 20}px` }}>{row.value === null ? "—" : compact(row.value)}</b>
           <div className="absolute left-1/2 w-full max-w-10 -translate-x-1/2 rounded-sm" style={{ top: `${20 + (max - Math.max(0, row.value ?? 0)) / span * 180}px`, height: `${Math.abs(row.value ?? 0) / span * 180}px`, background: (row.value ?? 0) < 0 ? chartColors.cost : row.value === max && max > 0 ? chartColors.sms : "#b7c9c6" }} />
           {min < 0 && <div className="absolute inset-x-0 border-t border-[#98a2b3]" style={{ top: `${20 + baseline}px` }} />}
-        </div>)}
+        </button>)}
       </div>
       <div className="mt-2 grid grid-cols-7 gap-1 text-center text-[11px]">{data.map(row => <div key={row.label}><b>{row.label}</b><p className="mt-1 text-[10px] tabular-nums text-[#667085]">{row.count || "—"}</p></div>)}</div>
       <p className="mt-3 text-[11px] text-[#667085]">מספר קמפיינים</p>
