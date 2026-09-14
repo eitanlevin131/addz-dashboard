@@ -250,6 +250,8 @@ export async function POST(request: Request) {
   return NextResponse.json({
     success: true,
     data: {
+      checkedAt: new Date().toISOString(),
+      snapshotAt: account.lastSyncAt?.toISOString() ?? account.createdAt.toISOString(),
       range: {
         start: start.toISOString(),
         end: end.toISOString(),

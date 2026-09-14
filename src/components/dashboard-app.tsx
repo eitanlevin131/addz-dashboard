@@ -808,6 +808,8 @@ function ChartDrilldown({
 }
 
 interface FlashyReconcileResult {
+  checkedAt: string;
+  snapshotAt: string;
   stored: {
     emailCampaigns: number;
     smsCampaigns: number;
@@ -1001,13 +1003,12 @@ function DataReconciliationPanel({
     ? Math.abs(reconcileResult.delta.campaignRevenue) > 1 ||
       Math.abs(reconcileResult.delta.automationRevenue) > 1
     : false;
+  const snapshotAgeMs = reconcileResult
+    ? new Date(reconcileResult.checkedAt).getTime() - new Date(reconcileResult.snapshotAt).getTime()
+    : 0;
   const apiLikelyAdvancedSinceSync = reconcileResult
     ? apiHasGap &&
-      reconcileResult.delta.campaignRevenue >= -1 &&
-      reconcileResult.delta.automationRevenue >= -1 &&
-      reconcileResult.stored.emailCampaigns === reconcileResult.flashy.emailCampaigns &&
-      reconcileResult.stored.smsCampaigns === reconcileResult.flashy.smsCampaigns &&
-      reconcileResult.stored.automations === reconcileResult.flashy.automations
+      snapshotAgeMs > 5 * 60 * 1000
     : false;
   const hasSalesOverviewDifference = Math.abs(campaignUiDelta) > 1 || Math.abs(automationUiDelta) > 1;
   const qaConclusion = reconcileResult
@@ -1015,7 +1016,7 @@ function DataReconciliationPanel({
       ? apiLikelyAdvancedSinceSync
         ? {
             title: "Flashy התעדכן מאז הסנכרון האחרון",
-            body: `מספר הרשומות זהה וההכנסה ב־API עלתה. זה קורה כשהמרות חדשות מיוחסות לפעילות קיימת. רענון החשבון יעדכן את ה־snapshot שנשמר ב־${new Date(account.lastSyncAt).toLocaleString("he-IL")}.`,
+            body: `ה־snapshot נשמר ב־${new Date(reconcileResult.snapshotAt).toLocaleString("he-IL")} ומאז Flashy החזיר ערכים חדשים. רענון החשבון יעדכן גם המרות שנוספו לפעילות קיימת וגם שורות חדשות.`,
             tone: "neutral" as const,
           }
         : {
