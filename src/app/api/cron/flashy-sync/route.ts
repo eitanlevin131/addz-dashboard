@@ -49,7 +49,7 @@ export async function GET(request: Request) {
 
   for (const account of accounts) {
     try {
-      const result = await syncPersistedFlashyAccount(account.id, { lookbackDays });
+      const result = await syncPersistedFlashyAccount(account.id, { lookbackDays, source: "cron" });
       results.push({
         accountId: account.id,
         accountName: account.name,

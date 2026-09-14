@@ -146,7 +146,11 @@ export async function POST(request: Request) {
   await recordAudit({ actorUserId: context.access.userId, action: "client.created", entityType: "client", entityId: clientId, metadata: { flashyAccountId: flashyAccount.id, documents: documents.length, userCreated: Boolean(userId) } });
 
   try {
-    const sync = await syncPersistedFlashyAccount(accountId, { lookbackDays: 365 });
+    const sync = await syncPersistedFlashyAccount(accountId, {
+      lookbackDays: 365,
+      source: "onboarding",
+      actorUserId: context.access.userId,
+    });
     await db.update(clients).set({ onboardingStatus: "ready" }).where(eq(clients.id, clientId));
     return NextResponse.json({ success: true, data: { clientId, accountId, userId, sync } }, { status: 201 });
   } catch (error) {

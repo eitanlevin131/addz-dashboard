@@ -109,6 +109,7 @@ import type {
   NewsletterPlan,
   PlanStatus,
   SmsCampaignReport,
+  SyncHistoryEntry,
 } from "@/lib/types";
 
 type ViewKey =
@@ -674,6 +675,7 @@ type DashboardDataPayload = {
   smsReports: SmsCampaignReport[];
   automationReports: AutomationReport[];
   newsletterPlans: NewsletterPlan[];
+  syncHistory: SyncHistoryEntry[];
 };
 
 type AdminUserAccess = {
@@ -5008,13 +5010,140 @@ function AdminPanel({
   );
 }
 
+function SyncReliabilityPanel({
+  account,
+  history,
+  isRefreshing,
+  onRefresh,
+}: {
+  account: FlashyAccount;
+  history: SyncHistoryEntry[];
+  isRefreshing: boolean;
+  onRefresh: () => void;
+}) {
+  const accountHistory = history.filter((run) => run.accountId === account.id).slice(0, 8);
+  const hasWarnings = Boolean(account.syncWarnings?.length);
+  const status = hasWarnings
+    ? { label: "דורש בדיקה", dot: "bg-[#f79009]", text: "text-[#b54708]" }
+    : ({
+        healthy: { label: "תקין", dot: "bg-[#12b76a]", text: "text-[#067647]" },
+        syncing: { label: "מסתנכרן", dot: "bg-[#2e90fa]", text: "text-[#175cd3]" },
+        failed: { label: "נכשל", dot: "bg-[#f04438]", text: "text-[#b42318]" },
+        stale: { label: "לא עדכני", dot: "bg-[#f79009]", text: "text-[#b54708]" },
+        never: { label: "טרם סונכרן", dot: "bg-[#98a2b3]", text: "text-[#667085]" },
+      } as const)[account.syncStatus ?? "healthy"];
+  const sourceLabels: Record<SyncHistoryEntry["source"], string> = {
+    manual: "ידני",
+    cron: "אוטומטי",
+    onboarding: "הקמה",
+    system: "מערכת",
+  };
+  const runPresentation: Record<SyncHistoryEntry["status"], { label: string; className: string }> = {
+    success: { label: "הושלם", className: "text-[#067647]" },
+    warning: { label: "הושלם עם אזהרה", className: "text-[#b54708]" },
+    failed: { label: "נכשל", className: "text-[#b42318]" },
+    skipped: { label: "דולג", className: "text-[#667085]" },
+  };
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)] xl:col-span-2">
+      <div className="flex flex-col gap-3 border-b border-[#e4e7ec] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={18} className="text-[#087f72]" />
+            <h2 className="text-lg font-bold text-[#111318]">אמינות וסנכרון</h2>
+          </div>
+          <p className="mt-1 text-xs text-[#667085]">בדיקות המקורות והיסטוריית הריצות של החשבון.</p>
+        </div>
+        <button
+          onClick={onRefresh}
+          disabled={isRefreshing}
+          className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[#d0d5dd] bg-white px-3 text-sm font-medium text-[#344054] hover:bg-[#f8fafb] disabled:cursor-wait disabled:opacity-60"
+        >
+          <RefreshCw size={15} className={isRefreshing ? "animate-spin" : ""} />
+          {isRefreshing ? "מסנכרן" : "סנכרן עכשיו"}
+        </button>
+      </div>
+
+      <div className="grid border-b border-[#e4e7ec] sm:grid-cols-3 sm:divide-x sm:divide-x-reverse sm:divide-[#e4e7ec]">
+        <div className="px-5 py-4">
+          <p className="text-xs text-[#667085]">מצב נוכחי</p>
+          <p className={`mt-1.5 inline-flex items-center gap-2 text-sm font-bold ${status.text}`}>
+            <span className={`size-2 rounded-full ${status.dot}`} />
+            {status.label}
+          </p>
+        </div>
+        <div className="border-t border-[#e4e7ec] px-5 py-4 sm:border-t-0">
+          <p className="text-xs text-[#667085]">סנכרון אחרון</p>
+          <p className="mt-1.5 text-sm font-bold tabular-nums text-[#111318]">
+            {account.syncStatus === "never" ? "אין עדיין" : new Date(account.lastSyncAt).toLocaleString("he-IL")}
+          </p>
+        </div>
+        <div className="border-t border-[#e4e7ec] px-5 py-4 sm:border-t-0">
+          <p className="text-xs text-[#667085]">רשומות בריצה האחרונה</p>
+          <p className="mt-1.5 text-sm font-bold tabular-nums text-[#111318]">
+            {account.lastSyncImported
+              ? `${formatNumber(account.lastSyncImported.emailCampaigns)} אימייל · ${formatNumber(account.lastSyncImported.smsCampaigns)} SMS · ${formatNumber(account.lastSyncImported.automations)} רשומות אוטומציה`
+              : "יופיע לאחר הסנכרון הבא"}
+          </p>
+        </div>
+      </div>
+
+      {(account.syncError || hasWarnings) && (
+        <div className="border-b border-[#e4e7ec] bg-[#fffcf5] px-5 py-3 text-sm text-[#7a4b00]">
+          {account.syncError && <p>{account.syncError}</p>}
+          {account.syncWarnings?.map((warning) => <p key={warning}>{warning}</p>)}
+        </div>
+      )}
+
+      <div className="px-5 py-4">
+        <div className="mb-3 flex items-center gap-2">
+          <History size={16} className="text-[#667085]" />
+          <h3 className="text-sm font-bold text-[#111318]">ריצות אחרונות</h3>
+        </div>
+        {accountHistory.length ? (
+          <div className="divide-y divide-[#eef0f2] border-y border-[#eef0f2]">
+            {accountHistory.map((run) => {
+              const runState = runPresentation[run.status];
+              const duration = run.durationMs >= 1000
+                ? `${(run.durationMs / 1000).toFixed(1)} שנ׳`
+                : `${Math.max(1, Math.round(run.durationMs))} מ״ש`;
+              return (
+                <div key={run.id} className="grid gap-2 py-3 text-xs sm:grid-cols-[150px_130px_minmax(0,1fr)_90px] sm:items-center">
+                  <div className="tabular-nums text-[#475467]">{new Date(run.finishedAt).toLocaleString("he-IL")}</div>
+                  <div><b className={runState.className}>{runState.label}</b><span className="mr-1 text-[#98a2b3]">· {sourceLabels[run.source]}</span></div>
+                  <div className="min-w-0 text-[#475467]">
+                    {run.status === "failed"
+                      ? <span className="block truncate" title={run.message}>{run.message}</span>
+                      : `${formatNumber(run.imported.emailCampaigns)} אימייל · ${formatNumber(run.imported.smsCampaigns)} SMS · ${formatNumber(run.imported.automations)} רשומות אוטומציה${run.checksTotal ? ` · ${run.checksPassed}/${run.checksTotal} מקורות` : ""}`}
+                  </div>
+                  <div className="tabular-nums text-[#98a2b3] sm:text-left">{duration}</div>
+                  {run.warnings.length > 0 && <p className="text-[#b54708] sm:col-span-4">{run.warnings.join(" · ")}</p>}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="border-y border-[#eef0f2] py-4 text-sm text-[#667085]">היסטוריית הריצות תתחיל להופיע לאחר הסנכרון הבא.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function AccountSettings({
   client,
   account,
+  syncHistory,
+  isRefreshing,
+  onRefresh,
   onUpdateAccount,
 }: {
   client: Client;
   account: FlashyAccount;
+  syncHistory: SyncHistoryEntry[];
+  isRefreshing: boolean;
+  onRefresh: () => void;
   onUpdateAccount: (account: FlashyAccount) => void;
 }) {
   const [smsCreditPriceUsd, setSmsCreditPriceUsd] = useState(String(account.smsCreditPriceUsd));
@@ -5276,6 +5405,12 @@ function AccountSettings({
           מפתח Flashy לא מוצג בדפדפן. בדיקת חיבור מלאה מתבצעת רק דרך צד השרת כדי לשמור על אבטחה.
         </div>
       </section>
+      <SyncReliabilityPanel
+        account={account}
+        history={syncHistory}
+        isRefreshing={isRefreshing}
+        onRefresh={onRefresh}
+      />
     </div>
   );
 }
@@ -5364,6 +5499,7 @@ export function DashboardApp() {
     useState<AutomationReport[]>(automationReports);
   const [localNewsletterPlans, setLocalNewsletterPlans] =
     useState<NewsletterPlan[]>(newsletterPlans);
+  const [localSyncHistory, setLocalSyncHistory] = useState<SyncHistoryEntry[]>([]);
   const [selectedClientId, setSelectedClientId] = useState(localClients[0].id);
   const [view, setView] = useState<ViewKey>("overview");
   const [timeRange, setTimeRange] = useState<TimeRangeKey>("30d");
@@ -5534,13 +5670,15 @@ export function DashboardApp() {
   const portfolioCurrencies = new Set(portfolioRows.map((row) => row.currency));
   const portfolioCurrency = portfolioRows[0]?.currency ?? "ILS";
   const portfolioHasMixedCurrencies = portfolioCurrencies.size > 1;
+  const visibleSyncStatus = account.syncWarnings?.length ? "warning" : (account.syncStatus ?? "healthy");
   const syncPresentation = {
     healthy: { label: "מסונכרן", dot: "before:bg-[#42dfcf]", text: "text-[#087f72]" },
     syncing: { label: "מסתנכרן", dot: "before:bg-[#2e90fa]", text: "text-[#175cd3]" },
     failed: { label: "סנכרון נכשל", dot: "before:bg-[#f04438]", text: "text-[#b42318]" },
     stale: { label: "הנתונים לא עדכניים", dot: "before:bg-[#f79009]", text: "text-[#b54708]" },
     never: { label: "טרם סונכרן", dot: "before:bg-[#98a2b3]", text: "text-[#667085]" },
-  }[account.syncStatus ?? "healthy"];
+    warning: { label: "נדרשת בדיקת נתונים", dot: "before:bg-[#f79009]", text: "text-[#b54708]" },
+  }[visibleSyncStatus];
 
   const visibleViews = views.filter((item) => {
     if (item.key === "portfolio" && !viewerIsStaff) return false;
@@ -5612,6 +5750,7 @@ export function DashboardApp() {
         setLocalSmsReports(data.smsReports);
         setLocalAutomationReports(data.automationReports);
         setLocalNewsletterPlans(data.newsletterPlans);
+        setLocalSyncHistory(data.syncHistory ?? []);
         setSelectedClientId(data.clients[0].id);
         setAuthRequired(false);
         setPasswordChangeRequired(false);
@@ -5671,17 +5810,30 @@ export function DashboardApp() {
       setLocalSmsReports(data.smsReports);
       setLocalAutomationReports(data.automationReports);
       setLocalNewsletterPlans(data.newsletterPlans);
+      setLocalSyncHistory(data.syncHistory ?? []);
       setAuthRequired(false);
       setLiveDataIssue("");
       setDataSource("neon");
       setDataNotice(`רוענן עכשיו: ${data.clients.length} לקוחות מ-Neon.`);
+      const syncWarnings = syncPayload.completeness?.warnings ?? [];
       setRefreshState(syncPayload.skipped
         ? "החשבון כבר מסתנכרן ברקע. נטענו הנתונים הזמינים."
         : `סונכרן: ${syncPayload.imported?.emailCampaigns ?? 0} אימייל, ${
             syncPayload.imported?.smsCampaigns ?? 0
-          } SMS, ${syncPayload.imported?.automations ?? 0} אוטומציות.`);
+          } SMS, ${syncPayload.imported?.automations ?? 0} רשומות אוטומציה${syncWarnings.length ? " · נמצאה חריגת נפח לבדיקה בהגדרות." : " · כל המקורות עברו בדיקה."}`);
     } catch (error) {
       setRefreshState(error instanceof Error ? error.message : "הרענון נכשל.");
+      try {
+        const statusResponse = await fetch("/api/dashboard-data", { cache: "no-store" });
+        const statusPayload = await statusResponse.json();
+        if (statusResponse.ok && statusPayload.success) {
+          const statusData = statusPayload.data as DashboardDataPayload;
+          setLocalAccounts(statusData.accounts);
+          setLocalSyncHistory(statusData.syncHistory ?? []);
+        }
+      } catch {
+        // Keep the original sync error visible when the status refresh also fails.
+      }
     } finally {
       setIsRefreshing(false);
     }
@@ -5767,6 +5919,7 @@ export function DashboardApp() {
 
   const selectClient = (clientId: string) => {
     setSelectedClientId(clientId);
+    setRefreshState("");
     setView("overview");
   };
 
@@ -5842,16 +5995,18 @@ export function DashboardApp() {
             {!isRestrictedUser && activeView !== "portfolio" && (
               <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-[#667085]">
                 <span>Flashy Account #{account.flashyAccountId}</span>
-                <span
-                  title={account.syncError || undefined}
+                <button
+                  type="button"
+                  onClick={() => setView("settings")}
+                  title={account.syncError || account.syncWarnings?.join(" · ") || "פתח פרטי סנכרון"}
                   className={classNames(
-                    "inline-flex items-center gap-1 font-medium before:size-1.5 before:rounded-full",
+                    "inline-flex items-center gap-1 font-medium before:size-1.5 before:rounded-full hover:underline",
                     syncPresentation.dot,
                     syncPresentation.text,
                   )}
                 >
                   {syncPresentation.label}
-                </span>
+                </button>
                 {account.syncStatus !== "never" && (
                   <span>עדכון אחרון: {new Date(account.lastSyncAt).toLocaleString("he-IL")}</span>
                 )}
@@ -6037,6 +6192,9 @@ export function DashboardApp() {
               key={account.id}
               client={selectedClient}
               account={account}
+              syncHistory={localSyncHistory}
+              isRefreshing={isRefreshing}
+              onRefresh={refreshDashboardData}
               onUpdateAccount={updateAccountSettings}
             />
           )}

@@ -67,3 +67,32 @@ test("completeness rejects failed endpoints and normalization loss", () => {
   assert.equal(incomplete.complete, false);
   assert.equal(incomplete.issues.length, 2);
 });
+
+test("completeness warns when a previously populated source disappears or drops sharply", () => {
+  const result = validateSyncCompleteness({
+    checks: [
+      { label: "אימייל", ok: true, count: 0 },
+      { label: "SMS", ok: true, count: 3 },
+      { label: "אוטומציות", ok: true, count: 18 },
+    ],
+    raw: { emails: 0, sms: 3, automations: 18 },
+    normalized: { emails: 0, sms: 3, automations: 18 },
+    previous: { emails: 12, sms: 20, automations: 20 },
+  });
+
+  assert.equal(result.complete, true);
+  assert.equal(result.warnings.length, 2);
+  assert.match(result.warnings[0], /אימייל/);
+  assert.match(result.warnings[1], /SMS/);
+});
+
+test("small or stable source volumes do not create false warnings", () => {
+  const result = validateSyncCompleteness({
+    checks: [],
+    raw: { emails: 3, sms: 9, automations: 22 },
+    normalized: { emails: 3, sms: 9, automations: 22 },
+    previous: { emails: 4, sms: 10, automations: 20 },
+  });
+
+  assert.deepEqual(result.warnings, []);
+});

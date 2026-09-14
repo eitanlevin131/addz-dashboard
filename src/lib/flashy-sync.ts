@@ -1,4 +1,4 @@
-import { and, eq, gt, lt, ne, or, sql } from "drizzle-orm";
+import { and, eq, gt, gte, lt, ne, or, sql } from "drizzle-orm";
 import { decryptSecret } from "@/lib/crypto";
 import { getDb } from "@/lib/db";
 import {
@@ -14,6 +14,7 @@ import {
 } from "@/lib/flashy";
 import {
   automationReports,
+  auditLogs,
   emailCampaignReports,
   flashyAccounts,
   smsCampaignReports,
@@ -27,6 +28,8 @@ import {
 } from "@/lib/sync-policy";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
+
+type SyncSource = "manual" | "cron" | "onboarding" | "system";
 
 type ReportCheck = {
   label: string;
@@ -42,6 +45,7 @@ export type PersistedSyncResult = {
   skipped: boolean;
   accountId: string;
   accountName: string;
+  source: SyncSource;
   checkedAt: string;
   durationMs: number;
   imported: {
@@ -57,6 +61,25 @@ export type PersistedSyncResult = {
   checks: ReportCheck[];
   message: string;
 };
+
+async function recordSyncAudit(input: {
+  accountId: string;
+  actorUserId?: string | null;
+  action: "completed" | "failed" | "skipped";
+  metadata: Record<string, unknown>;
+}) {
+  try {
+    await getDb().insert(auditLogs).values({
+      actorUserId: input.actorUserId && input.actorUserId !== "dev-admin" ? input.actorUserId : null,
+      action: `flashy.sync.${input.action}`,
+      entityType: "flashy_account",
+      entityId: input.accountId,
+      metadata: input.metadata,
+    });
+  } catch (error) {
+    console.error("Failed to record Flashy sync audit", error);
+  }
+}
 
 export class PersistedSyncError extends Error {
   status: number;
@@ -100,6 +123,45 @@ async function getReportsWithRetry(apiKey: string, from: number, to: number) {
     await wait(getRetryDelayMs(attempt));
   }
   throw new Error("Report retry loop exhausted");
+}
+
+async function getPersistedReportVolume(accountId: string, fromDate: Date) {
+  const db = getDb();
+  const fromDay = fromDate.toISOString().slice(0, 10);
+  const [emails, sms, automations] = await Promise.all([
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(emailCampaignReports)
+      .where(
+        and(
+          eq(emailCampaignReports.flashyAccountId, accountId),
+          gte(emailCampaignReports.sentAt, fromDate),
+        ),
+      )
+      .then((rows) => Number(rows[0]?.count ?? 0)),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(smsCampaignReports)
+      .where(
+        and(
+          eq(smsCampaignReports.flashyAccountId, accountId),
+          gte(smsCampaignReports.sentAt, fromDate),
+        ),
+      )
+      .then((rows) => Number(rows[0]?.count ?? 0)),
+    db
+      .select({ count: sql<number>`count(*)` })
+      .from(automationReports)
+      .where(
+        and(
+          eq(automationReports.flashyAccountId, accountId),
+          gte(automationReports.reportDate, fromDay),
+        ),
+      )
+      .then((rows) => Number(rows[0]?.count ?? 0)),
+  ]);
+
+  return { emails, sms, automations };
 }
 
 async function acquireSyncLease(accountId: string) {
@@ -172,10 +234,16 @@ async function acquireSyncLease(accountId: string) {
 
 export async function syncPersistedFlashyAccount(
   accountId: string,
-  options: { lookbackDays?: number; startedAt?: number } = {},
+  options: {
+    lookbackDays?: number;
+    startedAt?: number;
+    source?: SyncSource;
+    actorUserId?: string | null;
+  } = {},
 ): Promise<PersistedSyncResult> {
   const startedAt = options.startedAt ?? Date.now();
   const lookbackDays = options.lookbackDays ?? 120;
+  const source = options.source ?? "system";
   if (!Number.isInteger(lookbackDays) || lookbackDays < 1 || lookbackDays > 365) {
     throw new PersistedSyncError("טווח סנכרון לא תקין", 400);
   }
@@ -192,12 +260,31 @@ export async function syncPersistedFlashyAccount(
 
   const syncRun = await acquireSyncLease(account.id);
   if (!syncRun) {
+    const checkedAt = new Date().toISOString();
+    await recordSyncAudit({
+      accountId: account.id,
+      actorUserId: options.actorUserId,
+      action: "skipped",
+      metadata: {
+        status: "skipped",
+        source,
+        startedAt: new Date(startedAt).toISOString(),
+        checkedAt,
+        durationMs: Date.now() - startedAt,
+        lookbackDays,
+        imported: { emailCampaigns: 0, smsCampaigns: 0, automations: 0 },
+        checks: [],
+        warnings: [],
+        message: "סנכרון אחר כבר פעיל עבור החשבון.",
+      },
+    });
     return {
       success: true,
       skipped: true,
       accountId: account.id,
       accountName: account.name,
-      checkedAt: new Date().toISOString(),
+      source,
+      checkedAt,
       durationMs: Date.now() - startedAt,
       imported: { emailCampaigns: 0, smsCampaigns: 0, automations: 0 },
       attempts: { account: 0, reports: 0 },
@@ -206,6 +293,10 @@ export async function syncPersistedFlashyAccount(
       message: "סנכרון אחר כבר פעיל עבור החשבון.",
     };
   }
+
+  let latestChecks: ReportCheck[] = [];
+  let latestCompleteness: ReturnType<typeof validateSyncCompleteness> | null = null;
+  let latestImported = { emailCampaigns: 0, smsCampaigns: 0, automations: 0 };
 
   try {
     const apiKey = decryptSecret(account.encryptedApiKey);
@@ -222,6 +313,8 @@ export async function syncPersistedFlashyAccount(
     const normalizedEmails = normalizeEmailReports(emailRows, account.id, timezone);
     const normalizedSms = normalizeSmsReports(smsRows, account.id, timezone);
     const normalizedAutomations = normalizeAutomationReports(automationRows, account.id);
+    const fromDate = new Date(from * 1000);
+    const previousVolume = await getPersistedReportVolume(account.id, fromDate);
     const completeness = validateSyncCompleteness({
       checks: reports.checks,
       raw: {
@@ -234,7 +327,15 @@ export async function syncPersistedFlashyAccount(
         sms: normalizedSms.length,
         automations: normalizedAutomations.length,
       },
+      previous: previousVolume,
     });
+    latestChecks = reports.checks;
+    latestCompleteness = completeness;
+    latestImported = {
+      emailCampaigns: normalizedEmails.length,
+      smsCampaigns: normalizedSms.length,
+      automations: normalizedAutomations.length,
+    };
 
     if (!completeness.complete) {
       throw new Error(`סנכרון נכשל בבדיקת שלמות: ${completeness.issues.join("; ")}`);
@@ -382,29 +483,66 @@ export async function syncPersistedFlashyAccount(
         .where(eq(syncRuns.id, syncRun.id)),
     ]);
 
+    const durationMs = Date.now() - startedAt;
+    const message = completeness.warnings.length
+      ? "הסנכרון הסתיים, אך נמצאה חריגה בנפח הנתונים שדורשת בדיקה."
+      : "הסנכרון הסתיים בהצלחה וכל בדיקות השלמות עברו.";
+    await recordSyncAudit({
+      accountId: account.id,
+      actorUserId: options.actorUserId,
+      action: "completed",
+      metadata: {
+        status: completeness.warnings.length ? "warning" : "success",
+        source,
+        startedAt: new Date(startedAt).toISOString(),
+        checkedAt: finishedAt.toISOString(),
+        durationMs,
+        lookbackDays,
+        imported: latestImported,
+        checks: latestChecks,
+        warnings: completeness.warnings,
+        message,
+      },
+    });
+
     return {
       success: true,
       skipped: false,
       accountId: account.id,
       accountName: account.name,
+      source,
       checkedAt: finishedAt.toISOString(),
-      durationMs: Date.now() - startedAt,
-      imported: {
-        emailCampaigns: normalizedEmails.length,
-        smsCampaigns: normalizedSms.length,
-        automations: normalizedAutomations.length,
-      },
+      durationMs,
+      imported: latestImported,
       attempts: { account: accountAttempt.attempts, reports: reportAttempt.attempts },
       completeness,
       checks: reports.checks,
-      message: "הסנכרון הסתיים בהצלחה וכל בדיקות השלמות עברו.",
+      message,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "סנכרון Flashy נכשל.";
+    const finishedAt = new Date();
     await db
       .update(syncRuns)
-      .set({ status: "failed", finishedAt: new Date(), errorMessage: message })
+      .set({ status: "failed", finishedAt, errorMessage: message })
       .where(eq(syncRuns.id, syncRun.id));
+    await recordSyncAudit({
+      accountId: account.id,
+      actorUserId: options.actorUserId,
+      action: "failed",
+      metadata: {
+        status: "failed",
+        source,
+        startedAt: new Date(startedAt).toISOString(),
+        checkedAt: finishedAt.toISOString(),
+        durationMs: Date.now() - startedAt,
+        lookbackDays,
+        imported: latestImported,
+        checks: latestChecks,
+        warnings: latestCompleteness?.warnings ?? [],
+        message,
+      },
+    });
     throw new PersistedSyncError(message, 400);
   }
 }

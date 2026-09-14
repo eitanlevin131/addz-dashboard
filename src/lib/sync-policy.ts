@@ -10,6 +10,12 @@ export type SyncRunSnapshot = {
 
 export type SyncHealth = "healthy" | "syncing" | "failed" | "stale" | "never";
 
+export type SyncVolume = {
+  emails: number;
+  sms: number;
+  automations: number;
+};
+
 export function isTransientSyncStatus(status: number | null | undefined) {
   return status == null || status === 408 || status === 429 || status >= 500;
 }
@@ -66,8 +72,9 @@ export function deriveSyncHealth(
 
 export function validateSyncCompleteness(input: {
   checks: { label: string; ok: boolean; count?: number; message?: string }[];
-  raw: { emails: number; sms: number; automations: number };
-  normalized: { emails: number; sms: number; automations: number };
+  raw: SyncVolume;
+  normalized: SyncVolume;
+  previous?: SyncVolume | null;
 }) {
   const issues = input.checks
     .filter((check) => !check.ok)
@@ -85,9 +92,30 @@ export function validateSyncCompleteness(input: {
     }
   }
 
+  const warnings: string[] = [];
+  if (input.previous) {
+    const volumePairs = [
+      ["אימייל", input.raw.emails, input.previous.emails],
+      ["SMS", input.raw.sms, input.previous.sms],
+      ["אוטומציות", input.raw.automations, input.previous.automations],
+    ] as const;
+
+    for (const [label, currentCount, previousCount] of volumePairs) {
+      if (previousCount < 5) continue;
+      if (currentCount === 0) {
+        warnings.push(`${label}: לא התקבלו רשומות, לעומת ${previousCount} בסנכרון הקודם`);
+        continue;
+      }
+      if (previousCount - currentCount >= 5 && currentCount / previousCount < 0.35) {
+        warnings.push(`${label}: התקבלו ${currentCount} רשומות, ירידה חריגה לעומת ${previousCount}`);
+      }
+    }
+  }
+
   return {
     complete: issues.length === 0,
     issues,
+    warnings,
     checks: pairs.map(([label, rawCount, normalizedCount]) => ({
       label,
       rawCount,

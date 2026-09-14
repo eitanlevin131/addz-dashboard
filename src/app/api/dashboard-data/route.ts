@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { asc, desc } from "drizzle-orm";
+import { asc, desc, like } from "drizzle-orm";
 import { getAccessContext, isAdminRole, isOwnerRole } from "@/lib/auth/access";
 import { isOwnerEmail } from "@/lib/auth/owner";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { latestCampaignReports, latestAutomationReports } from "@/lib/report-identity";
 import {
   automationReports,
+  auditLogs,
   clients,
   emailCampaignReports,
   flashyAccounts,
@@ -23,6 +24,7 @@ import type {
   NewsletterPlan,
   PlanStatus,
   SmsCampaignReport,
+  SyncHistoryEntry,
 } from "@/lib/types";
 
 function toNumber(value: unknown) {
@@ -53,6 +55,7 @@ export async function GET() {
     automationRows,
     planRows,
     syncRunRows,
+    syncAuditRows,
   ] = await Promise.all([
     db.select().from(clients).orderBy(desc(clients.createdAt)),
     db.select().from(flashyAccounts).orderBy(desc(flashyAccounts.createdAt)),
@@ -61,6 +64,12 @@ export async function GET() {
     db.select().from(automationReports).orderBy(desc(automationReports.reportDate)),
     db.select().from(newsletterPlans).orderBy(asc(newsletterPlans.plannedDate)),
     db.select().from(syncRuns).orderBy(desc(syncRuns.startedAt)),
+    db
+      .select()
+      .from(auditLogs)
+      .where(like(auditLogs.action, "flashy.sync.%"))
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(200),
   ]);
   const allowedClientIds = isAdminRole(accessContext.access.role)
     ? null
@@ -80,6 +89,59 @@ export async function GET() {
       latestSyncRunByAccount.set(run.flashyAccountId, run);
     }
   }
+  const visibleSyncAuditRows = isAdminRole(accessContext.access.role)
+    ? syncAuditRows.filter((row) => row.entityId && visibleAccountIdSet.has(row.entityId))
+    : [];
+  const latestSyncAuditByAccount = new Map<string, (typeof syncAuditRows)[number]>();
+  for (const row of visibleSyncAuditRows) {
+    if (
+      row.entityId &&
+      row.action !== "flashy.sync.skipped" &&
+      !latestSyncAuditByAccount.has(row.entityId)
+    ) {
+      latestSyncAuditByAccount.set(row.entityId, row);
+    }
+  }
+  const syncHistory: SyncHistoryEntry[] = visibleSyncAuditRows.map((row) => {
+    const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+    const imported = (metadata.imported ?? {}) as Record<string, unknown>;
+    const checks = Array.isArray(metadata.checks) ? metadata.checks : [];
+    const warnings = Array.isArray(metadata.warnings)
+      ? metadata.warnings.filter((warning): warning is string => typeof warning === "string")
+      : [];
+    const rawStatus = String(metadata.status ?? "");
+    const status: SyncHistoryEntry["status"] = rawStatus === "warning"
+      ? "warning"
+      : row.action === "flashy.sync.failed"
+        ? "failed"
+        : row.action === "flashy.sync.skipped"
+          ? "skipped"
+          : "success";
+    const rawSource = String(metadata.source ?? "system");
+    const source: SyncHistoryEntry["source"] = ["manual", "cron", "onboarding"].includes(rawSource)
+      ? rawSource as SyncHistoryEntry["source"]
+      : "system";
+
+    return {
+      id: row.id,
+      accountId: row.entityId ?? "",
+      status,
+      source,
+      startedAt: typeof metadata.startedAt === "string" ? metadata.startedAt : row.createdAt.toISOString(),
+      finishedAt: typeof metadata.checkedAt === "string" ? metadata.checkedAt : row.createdAt.toISOString(),
+      durationMs: toNumber(metadata.durationMs),
+      lookbackDays: toNumber(metadata.lookbackDays),
+      imported: {
+        emailCampaigns: toNumber(imported.emailCampaigns),
+        smsCampaigns: toNumber(imported.smsCampaigns),
+        automations: toNumber(imported.automations),
+      },
+      checksPassed: checks.filter((check) => Boolean((check as Record<string, unknown>)?.ok)).length,
+      checksTotal: checks.length,
+      warnings,
+      message: typeof metadata.message === "string" ? metadata.message : "סנכרון Flashy",
+    };
+  });
   const permitted = <T extends { flashyAccountId: string | null }>(rows: T[]) => rows.filter(row => row.flashyAccountId && visibleAccountIdSet.has(row.flashyAccountId));
   let currentEmails: typeof emailRows, currentSms: typeof smsRows, currentAutomations: typeof automationRows;
   try {
@@ -117,6 +179,11 @@ export async function GET() {
             account.lastSyncAt,
             latestSyncRunByAccount.get(account.id) ?? null,
           );
+          const syncMetadata = (latestSyncAuditByAccount.get(account.id)?.metadata ?? {}) as Record<string, unknown>;
+          const syncWarnings = Array.isArray(syncMetadata.warnings)
+            ? syncMetadata.warnings.filter((warning): warning is string => typeof warning === "string")
+            : [];
+          const imported = (syncMetadata.imported ?? {}) as Record<string, unknown>;
           return {
             id: account.id,
             clientId: account.clientId ?? "",
@@ -135,6 +202,14 @@ export async function GET() {
             syncStatus: syncHealth.status,
             syncError: syncHealth.error,
             syncStartedAt: syncHealth.startedAt,
+            syncWarnings,
+            lastSyncImported: latestSyncAuditByAccount.has(account.id)
+              ? {
+                  emailCampaigns: toNumber(imported.emailCampaigns),
+                  smsCampaigns: toNumber(imported.smsCampaigns),
+                  automations: toNumber(imported.automations),
+                }
+              : null,
           };
         },
       ),
@@ -216,6 +291,7 @@ export async function GET() {
           assetUrl: plan.assetUrl ?? undefined,
         }),
       ),
+      syncHistory,
     },
   });
 }

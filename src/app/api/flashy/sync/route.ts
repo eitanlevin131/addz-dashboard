@@ -27,7 +27,12 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: false, message: "טווח סנכרון לא תקין" }, { status: 400 });
       }
       try {
-        const result = await syncPersistedFlashyAccount(accountId, { startedAt, lookbackDays });
+        const result = await syncPersistedFlashyAccount(accountId, {
+          startedAt,
+          lookbackDays,
+          source: "manual",
+          actorUserId: adminContext.access.userId,
+        });
         return NextResponse.json({ ...result, mode: "persisted-account-sync" });
       } catch (error) {
         return NextResponse.json(

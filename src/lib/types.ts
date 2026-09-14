@@ -34,6 +34,30 @@ export interface FlashyAccount {
   syncStatus?: "healthy" | "syncing" | "failed" | "stale" | "never";
   syncError?: string | null;
   syncStartedAt?: string | null;
+  syncWarnings?: string[];
+  lastSyncImported?: SyncImportedCounts | null;
+}
+
+export interface SyncImportedCounts {
+  emailCampaigns: number;
+  smsCampaigns: number;
+  automations: number;
+}
+
+export interface SyncHistoryEntry {
+  id: string;
+  accountId: string;
+  status: "success" | "warning" | "failed" | "skipped";
+  source: "manual" | "cron" | "onboarding" | "system";
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  lookbackDays: number;
+  imported: SyncImportedCounts;
+  checksPassed: number;
+  checksTotal: number;
+  warnings: string[];
+  message: string;
 }
 
 export interface EmailCampaignReport {
