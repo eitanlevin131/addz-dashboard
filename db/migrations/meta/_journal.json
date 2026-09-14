@@ -50,6 +50,13 @@
       "when": 1788685691324,
       "tag": "0006_woozy_amphibian",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789368469753,
+      "tag": "0007_perpetual_mister_fear",
+      "breakpoints": true
     }
   ]
 }

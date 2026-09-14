@@ -17,6 +17,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Table2,
   TrendingUp,
   X,
 } from "lucide-react";
@@ -33,6 +34,12 @@ import {
   type PeriodComparisonPoint,
 } from "@/components/reporting-charts";
 import { campaignTiming, measuredRate } from "@/lib/report-chart-data";
+import {
+  matchNewsletterPlans,
+  type OperationalPlanStatus,
+  type PlanCampaignMatch,
+  type PlannerCampaignReport,
+} from "@/lib/planner-match";
 import { accountDate, accountLocalTimestamp, reportRange, reportDateInstant } from "@/lib/report-time";
 import {
   automationReports,
@@ -260,10 +267,19 @@ const timeRanges: { key: TimeRangeKey; label: string; days: number | null }[] = 
 ];
 
 const statusLabels = {
+  planned: "מתוכנן",
+  postponed: "נדחה",
   draft: "טיוטה",
   ready: "מוכן",
   approved: "מאושר",
   sent: "נשלח",
+};
+
+const operationalStatusLabels: Record<OperationalPlanStatus, string> = {
+  planned: "מתוכנן",
+  sent: "נשלח",
+  postponed: "נדחה",
+  not_found: "לא נמצא",
 };
 
 const kindLabels: Record<CampaignKind, string> = {
@@ -2089,6 +2105,105 @@ function CampaignDashboard({
   );
 }
 
+function reportSendTime(report: PlannerCampaignReport | undefined, timezone: string) {
+  if (!report) return "";
+  return new Intl.DateTimeFormat("he-IL", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(report.sentAt));
+}
+
+function PlannerTableSection({
+  channel,
+  matches,
+  account,
+  onEdit,
+}: {
+  channel: Channel;
+  matches: PlanCampaignMatch[];
+  account: FlashyAccount;
+  onEdit: (plan: NewsletterPlan) => void;
+}) {
+  const rows = matches.filter((item) => item.plan.channel === channel);
+  const isEmail = channel === "email";
+
+  return (
+    <section className="border-b border-[#dfe7ee] last:border-b-0">
+      <div className={classNames(
+        "border-b border-[#c8d3df] px-4 py-2 text-center text-sm font-bold text-[#111318]",
+        isEmail ? "bg-[#cddcf2]" : "bg-[#dcd7eb]",
+      )}>
+        {isEmail ? "מיילים" : "מסרונים"}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1720px] border-collapse text-right text-xs text-[#344054]">
+          <thead>
+            <tr className="bg-[#fff6d6] text-[#111318]">
+              {["תאריך", "יום", "שעה", "נושא", "סטטוס", "הוקם ב־Flashy?", "מתוזמן?", "קוד קופון", "הכנסות", "רכישות", "ממוצע לרכישה", "יחס המרה", "% פתיחה", "% הקלקה", "% הסרה"].map((label) => (
+                <th key={label} className="whitespace-nowrap border-l border-[#d9dee5] px-3 py-2.5 font-bold last:border-l-0">
+                  {label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ plan, report, status }) => {
+              const delivered = report?.totalDelivered ?? 0;
+              const recipients = report?.totalRecipients ?? 0;
+              const purchases = report?.purchases ?? 0;
+              const revenue = report?.revenueGenerated ?? 0;
+              const openRate = report?.channel === "email" && delivered > 0
+                ? report.totalOpens / delivered
+                : null;
+              const clickRate = report && delivered > 0 ? report.uniqueClicks / delivered : null;
+              const unsubscribeRate = report && recipients > 0 ? report.unsubscribed / recipients : null;
+              const isScheduled = Boolean(report || plan.flashyUrl);
+
+              return (
+                <tr key={plan.id} className="border-t border-[#e8ebef] bg-white transition hover:bg-[#f8fafb]">
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 tabular-nums">{new Date(`${plan.date}T12:00:00Z`).toLocaleDateString("he-IL")}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">{new Date(`${plan.date}T12:00:00Z`).toLocaleDateString("he-IL", { weekday: "long" })}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 tabular-nums">{reportSendTime(report, account.timezone) || plan.time || "—"}</td>
+                  <td className="max-w-[390px] border-l border-[#e8ebef] px-3 py-3">
+                    <button onClick={() => onEdit(plan)} className="w-full text-right font-semibold text-[#111318] hover:text-[#087f72]">
+                      {plan.title}
+                    </button>
+                    {report && report.campaignName !== plan.title && <span className="mt-1 block truncate text-[11px] text-[#667085]">Flashy: {report.campaignName}</span>}
+                  </td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">
+                    <span className={classNames(
+                      "inline-flex rounded-full px-2 py-1 text-[11px] font-bold",
+                      status === "sent" && "bg-[#d9f7ef] text-[#087f72]",
+                      status === "planned" && "bg-[#eaf2ff] text-[#295ea8]",
+                      status === "postponed" && "bg-[#fff0d8] text-[#9a5b00]",
+                      status === "not_found" && "bg-[#f2f4f7] text-[#667085]",
+                    )}>{operationalStatusLabels[status]}</span>
+                  </td>
+                  <td className="border-l border-[#e8ebef] px-3 py-3 text-center">{report || plan.flashyUrl ? <CheckCircle2 className="mx-auto text-[#087f72]" size={18} /> : <Minus className="mx-auto text-[#98a2b3]" size={18} />}</td>
+                  <td className="border-l border-[#e8ebef] px-3 py-3 text-center">{isScheduled ? <CheckCircle2 className="mx-auto text-[#087f72]" size={18} /> : <Minus className="mx-auto text-[#98a2b3]" size={18} />}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 font-mono">{plan.couponCode || "—"}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 font-bold tabular-nums">{report ? formatCurrency(revenue, account.currency) : "—"}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{report ? formatNumber(purchases) : "—"}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{report && purchases > 0 ? formatCurrency(revenue / purchases, account.currency) : "—"}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{report && recipients > 0 ? formatPercent(purchases / recipients) : "—"}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#e8f1fb] px-3 py-3 tabular-nums">{openRate === null ? "—" : formatPercent(openRate)}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#e8f1fb] px-3 py-3 tabular-nums">{clickRate === null ? "—" : formatPercent(clickRate)}</td>
+                  <td className="whitespace-nowrap bg-[#e8f1fb] px-3 py-3 tabular-nums">{unsubscribeRate === null ? "—" : formatPercent(unsubscribeRate)}</td>
+                </tr>
+              );
+            })}
+            {!rows.length && (
+              <tr><td colSpan={15} className="px-4 py-8 text-center text-sm text-[#667085]">אין פריטים מתוכננים בחודש הזה.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function Planner({
   client,
   account,
@@ -2105,14 +2220,17 @@ function Planner({
   onUpsertPlan: (plan: NewsletterPlan) => void;
 }) {
   const [month, setMonth] = useState(toDateInputValue(new Date()).slice(0, 7));
+  const [layout, setLayout] = useState<"calendar" | "table">("calendar");
   const emptyDraft = {
     date: toDateInputValue(new Date()),
+    time: "09:00",
     channel: "email" as Channel,
     kind: "campaign" as CampaignKind,
-    status: "draft" as PlanStatus,
+    status: "planned" as PlanStatus,
     title: "",
     owner: "",
     notes: "",
+    couponCode: "",
     flashyUrl: "",
     assetUrl: "",
   };
@@ -2124,46 +2242,31 @@ function Planner({
   const [syncedHolidays, setSyncedHolidays] = useState<Record<string, SyncedHoliday[]>>({});
   const [saveState, setSaveState] = useState("");
   const monthPlans = plans.filter((plan) => isSameMonth(plan.date, month));
+  const planMatching = matchNewsletterPlans(plans, emails, sms, account.timezone);
+  const monthMatches = planMatching.matches.filter((item) => isSameMonth(item.plan.date, month));
   const liveEvents = [
-    ...emails
-      .filter((item) => isSameMonth(item.sentAt, month))
+    ...planMatching.unmatchedReports
+      .filter((item) => isSameMonth(accountDate(new Date(item.sentAt), account.timezone), month))
       .map((item) => ({
-        id: `live-email-${item.id}`,
-        date: item.sentAt.slice(0, 10),
+        id: `live-${item.channel}-${item.id}`,
+        date: accountDate(new Date(item.sentAt), account.timezone),
         title: item.campaignName,
-        channel: "email" as Channel,
-        source: "Flashy",
-        status: "נשלח",
-        planStatus: undefined,
-        caption: `${formatNumber(item.totalRecipients)} נמענים · ${formatCurrency(
-          item.revenueGenerated,
-          account.currency,
-        )}`,
+        channel: item.channel,
+        source: "Flashy" as const,
+        status: "sent" as OperationalPlanStatus,
+        caption: `${formatNumber(item.totalRecipients)} נמענים · ${formatCurrency(item.revenueGenerated, account.currency)}`,
       })),
-    ...sms
-      .filter((item) => isSameMonth(item.sentAt, month))
-      .map((item) => ({
-        id: `live-sms-${item.id}`,
-        date: item.sentAt.slice(0, 10),
-        title: item.campaignName,
-        channel: "sms" as Channel,
-        source: "Flashy",
-        status: "נשלח",
-        planStatus: undefined,
-        caption: `${formatNumber(item.totalRecipients)} נמענים · ${formatCurrency(
-          item.revenueGenerated,
-          account.currency,
-        )}`,
-      })),
-    ...monthPlans.map((plan) => ({
+    ...monthMatches.map(({ plan, report, status }) => ({
       id: `plan-${plan.id}`,
       date: plan.date,
+      time: plan.time ?? "09:00",
       title: plan.title,
       channel: plan.channel,
-      source: "תכנון",
-      status: statusLabels[plan.status],
-      planStatus: plan.status,
-      caption: plan.notes || `${kindLabels[plan.kind]} · ${plan.owner || "ללא בעלים"}`,
+      source: report ? ("תכנון + Flashy" as const) : ("תכנון" as const),
+      status,
+      caption: report
+        ? `${formatCurrency(report.revenueGenerated, account.currency)} · ${formatNumber(report.purchases)} רכישות`
+        : plan.notes || `${kindLabels[plan.kind]} · ${plan.owner || "ללא בעלים"}`,
     })),
   ].sort((a, b) => a.date.localeCompare(b.date));
   const { start, end } = getMonthBounds(month);
@@ -2221,12 +2324,14 @@ function Planner({
     setEditingPlanId(plan.id);
     setDraft({
       date: plan.date,
+      time: plan.time ?? "09:00",
       channel: plan.channel,
       kind: plan.kind,
-      status: plan.status,
+      status: plan.status === "postponed" ? "postponed" : "planned",
       title: plan.title,
       owner: plan.owner,
       notes: plan.notes,
+      couponCode: plan.couponCode ?? "",
       flashyUrl: plan.flashyUrl ?? "",
       assetUrl: plan.assetUrl ?? "",
     });
@@ -2242,7 +2347,7 @@ function Planner({
       title,
     });
     setMonth(date.slice(0, 7));
-    setSaveState("פתחתי טיוטה חדשה מההמלצה.");
+    setSaveState("נפתח פריט חדש לתכנון.");
   }
 
   async function savePlan() {
@@ -2262,6 +2367,8 @@ function Planner({
       title: draft.title.trim(),
       owner: draft.owner.trim(),
       notes: draft.notes.trim(),
+      time: draft.time,
+      couponCode: draft.couponCode.trim() || undefined,
       flashyUrl: draft.flashyUrl.trim() || undefined,
       assetUrl: draft.assetUrl.trim() || undefined,
     };
@@ -2281,6 +2388,7 @@ function Planner({
         ...current,
         title: "",
         notes: "",
+        couponCode: "",
         flashyUrl: "",
         assetUrl: "",
       }));
@@ -2329,10 +2437,26 @@ function Planner({
           <div>
             <h2 className="text-xl font-bold text-[#080123]">גאנט דיוורים חודשי</h2>
             <p className="mt-1 text-sm leading-6 text-[#65738a]">
-              לחיצה על יום מוסיפה דיוור, לחיצה על פריט מתוכנן פותחת עריכה. קמפיינים מ־Flashy מוצגים לצד התכנון.
+              תכנון וביצוע באותו מקום. פריטים שנשלחו מתחברים אוטומטית לתוצאות שלהם ב־Flashy.
             </p>
           </div>
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+            <div className="inline-flex h-11 rounded-lg border border-[#d0d5dd] bg-[#f2f4f7] p-1">
+              <button
+                onClick={() => setLayout("calendar")}
+                className={classNames("inline-flex items-center gap-2 rounded-md px-3 text-sm font-semibold", layout === "calendar" ? "bg-white text-[#111318] shadow-sm" : "text-[#667085]")}
+              >
+                <CalendarDays size={16} />
+                יומן
+              </button>
+              <button
+                onClick={() => setLayout("table")}
+                className={classNames("inline-flex items-center gap-2 rounded-md px-3 text-sm font-semibold", layout === "table" ? "bg-white text-[#111318] shadow-sm" : "text-[#667085]")}
+              >
+                <Table2 size={16} />
+                טבלה
+              </button>
+            </div>
             <input
               type="month"
               value={month}
@@ -2343,7 +2467,8 @@ function Planner({
         </div>
       </section>
 
-      <section className="rounded-xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
+      {layout === "calendar" ? (
+        <section className="rounded-xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
           <div className="grid grid-cols-7 border-b border-[#dfe7ee] bg-[#f4f7f6] text-center text-xs font-medium text-[#65738a]">
             {["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"].map((day) => (
               <div key={day} className="px-2 py-2">
@@ -2405,7 +2530,7 @@ function Planner({
                       {day.events.slice(0, 4).map((event) => (
                         <button
                           key={event.id}
-                          draggable={event.source === "תכנון"}
+                          draggable={event.source !== "Flashy"}
                           onDragStart={() => {
                             const planId = event.id.startsWith("plan-") ? event.id.replace("plan-", "") : null;
                             setDraggingPlanId(planId);
@@ -2419,20 +2544,21 @@ function Planner({
                             "w-full rounded-md border p-2 text-right text-xs leading-5",
                             event.source === "Flashy"
                               ? "border-teal-100 bg-teal-50 text-teal-900"
-                              : event.planStatus === "approved"
+                              : event.status === "sent"
                                 ? "border-emerald-200 bg-emerald-50 text-emerald-900 transition hover:border-emerald-300"
-                                : event.planStatus === "ready"
-                                  ? "border-cyan-200 bg-cyan-50 text-cyan-900 transition hover:border-cyan-300"
-                                  : event.planStatus === "sent"
-                                    ? "border-slate-200 bg-slate-50 text-slate-700 transition hover:border-slate-300"
-                                    : "border-amber-200 bg-amber-50 text-amber-900 transition hover:border-amber-300",
+                                : event.status === "postponed"
+                                  ? "border-amber-200 bg-amber-50 text-amber-900 transition hover:border-amber-300"
+                                  : event.status === "not_found"
+                                    ? "border-slate-300 bg-slate-50 text-slate-700 transition hover:border-slate-400"
+                                    : "border-blue-200 bg-blue-50 text-blue-900 transition hover:border-blue-300",
                           )}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span className="font-medium">{channelLabels[event.channel]}</span>
-                            <span>{event.source}</span>
+                            <span className="rounded-full bg-white/75 px-1.5 font-bold">{operationalStatusLabels[event.status]}</span>
                           </div>
                           <p className="mt-1 line-clamp-2 font-medium">{event.title}</p>
+                          <p className="mt-0.5 text-[10px] font-medium opacity-70">{event.source}</p>
                           <p className="mt-1 text-[#65738a]">{event.caption}</p>
                         </button>
                       ))}
@@ -2448,6 +2574,12 @@ function Planner({
             ))}
           </div>
         </section>
+      ) : (
+        <section className="overflow-hidden rounded-xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
+          <PlannerTableSection channel="email" matches={monthMatches} account={account} onEdit={editPlan} />
+          <PlannerTableSection channel="sms" matches={monthMatches} account={account} onEdit={editPlan} />
+        </section>
+      )}
 
       {(editingPlanId || draft.title.trim()) && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-[#080123]/70 p-4 backdrop-blur-sm">
@@ -2488,12 +2620,21 @@ function Planner({
                   }
                   className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
                 >
-                  {(Object.keys(statusLabels) as PlanStatus[]).map((status) => (
+                  {(["planned", "postponed"] as PlanStatus[]).map((status) => (
                     <option key={status} value={status}>
                       {statusLabels[status]}
                     </option>
                   ))}
                 </select>
+              </label>
+              <label className="block text-sm font-medium text-[#263548]">
+                שעת שליחה
+                <input
+                  type="time"
+                  value={draft.time}
+                  onChange={(event) => setDraft((current) => ({ ...current, time: event.target.value }))}
+                  className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
+                />
               </label>
               <label className="block text-sm font-medium text-[#263548]">
                 ערוץ
@@ -2552,6 +2693,16 @@ function Planner({
                 <input
                   value={draft.assetUrl}
                   onChange={(event) => setDraft((current) => ({ ...current, assetUrl: event.target.value }))}
+                  className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
+                  dir="ltr"
+                />
+              </label>
+              <label className="block text-sm font-medium text-[#263548]">
+                קוד קופון
+                <input
+                  value={draft.couponCode}
+                  onChange={(event) => setDraft((current) => ({ ...current, couponCode: event.target.value }))}
+                  placeholder="לדוגמה: SEPTEMBER12"
                   className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
                   dir="ltr"
                 />

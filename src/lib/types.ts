@@ -4,7 +4,7 @@ export type Channel = "email" | "sms";
 
 export type CampaignKind = "campaign" | "automation";
 
-export type PlanStatus = "draft" | "ready" | "approved" | "sent";
+export type PlanStatus = "planned" | "postponed" | "draft" | "ready" | "approved" | "sent";
 
 export type UserRole = "admin" | "client";
 
@@ -95,12 +95,14 @@ export interface NewsletterPlan {
   clientId: string;
   accountId: string;
   date: string;
+  time?: string;
   channel: Channel;
   kind: CampaignKind;
   status: PlanStatus;
   title: string;
   owner: string;
   notes: string;
+  couponCode?: string;
   flashyUrl?: string;
   assetUrl?: string;
 }
