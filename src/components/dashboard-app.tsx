@@ -836,6 +836,12 @@ interface FlashyReconcileResult {
     liveRevenue: number;
     delta: number;
   }[];
+  automationDifferences: {
+    name: string;
+    storedRevenue: number;
+    liveRevenue: number;
+    delta: number;
+  }[];
   boundaryCampaignCandidates: {
     name: string;
     revenue: number;
@@ -995,14 +1001,28 @@ function DataReconciliationPanel({
     ? Math.abs(reconcileResult.delta.campaignRevenue) > 1 ||
       Math.abs(reconcileResult.delta.automationRevenue) > 1
     : false;
+  const apiLikelyAdvancedSinceSync = reconcileResult
+    ? apiHasGap &&
+      reconcileResult.delta.campaignRevenue >= -1 &&
+      reconcileResult.delta.automationRevenue >= -1 &&
+      reconcileResult.stored.emailCampaigns === reconcileResult.flashy.emailCampaigns &&
+      reconcileResult.stored.smsCampaigns === reconcileResult.flashy.smsCampaigns &&
+      reconcileResult.stored.automations === reconcileResult.flashy.automations
+    : false;
   const hasSalesOverviewDifference = Math.abs(campaignUiDelta) > 1 || Math.abs(automationUiDelta) > 1;
   const qaConclusion = reconcileResult
     ? apiHasGap
-      ? {
-          title: "יש פער אמיתי מול Flashy API",
-          body: "צריך לבדוק את רשימת הפריטים עם הפערים לפני שמציגים מסקנות ללקוח.",
-          tone: "warn" as const,
-        }
+      ? apiLikelyAdvancedSinceSync
+        ? {
+            title: "Flashy התעדכן מאז הסנכרון האחרון",
+            body: `מספר הרשומות זהה וההכנסה ב־API עלתה. זה קורה כשהמרות חדשות מיוחסות לפעילות קיימת. רענון החשבון יעדכן את ה־snapshot שנשמר ב־${new Date(account.lastSyncAt).toLocaleString("he-IL")}.`,
+            tone: "neutral" as const,
+          }
+        : {
+            title: "ה־snapshot אינו תואם ל־Flashy API",
+            body: "יש שינוי במספר הרשומות או ירידה בערכים. רענן את החשבון ובדוק שוב; אם הפער נשאר, נדרשת בדיקת מיפוי.",
+            tone: "warn" as const,
+          }
       : hasSalesOverviewDifference
         ? {
             title: "Sales Overview משתמש בהגדרת זמן אחרת",
@@ -1247,6 +1267,9 @@ function DataReconciliationPanel({
 
               {reconcileResult.campaignDifferences.length > 0 && (
                 <div className="mt-3 overflow-hidden rounded-lg border border-[#eef3f7] bg-white">
+                  <p className="border-b border-[#eef3f7] px-3 py-2 text-xs font-black text-[#40506a]">
+                    קמפיינים שהשתנו מאז הסנכרון
+                  </p>
                   <div className="grid grid-cols-[1fr_110px_110px_100px] gap-2 border-b border-[#eef3f7] px-3 py-2 text-xs font-black text-[#65738a]">
                     <span>פריט</span>
                     <span>דאשבורד</span>
@@ -1255,6 +1278,30 @@ function DataReconciliationPanel({
                   </div>
                   {reconcileResult.campaignDifferences.slice(0, 6).map((item) => (
                     <div key={item.name} className="grid grid-cols-[1fr_110px_110px_100px] gap-2 border-b border-[#f4f6f8] px-3 py-2 text-xs last:border-b-0">
+                      <span className="truncate font-bold">{item.name}</span>
+                      <span>{formatCurrency(item.storedRevenue, account.currency)}</span>
+                      <span>{formatCurrency(item.liveRevenue, account.currency)}</span>
+                      <span className={Math.abs(item.delta) > 1 ? "font-black text-[#9a3412]" : "text-[#007d72]"}>
+                        {formatCurrency(item.delta, account.currency)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {reconcileResult.automationDifferences.length > 0 && (
+                <div className="mt-3 overflow-hidden rounded-lg border border-[#eef3f7] bg-white">
+                  <p className="border-b border-[#eef3f7] px-3 py-2 text-xs font-black text-[#40506a]">
+                    אוטומציות שהשתנו מאז הסנכרון
+                  </p>
+                  <div className="grid grid-cols-[1fr_110px_110px_100px] gap-2 border-b border-[#eef3f7] px-3 py-2 text-xs font-black text-[#65738a]">
+                    <span>אוטומציה</span>
+                    <span>דאשבורד</span>
+                    <span>Flashy</span>
+                    <span>פער</span>
+                  </div>
+                  {reconcileResult.automationDifferences.slice(0, 6).map((item, index) => (
+                    <div key={`${item.name}-${index}`} className="grid grid-cols-[1fr_110px_110px_100px] gap-2 border-b border-[#f4f6f8] px-3 py-2 text-xs last:border-b-0">
                       <span className="truncate font-bold">{item.name}</span>
                       <span>{formatCurrency(item.storedRevenue, account.currency)}</span>
                       <span>{formatCurrency(item.liveRevenue, account.currency)}</span>

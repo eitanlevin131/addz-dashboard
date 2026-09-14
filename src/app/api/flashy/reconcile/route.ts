@@ -81,6 +81,42 @@ function groupCampaignReports(
   );
 }
 
+function groupAutomationReports(
+  items: Array<{
+    automationId: number;
+    automationName: string | null;
+    revenueGenerated: number | string;
+  }>,
+) {
+  return groupRevenue(
+    items,
+    (item) => `automation-${item.automationId}`,
+    (item) => item.automationName ?? "אוטומציה",
+    (item) => toNumber(item.revenueGenerated),
+  );
+}
+
+function revenueDifferences(
+  storedGroups: Map<string, { key: string; name: string; revenue: number }>,
+  liveGroups: Map<string, { key: string; name: string; revenue: number }>,
+) {
+  const keys = new Set([...storedGroups.keys(), ...liveGroups.keys()]);
+  return Array.from(keys)
+    .map((key) => {
+      const stored = storedGroups.get(key);
+      const live = liveGroups.get(key);
+      return {
+        name: live?.name ?? stored?.name ?? key,
+        storedRevenue: cents(stored?.revenue ?? 0),
+        liveRevenue: cents(live?.revenue ?? 0),
+        delta: cents((live?.revenue ?? 0) - (stored?.revenue ?? 0)),
+      };
+    })
+    .filter((item) => Math.abs(item.delta) >= 1)
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+    .slice(0, 12);
+}
+
 export async function POST(request: Request) {
   if (!isDatabaseConfigured()) {
     return NextResponse.json(
@@ -205,21 +241,11 @@ export async function POST(request: Request) {
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 8);
 
-  const keys = new Set([...storedCampaignGroups.keys(), ...liveCampaignGroups.keys()]);
-  const campaignDifferences = Array.from(keys)
-    .map((key) => {
-      const stored = storedCampaignGroups.get(key);
-      const live = liveCampaignGroups.get(key);
-      return {
-        name: live?.name ?? stored?.name ?? key,
-        storedRevenue: cents(stored?.revenue ?? 0),
-        liveRevenue: cents(live?.revenue ?? 0),
-        delta: cents((live?.revenue ?? 0) - (stored?.revenue ?? 0)),
-      };
-    })
-    .filter((item) => Math.abs(item.delta) >= 1)
-    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
-    .slice(0, 12);
+  const campaignDifferences = revenueDifferences(storedCampaignGroups, liveCampaignGroups);
+  const automationDifferences = revenueDifferences(
+    groupAutomationReports(dbAutomations),
+    groupAutomationReports(liveAutomations),
+  );
 
   return NextResponse.json({
     success: true,
@@ -251,6 +277,7 @@ export async function POST(request: Request) {
         automationRevenue: cents(liveAutomationRevenue - dbAutomationRevenue),
       },
       campaignDifferences,
+      automationDifferences,
       boundaryCampaignCandidates,
       checks: reports.checks,
     },
