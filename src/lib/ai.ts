@@ -1,4 +1,9 @@
 import { aiInsights } from "./demo-data";
+import {
+  normalizeAiGroundedResponse,
+  type AiEvidenceSource,
+  type AiGroundedResponse,
+} from "./ai-grounding";
 import { getAutomationSmsRecipients } from "./metrics";
 import type {
   AiInsight,
@@ -724,8 +729,10 @@ export function fallbackAgentInsights(clientId: string, context: AiContextPack):
 export async function askOpenAiAgent(input: {
   question: string;
   context: AiContextPack;
+  evidence: AiEvidenceSource[];
+  currentView?: string;
   mode?: "chat" | "recommendations";
-}) {
+}): Promise<AiGroundedResponse | null> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
@@ -743,15 +750,16 @@ export async function askOpenAiAgent(input: {
     body: JSON.stringify({
       model,
       temperature: 0.25,
+      response_format: { type: "json_object" },
       messages: [
         {
           role: "system",
           content:
-            "אתה סוכן AI לאופטימיזציית אימייל ו-SMS מרקטינג. ענה בעברית, קצר, חד ומבוסס רק על ה-Context Pack. אל תמציא נתונים. התייחס תמיד ל-measurement: ההכנסות הן הכנסות מיוחסות לדוחות פעילות לפי מועד שליחה/פעילות, ולא הכנסות Sales Overview לפי מועד רכישה. אל תציג אותן כהכנסה הכוללת של החשבון. אם חסר מידע, אמור מה חסר.",
+            "אתה סוכן AI לאופטימיזציית אימייל ו-SMS מרקטינג. החזר JSON בלבד בעברית. התבסס רק על ה-Context Pack ועל Evidence Catalog. אל תמציא נתונים או מזהי מקור. כל עובדה, חישוב והסקה חייבים evidenceIds מתוך הקטלוג. facts מכיל רק נתונים שנמדדו; calculations מכיל תוצאה ונוסחה גלויה; inferences מכיל פרשנות או המלצה ורמת ביטחון. אם חסר מידע, אמור מה חסר. ההכנסות הן הכנסות מיוחסות לדוחות פעילות לפי מועד שליחה/פעילות, ולא Sales Overview לפי מועד רכישה.",
         },
         {
           role: "user",
-          content: `Context Pack JSON:\n${JSON.stringify(input.context)}\n\nשאלה/משימה:\n${prompt}`,
+          content: `מסך נוכחי: ${input.currentView ?? "overview"}\n\nContext Pack JSON:\n${JSON.stringify(input.context)}\n\nEvidence Catalog JSON:\n${JSON.stringify(input.evidence)}\n\nשאלה/משימה:\n${prompt}\n\nהחזר במבנה הבא בלבד:\n{"answer":"תשובה קצרה וישירה","facts":[{"text":"נתון מדוד","evidenceIds":["source:id"]}],"calculations":[{"text":"תוצאת החישוב","formula":"המספרים והפעולה","evidenceIds":["source:id"]}],"inferences":[{"text":"הסקה או המלצה","confidence":"high|medium|low","evidenceIds":["source:id"]}]}`,
         },
       ],
     }),
@@ -763,7 +771,9 @@ export async function askOpenAiAgent(input: {
   }
 
   const data = await response.json();
-  return String(data.choices?.[0]?.message?.content ?? "").trim();
+  const raw = String(data.choices?.[0]?.message?.content ?? "{}");
+  const parsed = JSON.parse(raw) as unknown;
+  return normalizeAiGroundedResponse(parsed, input.evidence, fallbackAgentAnswer(input.question, input.context));
 }
 
 export async function askOpenAiActionPlan(context: AiContextPack) {

@@ -9,7 +9,11 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  Calculator,
+  Database,
+  ExternalLink,
   KeyRound,
+  Lightbulb,
   LineChart,
   MessageSquareText,
   Minus,
@@ -74,6 +78,12 @@ import {
   type AiOpportunity,
   type NextBestSend,
 } from "@/lib/ai";
+import {
+  buildAiEvidenceCatalog,
+  buildFallbackGroundedResponse,
+  type AiGroundedResponse,
+  type AiReportView,
+} from "@/lib/ai-grounding";
 import {
   normalizeAutomationReports,
   normalizeEmailReports,
@@ -3775,6 +3785,7 @@ function FloatingAiChat({
   sms,
   automations,
   plans,
+  onNavigate,
 }: {
   clientId: string;
   view: ViewKey;
@@ -3784,6 +3795,7 @@ function FloatingAiChat({
   sms: SmsCampaignReport[];
   automations: AutomationReport[];
   plans: NewsletterPlan[];
+  onNavigate: (view: AiReportView) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
@@ -3792,6 +3804,7 @@ function FloatingAiChat({
   const [providerError, setProviderError] = useState("");
   const [state, setState] = useState("מוכן");
   const [memory, setMemory] = useState<AiAccountMemory>({});
+  const [grounding, setGrounding] = useState<AiGroundedResponse | null>(null);
   const viewLabels: Record<ViewKey, string> = {
     overview: "כללי",
     sms: "SMS",
@@ -3837,15 +3850,16 @@ function FloatingAiChat({
 
     setOpen(true);
     setState("שואל את הסוכן...");
+    setGrounding(null);
     try {
-      const contextualQuestion = `המשתמש נמצא במסך "${viewLabels[view]}". ענה לפי ההקשר הזה: ${resolvedQuestion}`;
       const response = await fetch("/api/ai/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           clientId,
           mode: "chat",
-          question: contextualQuestion,
+          question: resolvedQuestion,
+          view,
           account,
           summary,
           emails,
@@ -3859,17 +3873,30 @@ function FloatingAiChat({
       if (!response.ok || !payload.success) throw new Error(payload.message || "בקשת AI נכשלה");
 
       setAnswer(payload.answer);
+      setGrounding(payload.grounding ?? buildFallbackGroundedResponse(
+        payload.answer,
+        buildAiEvidenceCatalog({ account, summary, emails, sms, automations, plans, documents: memory.documents, question: resolvedQuestion, currentView: view }),
+      ));
       setProvider(payload.provider);
       setProviderError(payload.providerError ?? "");
       setState(payload.provider === "openai" ? "OpenAI פעיל" : payload.providerError || "Fallback פעיל");
       setQuestion("");
     } catch (error) {
-      setAnswer(answerAiQuestion({ question: resolvedQuestion, account, summary, emails, sms, automations, plans }));
+      const fallbackAnswer = answerAiQuestion({ question: resolvedQuestion, account, summary, emails, sms, automations, plans });
+      setAnswer(fallbackAnswer);
+      setGrounding(buildFallbackGroundedResponse(
+        fallbackAnswer,
+        buildAiEvidenceCatalog({ account, summary, emails, sms, automations, plans, documents: memory.documents, question: resolvedQuestion, currentView: view }),
+      ));
       setProvider("rule-based-fallback");
       setProviderError(error instanceof Error ? error.message : "הסוכן נכשל, הוצגה תשובת fallback.");
       setState("Fallback פעיל");
     }
   }
+
+  const evidenceIndex = new Map(grounding?.sources.map((source, index) => [source.id, index + 1]) ?? []);
+  const evidenceBadges = (ids: string[]) => ids.map((id) => evidenceIndex.get(id)).filter(Boolean).map((index) => `[${index}]`).join(" ");
+  const confidenceLabels = { high: "ביטחון גבוה", medium: "ביטחון בינוני", low: "ביטחון נמוך" } as const;
 
   return (
     <div className="fixed bottom-4 left-4 z-50 w-[calc(100vw-2rem)] max-w-[420px] text-right text-[#080123] md:bottom-6 md:left-6">
@@ -3900,7 +3927,7 @@ function FloatingAiChat({
                 </button>
               ))}
             </div>
-            <div className="max-h-[260px] overflow-y-auto rounded-xl bg-[#f7faf9] p-3 text-sm leading-6 text-[#263548]">
+            <div className="max-h-[55vh] overflow-y-auto rounded-xl bg-[#f7faf9] p-3 text-sm leading-6 text-[#263548]">
               <div className="mb-2 flex items-center gap-2 text-xs font-bold text-[#65738a]">
                 <Bot size={14} />
                 <span>{state}</span>
@@ -3908,7 +3935,71 @@ function FloatingAiChat({
                   {provider === "openai" ? "OpenAI" : "Fallback"}
                 </span>
               </div>
-              <p>{answer}</p>
+              <p className="font-medium text-[#111318]">{grounding?.answer ?? answer}</p>
+              {grounding && (
+                <div className="mt-4 divide-y divide-[#dfe7ee] border-t border-[#dfe7ee]">
+                  {grounding.facts.length > 0 && (
+                    <section className="py-3">
+                      <h3 className="mb-2 flex items-center gap-2 text-xs font-black text-[#344054]"><Database size={14} /> נתונים</h3>
+                      <div className="space-y-2">
+                        {grounding.facts.map((item, index) => (
+                          <p key={`${item.text}-${index}`}><span className="ml-1 text-[11px] font-black text-[#087f72]">{evidenceBadges(item.evidenceIds)}</span>{item.text}</p>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                  {grounding.calculations.length > 0 && (
+                    <section className="py-3">
+                      <h3 className="mb-2 flex items-center gap-2 text-xs font-black text-[#344054]"><Calculator size={14} /> חישובים</h3>
+                      <div className="space-y-2">
+                        {grounding.calculations.map((item, index) => (
+                          <div key={`${item.text}-${index}`}>
+                            <p><span className="ml-1 text-[11px] font-black text-[#087f72]">{evidenceBadges(item.evidenceIds)}</span>{item.text}</p>
+                            <code className="mt-1 block text-xs text-[#667085]">{item.formula}</code>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                  {grounding.inferences.length > 0 && (
+                    <section className="py-3">
+                      <h3 className="mb-2 flex items-center gap-2 text-xs font-black text-[#344054]"><Lightbulb size={14} /> הסקה</h3>
+                      <div className="space-y-2">
+                        {grounding.inferences.map((item, index) => (
+                          <div key={`${item.text}-${index}`}>
+                            <p><span className="ml-1 text-[11px] font-black text-[#087f72]">{evidenceBadges(item.evidenceIds)}</span>{item.text}</p>
+                            <span className="text-[11px] text-[#667085]">{confidenceLabels[item.confidence]}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                  {grounding.sources.length > 0 && (
+                    <section className="py-3">
+                      <h3 className="mb-2 text-xs font-black text-[#344054]">מקורות</h3>
+                      <div className="divide-y divide-[#e8eeec] overflow-hidden rounded-lg border border-[#dfe7ee] bg-white">
+                        {grounding.sources.map((source, index) => (
+                          <button
+                            key={source.id}
+                            type="button"
+                            onClick={() => {
+                              onNavigate(source.reportView);
+                              setOpen(false);
+                            }}
+                            className="flex w-full items-start justify-between gap-3 px-3 py-2.5 text-right transition hover:bg-[#f2f7f5]"
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate text-xs font-black text-[#111318]">[{index + 1}] {source.title}</span>
+                              <span className="mt-0.5 block text-[11px] text-[#667085]">{source.metrics.slice(0, 3).map((item) => `${item.label} ${item.display}`).join(" · ") || source.subtitle}</span>
+                            </span>
+                            <ExternalLink className="mt-0.5 shrink-0 text-[#087f72]" size={14} />
+                          </button>
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </div>
+              )}
               {providerError && <p className="mt-2 text-xs text-[#7a4b00]">{providerError}</p>}
             </div>
             <div className="mt-3 flex gap-2">
@@ -5634,6 +5725,10 @@ export function DashboardApp() {
           sms={accountSms}
           automations={accountAutomations}
           plans={accountPlans}
+          onNavigate={(nextView) => {
+            setView(nextView);
+            if (costViewKeys.includes(nextView)) setShowDeepAnalysis(true);
+          }}
         />
       )}
     </div>

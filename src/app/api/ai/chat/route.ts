@@ -3,6 +3,10 @@ import { assertClientAccess, getAccessContext } from "@/lib/auth/access";
 import { aiChatMessages } from "@/lib/schema";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import {
+  buildAiEvidenceCatalog,
+  buildFallbackGroundedResponse,
+} from "@/lib/ai-grounding";
+import {
   askOpenAiAgent,
   askOpenAiActionPlan,
   askOpenAiOnboarding,
@@ -45,6 +49,7 @@ export async function POST(request: Request) {
     body.mode === "recommendations" ? "recommendations" : body.mode === "onboarding" ? "onboarding" : "chat";
   const account = body.account as FlashyAccount | undefined;
   const summary = body.summary as MetricSummary | undefined;
+  const currentView = String(body.view ?? "overview");
 
   if (!clientId || !account || !summary) {
     return NextResponse.json(
@@ -60,14 +65,38 @@ export async function POST(request: Request) {
     if (denied) return denied;
   }
 
+  const emails = ((body.emails ?? []) as EmailCampaignReport[])
+    .filter((item) => item.accountId === account.id)
+    .slice(0, 250);
+  const sms = ((body.sms ?? []) as SmsCampaignReport[])
+    .filter((item) => item.accountId === account.id)
+    .slice(0, 250);
+  const automations = ((body.automations ?? []) as AutomationReport[])
+    .filter((item) => item.accountId === account.id)
+    .slice(0, 250);
+  const plans = ((body.plans ?? []) as NewsletterPlan[])
+    .filter((item) => item.clientId === clientId && (!item.accountId || item.accountId === account.id))
+    .slice(0, 250);
+  const memory = (body.memory ?? {}) as AiAccountMemory;
   const context = buildAiContextPack({
     account,
     summary,
-    emails: (body.emails ?? []) as EmailCampaignReport[],
-    sms: (body.sms ?? []) as SmsCampaignReport[],
-    automations: (body.automations ?? []) as AutomationReport[],
-    plans: (body.plans ?? []) as NewsletterPlan[],
-    memory: (body.memory ?? {}) as AiAccountMemory,
+    emails,
+    sms,
+    automations,
+    plans,
+    memory,
+  });
+  const evidence = buildAiEvidenceCatalog({
+    account,
+    summary,
+    emails,
+    sms,
+    automations,
+    plans,
+    documents: memory.documents,
+    question,
+    currentView,
   });
 
   const fallbackAnswer =
@@ -79,6 +108,7 @@ export async function POST(request: Request) {
         ? fallbackOnboarding(context).summary
       : fallbackAgentAnswer(question, context);
   let answer = fallbackAnswer;
+  let grounding = buildFallbackGroundedResponse(fallbackAnswer, evidence);
   let recommendations = fallbackActionPlan(context);
   let onboarding = fallbackOnboarding(context);
   let provider: "openai" | "rule-based-fallback" = "rule-based-fallback";
@@ -102,9 +132,10 @@ export async function POST(request: Request) {
         providerError = "";
       }
     } else {
-      const openAiAnswer = await askOpenAiAgent({ question, context, mode });
+      const openAiAnswer = await askOpenAiAgent({ question, context, evidence, currentView, mode });
       if (openAiAnswer) {
-        answer = openAiAnswer;
+        grounding = openAiAnswer;
+        answer = openAiAnswer.answer;
         provider = "openai";
         providerError = "";
       }
@@ -126,5 +157,6 @@ export async function POST(request: Request) {
     context,
     insights: fallbackAgentInsights(clientId, context),
     answer,
+    grounding,
   });
 }
