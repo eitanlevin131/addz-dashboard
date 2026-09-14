@@ -246,7 +246,7 @@ export async function DELETE(request: Request) {
 
   const db = getDb();
   const existing = await db
-    .select({ clientId: newsletterPlans.clientId })
+    .select({ clientId: newsletterPlans.clientId, status: newsletterPlans.status })
     .from(newsletterPlans)
     .where(eq(newsletterPlans.id, id))
     .limit(1)
@@ -263,6 +263,13 @@ export async function DELETE(request: Request) {
   if (!accessContext.ok) return accessContext.response;
   const denied = assertClientAccess(accessContext.access, existing.clientId);
   if (denied) return denied;
+
+  if (existing.status === "sent") {
+    return NextResponse.json(
+      { success: false, message: "אי אפשר למחוק דיוור שכבר נשלח." },
+      { status: 409 },
+    );
+  }
 
   const [deleted] = await db
     .delete(newsletterPlans)

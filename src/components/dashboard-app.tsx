@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   Sparkles,
   Table2,
+  Trash2,
   TrendingUp,
   X,
 } from "lucide-react";
@@ -2387,6 +2388,7 @@ function Planner({
   sms,
   plans,
   onUpsertPlan,
+  onDeletePlan,
 }: {
   client: Client;
   account: FlashyAccount;
@@ -2394,6 +2396,7 @@ function Planner({
   sms: SmsCampaignReport[];
   plans: NewsletterPlan[];
   onUpsertPlan: (plan: NewsletterPlan) => void;
+  onDeletePlan: (planId: string) => void;
 }) {
   const [month, setMonth] = useState(toDateInputValue(new Date()).slice(0, 7));
   const [layout, setLayout] = useState<"calendar" | "table">("calendar");
@@ -2605,6 +2608,34 @@ function Planner({
           ? `ההזזה נכשלה והפריט הוחזר: ${error.message}`
           : "ההזזה נכשלה והפריט הוחזר.",
       );
+    }
+  }
+
+  async function deletePlan() {
+    if (!editingPlanId) return;
+    const match = planMatching.matches.find((item) => item.plan.id === editingPlanId);
+    if (!match || match.report || match.plan.status === "sent") {
+      setSaveState("אי אפשר למחוק דיוור שכבר חובר לביצוע ב־Flashy.");
+      return;
+    }
+    if (!window.confirm(`למחוק את התכנון “${match.plan.title}”?`)) return;
+
+    setSaveState("מוחק את התכנון...");
+    try {
+      const response = await fetch("/api/newsletter-plans", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: editingPlanId }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "המחיקה נכשלה");
+
+      onDeletePlan(editingPlanId);
+      setEditingPlanId(null);
+      setDraft({ ...emptyDraft, date: `${month}-01` });
+      setSaveState("");
+    } catch (error) {
+      setSaveState(error instanceof Error ? error.message : "המחיקה נכשלה.");
     }
   }
 
@@ -2909,6 +2940,16 @@ function Planner({
                 <CalendarDays size={16} />
                 {editingPlanId ? "שמור שינויים" : "הוסף לגאנט"}
               </button>
+              {editingPlanId && !planMatching.matches.find((item) => item.plan.id === editingPlanId)?.report && (
+                <button
+                  type="button"
+                  onClick={deletePlan}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-white px-4 text-sm font-medium text-red-700 transition hover:bg-red-50"
+                >
+                  <Trash2 size={16} />
+                  מחק תכנון
+                </button>
+              )}
               {saveState && <p className="text-sm text-[#65738a]">{saveState}</p>}
             </div>
           </section>
@@ -5324,6 +5365,10 @@ export function DashboardApp() {
     ]);
   }
 
+  function deleteNewsletterPlan(planId: string) {
+    setLocalNewsletterPlans((current) => current.filter((item) => item.id !== planId));
+  }
+
   const selectClient = (clientId: string) => {
     setSelectedClientId(clientId);
     setView("overview");
@@ -5536,6 +5581,7 @@ export function DashboardApp() {
               sms={allAccountSms}
               plans={accountPlans}
               onUpsertPlan={upsertNewsletterPlan}
+              onDeletePlan={deleteNewsletterPlan}
             />
           )}
           {activeView === "ai" && (
