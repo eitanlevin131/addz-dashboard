@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  ArrowDownWideNarrow,
   ArrowDownRight,
   ArrowUpRight,
   Bot,
@@ -14,6 +15,7 @@ import {
   Minus,
   Plus,
   RefreshCw,
+  RotateCcw,
   Send,
   Settings,
   ShieldCheck,
@@ -2116,6 +2118,35 @@ function reportSendTime(report: PlannerCampaignReport | undefined, timezone: str
   }).format(new Date(report.sentAt));
 }
 
+type PlannerTableSortKey =
+  | "date"
+  | "time"
+  | "revenue"
+  | "purchases"
+  | "averagePurchase"
+  | "conversion"
+  | "openRate"
+  | "clickRate"
+  | "unsubscribeRate";
+
+const plannerTableColumns: Array<{ label: string; sortKey?: PlannerTableSortKey }> = [
+  { label: "תאריך", sortKey: "date" },
+  { label: "יום" },
+  { label: "שעה", sortKey: "time" },
+  { label: "נושא" },
+  { label: "סטטוס" },
+  { label: "הוקם ב־Flashy?" },
+  { label: "מתוזמן?" },
+  { label: "קוד קופון" },
+  { label: "הכנסות", sortKey: "revenue" },
+  { label: "רכישות", sortKey: "purchases" },
+  { label: "ממוצע לרכישה", sortKey: "averagePurchase" },
+  { label: "יחס המרה", sortKey: "conversion" },
+  { label: "% פתיחה", sortKey: "openRate" },
+  { label: "% הקלקה", sortKey: "clickRate" },
+  { label: "% הסרה", sortKey: "unsubscribeRate" },
+];
+
 function PlannerTableSection({
   channel,
   matches,
@@ -2132,110 +2163,169 @@ function PlannerTableSection({
   const rows = matches.filter((item) => item.plan.channel === channel);
   const liveRows = unmatchedReports.filter((item) => item.channel === channel);
   const isEmail = channel === "email";
+  const [sort, setSort] = useState<{ key: PlannerTableSortKey; direction: "asc" | "desc" } | null>(null);
+  const tableRows = [
+    ...rows.map(({ plan, report, status }) => {
+      const delivered = report?.totalDelivered ?? 0;
+      const recipients = report?.totalRecipients ?? 0;
+      const purchases = report?.purchases ?? 0;
+      const revenue = report?.revenueGenerated ?? 0;
+      const time = reportSendTime(report, account.timezone) || plan.time || "";
+
+      return {
+        id: `plan-${plan.id}`,
+        plan,
+        report,
+        status,
+        date: plan.date,
+        time,
+        title: plan.title,
+        subtitle: report && report.campaignName !== plan.title ? `Flashy: ${report.campaignName}` : "",
+        hasFlashy: Boolean(report || plan.flashyUrl),
+        isScheduled: Boolean(report || plan.flashyUrl),
+        couponCode: plan.couponCode || "",
+        revenue: report ? revenue : null,
+        purchases: report ? purchases : null,
+        averagePurchase: report && purchases > 0 ? revenue / purchases : null,
+        conversion: report && recipients > 0 ? purchases / recipients : null,
+        openRate: report?.channel === "email" && delivered > 0 ? report.totalOpens / delivered : null,
+        clickRate: report && delivered > 0 ? report.uniqueClicks / delivered : null,
+        unsubscribeRate: report && recipients > 0 ? report.unsubscribed / recipients : null,
+      };
+    }),
+    ...liveRows.map((report) => {
+      const date = accountDate(new Date(report.sentAt), account.timezone);
+      const purchases = report.purchases;
+      const revenue = report.revenueGenerated;
+
+      return {
+        id: `live-${report.channel}-${report.id}`,
+        plan: null,
+        report,
+        status: "sent" as OperationalPlanStatus,
+        date,
+        time: reportSendTime(report, account.timezone),
+        title: report.campaignName,
+        subtitle: "נשלח ב־Flashy ללא פריט תכנון",
+        hasFlashy: true,
+        isScheduled: true,
+        couponCode: "",
+        revenue,
+        purchases,
+        averagePurchase: purchases > 0 ? revenue / purchases : null,
+        conversion: report.totalRecipients > 0 ? purchases / report.totalRecipients : null,
+        openRate: report.channel === "email" && report.totalDelivered > 0
+          ? report.totalOpens / report.totalDelivered
+          : null,
+        clickRate: report.totalDelivered > 0 ? report.uniqueClicks / report.totalDelivered : null,
+        unsubscribeRate: report.totalRecipients > 0 ? report.unsubscribed / report.totalRecipients : null,
+      };
+    }),
+  ].sort((a, b) => {
+    const classicOrder = a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.title.localeCompare(b.title, "he");
+    if (!sort) return classicOrder;
+
+    const aValue = sort.key === "date" ? Date.parse(`${a.date}T00:00:00`) : sort.key === "time"
+      ? Number(a.time.replace(":", ""))
+      : a[sort.key];
+    const bValue = sort.key === "date" ? Date.parse(`${b.date}T00:00:00`) : sort.key === "time"
+      ? Number(b.time.replace(":", ""))
+      : b[sort.key];
+    if (aValue === null || Number.isNaN(aValue)) return bValue === null || Number.isNaN(bValue) ? classicOrder : 1;
+    if (bValue === null || Number.isNaN(bValue)) return -1;
+    const difference = aValue - bValue;
+    return difference === 0 ? classicOrder : sort.direction === "desc" ? -difference : difference;
+  });
+
+  function toggleSort(key: PlannerTableSortKey) {
+    setSort((current) => current?.key === key
+      ? { key, direction: current.direction === "desc" ? "asc" : "desc" }
+      : { key, direction: "desc" });
+  }
 
   return (
     <section className="border-b border-[#dfe7ee] last:border-b-0">
       <div className={classNames(
-        "border-b border-[#c8d3df] px-4 py-2 text-center text-sm font-bold text-[#111318]",
+        "grid grid-cols-[1fr_auto_1fr] items-center border-b border-[#c8d3df] px-4 py-2 text-sm font-bold text-[#111318]",
         isEmail ? "bg-[#cddcf2]" : "bg-[#dcd7eb]",
       )}>
-        {isEmail ? "מיילים" : "מסרונים"}
+        <span aria-hidden="true" />
+        <span>{isEmail ? "מיילים" : "מסרונים"}</span>
+        <button
+          type="button"
+          onClick={() => setSort(null)}
+          disabled={!sort}
+          className="mr-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-semibold text-[#344054] transition hover:bg-white/60 disabled:cursor-default disabled:opacity-40"
+        >
+          <RotateCcw size={14} />
+          איפוס סדר
+        </button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1720px] border-collapse text-right text-xs text-[#344054]">
           <thead>
             <tr className="bg-[#fff6d6] text-[#111318]">
-              {["תאריך", "יום", "שעה", "נושא", "סטטוס", "הוקם ב־Flashy?", "מתוזמן?", "קוד קופון", "הכנסות", "רכישות", "ממוצע לרכישה", "יחס המרה", "% פתיחה", "% הקלקה", "% הסרה"].map((label) => (
+              {plannerTableColumns.map(({ label, sortKey }) => (
                 <th key={label} className="whitespace-nowrap border-l border-[#d9dee5] px-3 py-2.5 font-bold last:border-l-0">
-                  {label}
+                  {sortKey ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(sortKey)}
+                      className={classNames(
+                        "inline-flex items-center gap-1.5 transition hover:text-[#087f72]",
+                        sort?.key === sortKey && "text-[#087f72]",
+                      )}
+                      aria-label={`מיין לפי ${label}`}
+                    >
+                      {label}
+                      <ArrowDownWideNarrow
+                        size={14}
+                        className={classNames("transition-transform", sort?.key === sortKey && sort.direction === "asc" && "rotate-180")}
+                      />
+                    </button>
+                  ) : label}
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ plan, report, status }) => {
-              const delivered = report?.totalDelivered ?? 0;
-              const recipients = report?.totalRecipients ?? 0;
-              const purchases = report?.purchases ?? 0;
-              const revenue = report?.revenueGenerated ?? 0;
-              const openRate = report?.channel === "email" && delivered > 0
-                ? report.totalOpens / delivered
-                : null;
-              const clickRate = report && delivered > 0 ? report.uniqueClicks / delivered : null;
-              const unsubscribeRate = report && recipients > 0 ? report.unsubscribed / recipients : null;
-              const isScheduled = Boolean(report || plan.flashyUrl);
-
+            {tableRows.map((row) => {
               return (
-                <tr key={plan.id} className="border-t border-[#e8ebef] bg-white transition hover:bg-[#f8fafb]">
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 tabular-nums">{new Date(`${plan.date}T12:00:00Z`).toLocaleDateString("he-IL")}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">{new Date(`${plan.date}T12:00:00Z`).toLocaleDateString("he-IL", { weekday: "long" })}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 tabular-nums">{reportSendTime(report, account.timezone) || plan.time || "—"}</td>
+                <tr key={row.id} className="border-t border-[#e8ebef] bg-white transition hover:bg-[#f8fafb]">
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 tabular-nums">{new Date(`${row.date}T12:00:00Z`).toLocaleDateString("he-IL")}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">{new Date(`${row.date}T12:00:00Z`).toLocaleDateString("he-IL", { weekday: "long" })}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 tabular-nums">{row.time || "—"}</td>
                   <td className="max-w-[390px] border-l border-[#e8ebef] px-3 py-3">
-                    <button onClick={() => onEdit(plan)} className="w-full text-right font-semibold text-[#111318] hover:text-[#087f72]">
-                      {plan.title}
-                    </button>
-                    {report && report.campaignName !== plan.title && <span className="mt-1 block truncate text-[11px] text-[#667085]">Flashy: {report.campaignName}</span>}
+                    {row.plan ? (
+                      <button onClick={() => onEdit(row.plan)} className="w-full text-right font-semibold text-[#111318] hover:text-[#087f72]">
+                        {row.title}
+                      </button>
+                    ) : <span className="font-semibold text-[#111318]">{row.title}</span>}
+                    {row.subtitle && <span className="mt-1 block truncate text-[11px] text-[#667085]">{row.subtitle}</span>}
                   </td>
                   <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">
                     <span className={classNames(
                       "inline-flex rounded-full px-2 py-1 text-[11px] font-bold",
-                      status === "sent" && "bg-[#d9f7ef] text-[#087f72]",
-                      status === "planned" && "bg-[#eaf2ff] text-[#295ea8]",
-                      status === "postponed" && "bg-[#fff0d8] text-[#9a5b00]",
-                      status === "not_found" && "bg-[#f2f4f7] text-[#667085]",
-                    )}>{operationalStatusLabels[status]}</span>
+                      row.status === "sent" && "bg-[#d9f7ef] text-[#087f72]",
+                      row.status === "planned" && "bg-[#eaf2ff] text-[#295ea8]",
+                      row.status === "postponed" && "bg-[#fff0d8] text-[#9a5b00]",
+                      row.status === "not_found" && "bg-[#f2f4f7] text-[#667085]",
+                    )}>{operationalStatusLabels[row.status]}</span>
                   </td>
-                  <td className="border-l border-[#e8ebef] px-3 py-3 text-center">{report || plan.flashyUrl ? <CheckCircle2 className="mx-auto text-[#087f72]" size={18} /> : <Minus className="mx-auto text-[#98a2b3]" size={18} />}</td>
-                  <td className="border-l border-[#e8ebef] px-3 py-3 text-center">{isScheduled ? <CheckCircle2 className="mx-auto text-[#087f72]" size={18} /> : <Minus className="mx-auto text-[#98a2b3]" size={18} />}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 font-mono">{plan.couponCode || "—"}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 font-bold tabular-nums">{report ? formatCurrency(revenue, account.currency) : "—"}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{report ? formatNumber(purchases) : "—"}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{report && purchases > 0 ? formatCurrency(revenue / purchases, account.currency) : "—"}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{report && recipients > 0 ? formatPercent(purchases / recipients) : "—"}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#e8f1fb] px-3 py-3 tabular-nums">{openRate === null ? "—" : formatPercent(openRate)}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#e8f1fb] px-3 py-3 tabular-nums">{clickRate === null ? "—" : formatPercent(clickRate)}</td>
-                  <td className="whitespace-nowrap bg-[#e8f1fb] px-3 py-3 tabular-nums">{unsubscribeRate === null ? "—" : formatPercent(unsubscribeRate)}</td>
+                  <td className="border-l border-[#e8ebef] px-3 py-3 text-center">{row.hasFlashy ? <CheckCircle2 className="mx-auto text-[#087f72]" size={18} /> : <Minus className="mx-auto text-[#98a2b3]" size={18} />}</td>
+                  <td className="border-l border-[#e8ebef] px-3 py-3 text-center">{row.isScheduled ? <CheckCircle2 className="mx-auto text-[#087f72]" size={18} /> : <Minus className="mx-auto text-[#98a2b3]" size={18} />}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 font-mono">{row.couponCode || "—"}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 font-bold tabular-nums">{row.revenue === null ? "—" : formatCurrency(row.revenue, account.currency)}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{row.purchases === null ? "—" : formatNumber(row.purchases)}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{row.averagePurchase === null ? "—" : formatCurrency(row.averagePurchase, account.currency)}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{row.conversion === null ? "—" : formatPercent(row.conversion)}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#e8f1fb] px-3 py-3 tabular-nums">{row.openRate === null ? "—" : formatPercent(row.openRate)}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#e8f1fb] px-3 py-3 tabular-nums">{row.clickRate === null ? "—" : formatPercent(row.clickRate)}</td>
+                  <td className="whitespace-nowrap bg-[#e8f1fb] px-3 py-3 tabular-nums">{row.unsubscribeRate === null ? "—" : formatPercent(row.unsubscribeRate)}</td>
                 </tr>
               );
             })}
-            {liveRows.map((report) => {
-              const reportDate = accountDate(new Date(report.sentAt), account.timezone);
-              const delivered = report.totalDelivered;
-              const recipients = report.totalRecipients;
-              const purchases = report.purchases;
-              const revenue = report.revenueGenerated;
-              const openRate = report.channel === "email" && delivered > 0
-                ? report.totalOpens / delivered
-                : null;
-              const clickRate = delivered > 0 ? report.uniqueClicks / delivered : null;
-              const unsubscribeRate = recipients > 0 ? report.unsubscribed / recipients : null;
-
-              return (
-                <tr key={`live-${report.channel}-${report.id}`} className="border-t border-[#e8ebef] bg-white transition hover:bg-[#f8fafb]">
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 tabular-nums">{new Date(`${reportDate}T12:00:00Z`).toLocaleDateString("he-IL")}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">{new Date(`${reportDate}T12:00:00Z`).toLocaleDateString("he-IL", { weekday: "long" })}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 tabular-nums">{reportSendTime(report, account.timezone)}</td>
-                  <td className="max-w-[390px] border-l border-[#e8ebef] px-3 py-3 font-semibold text-[#111318]">
-                    {report.campaignName}
-                    <span className="mt-1 block text-[11px] font-normal text-[#667085]">נשלח ב־Flashy ללא פריט תכנון</span>
-                  </td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">
-                    <span className="inline-flex rounded-full bg-[#d9f7ef] px-2 py-1 text-[11px] font-bold text-[#087f72]">נשלח</span>
-                  </td>
-                  <td className="border-l border-[#e8ebef] px-3 py-3 text-center"><CheckCircle2 className="mx-auto text-[#087f72]" size={18} /></td>
-                  <td className="border-l border-[#e8ebef] px-3 py-3 text-center"><CheckCircle2 className="mx-auto text-[#087f72]" size={18} /></td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">—</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 font-bold tabular-nums">{formatCurrency(revenue, account.currency)}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{formatNumber(purchases)}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{purchases > 0 ? formatCurrency(revenue / purchases, account.currency) : "—"}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{recipients > 0 ? formatPercent(purchases / recipients) : "—"}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#e8f1fb] px-3 py-3 tabular-nums">{openRate === null ? "—" : formatPercent(openRate)}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#e8f1fb] px-3 py-3 tabular-nums">{clickRate === null ? "—" : formatPercent(clickRate)}</td>
-                  <td className="whitespace-nowrap bg-[#e8f1fb] px-3 py-3 tabular-nums">{unsubscribeRate === null ? "—" : formatPercent(unsubscribeRate)}</td>
-                </tr>
-              );
-            })}
-            {!rows.length && !liveRows.length && (
+            {!tableRows.length && (
               <tr><td colSpan={15} className="px-4 py-8 text-center text-sm text-[#667085]">אין פריטים מתוכננים בחודש הזה.</td></tr>
             )}
           </tbody>
