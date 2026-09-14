@@ -726,6 +726,56 @@ export function fallbackAgentInsights(clientId: string, context: AiContextPack):
   return [...insights, ...base].slice(0, 6);
 }
 
+export function getConfiguredOpenAiModel() {
+  return process.env.OPENAI_MODEL?.trim() || "gpt-5-mini";
+}
+
+type OpenAiResponsesPayload = {
+  error?: { message?: string; code?: string | null; type?: string };
+  output?: { content?: { type?: string; text?: string }[] }[];
+};
+
+function readOpenAiOutput(payload: OpenAiResponsesPayload) {
+  return (payload.output ?? [])
+    .flatMap((item) => item.content ?? [])
+    .filter((item) => item.type === "output_text")
+    .map((item) => item.text ?? "")
+    .join("")
+    .trim();
+}
+
+async function requestOpenAiJson(instructions: string, input: string) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) throw new Error("OPENAI_API_KEY לא מוגדר בשרת.");
+  const model = getConfiguredOpenAiModel();
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      instructions,
+      input,
+      text: { format: { type: "json_object" } },
+      ...(model.startsWith("gpt-5") ? { reasoning: { effort: "minimal" } } : {}),
+      max_output_tokens: 3_000,
+    }),
+  });
+
+  const payload = (await response.json().catch(() => ({}))) as OpenAiResponsesPayload;
+  if (!response.ok) {
+    const reason = payload.error?.message?.trim();
+    throw new Error(`OpenAI API error ${response.status}${reason ? `: ${reason.slice(0, 240)}` : ""}`);
+  }
+
+  const output = readOpenAiOutput(payload);
+  if (!output) throw new Error("OpenAI החזיר תשובה ריקה.");
+  return output;
+}
+
 export async function askOpenAiAgent(input: {
   question: string;
   context: AiContextPack;
@@ -736,42 +786,14 @@ export async function askOpenAiAgent(input: {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
   const prompt =
     input.mode === "recommendations"
       ? "צור 4 המלצות קצרות ומעשיות לאופטימיזציה. החזר תשובה בעברית עם כותרות קצרות ופעולה לכל המלצה."
       : input.question;
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.25,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            "אתה סוכן AI לאופטימיזציית אימייל ו-SMS מרקטינג. החזר JSON בלבד בעברית. התבסס רק על ה-Context Pack ועל Evidence Catalog. אל תמציא נתונים או מזהי מקור. כל עובדה, חישוב והסקה חייבים evidenceIds מתוך הקטלוג. facts מכיל רק נתונים שנמדדו; calculations מכיל תוצאה ונוסחה גלויה; inferences מכיל פרשנות או המלצה ורמת ביטחון. אם חסר מידע, אמור מה חסר. ההכנסות הן הכנסות מיוחסות לדוחות פעילות לפי מועד שליחה/פעילות, ולא Sales Overview לפי מועד רכישה.",
-        },
-        {
-          role: "user",
-          content: `מסך נוכחי: ${input.currentView ?? "overview"}\n\nContext Pack JSON:\n${JSON.stringify(input.context)}\n\nEvidence Catalog JSON:\n${JSON.stringify(input.evidence)}\n\nשאלה/משימה:\n${prompt}\n\nהחזר במבנה הבא בלבד:\n{"answer":"תשובה קצרה וישירה","facts":[{"text":"נתון מדוד","evidenceIds":["source:id"]}],"calculations":[{"text":"תוצאת החישוב","formula":"המספרים והפעולה","evidenceIds":["source:id"]}],"inferences":[{"text":"הסקה או המלצה","confidence":"high|medium|low","evidenceIds":["source:id"]}]}`,
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    throw new Error(`OpenAI API error ${response.status}${errorText ? `: ${errorText.slice(0, 220)}` : ""}`);
-  }
-
-  const data = await response.json();
-  const raw = String(data.choices?.[0]?.message?.content ?? "{}");
+  const raw = await requestOpenAiJson(
+    "אתה סוכן AI לאופטימיזציית אימייל ו-SMS מרקטינג. החזר אובייקט JSON בלבד בעברית. התבסס רק על ה-Context Pack ועל Evidence Catalog. אל תמציא נתונים או מזהי מקור. כל עובדה, חישוב והסקה חייבים evidenceIds מתוך הקטלוג. facts מכיל רק נתונים שנמדדו; calculations מכיל תוצאה ונוסחה גלויה; inferences מכיל פרשנות או המלצה ורמת ביטחון. אם חסר מידע, אמור מה חסר. ההכנסות הן הכנסות מיוחסות לדוחות פעילות לפי מועד שליחה/פעילות, ולא Sales Overview לפי מועד רכישה.",
+    `מסך נוכחי: ${input.currentView ?? "overview"}\n\nContext Pack JSON:\n${JSON.stringify(input.context)}\n\nEvidence Catalog JSON:\n${JSON.stringify(input.evidence)}\n\nשאלה/משימה:\n${prompt}\n\nהחזר אובייקט JSON במבנה הבא בלבד:\n{"answer":"תשובה קצרה וישירה","facts":[{"text":"נתון מדוד","evidenceIds":["source:id"]}],"calculations":[{"text":"תוצאת החישוב","formula":"המספרים והפעולה","evidenceIds":["source:id"]}],"inferences":[{"text":"הסקה או המלצה","confidence":"high|medium|low","evidenceIds":["source:id"]}]}`,
+  );
   const parsed = JSON.parse(raw) as unknown;
   return normalizeAiGroundedResponse(parsed, input.evidence, fallbackAgentAnswer(input.question, input.context));
 }
@@ -780,38 +802,10 @@ export async function askOpenAiActionPlan(context: AiContextPack) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            "אתה מנהל אופטימיזציית Email/SMS Marketing לסוכנות. החזר JSON בלבד. אל תמציא מספרים. כבד את הגדרת measurement: נתוני ההכנסה הם הכנסות מיוחסות לפעילויות לפי מועד שליחה/פעילות ואינם Sales Overview לפי מועד רכישה. תן המלצות פרקטיות שמבוססות על הנתונים. כל המלצה חייבת להיות פעולה שאפשר לבצע השבוע.",
-        },
-        {
-          role: "user",
-          content: `Context Pack:\n${JSON.stringify(context)}\n\nהחזר JSON במבנה:\n{"recommendations":[{"title":"...","priority":"high|medium|low","area":"campaigns|sms|automations|planning|strategy","why":"...","action":"...","expectedImpact":"...","effort":"low|medium|high","kpi":"..."}]}\nעד 5 המלצות. עברית בלבד.`,
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    throw new Error(`OpenAI API error ${response.status}${errorText ? `: ${errorText.slice(0, 220)}` : ""}`);
-  }
-
-  const data = await response.json();
-  const raw = String(data.choices?.[0]?.message?.content ?? "{}");
+  const raw = await requestOpenAiJson(
+    "אתה מנהל אופטימיזציית Email/SMS Marketing לסוכנות. החזר אובייקט JSON בלבד. אל תמציא מספרים. כבד את הגדרת measurement: נתוני ההכנסה הם הכנסות מיוחסות לפעילויות לפי מועד שליחה/פעילות ואינם Sales Overview לפי מועד רכישה. תן המלצות פרקטיות שמבוססות על הנתונים. כל המלצה חייבת להיות פעולה שאפשר לבצע השבוע.",
+    `Context Pack:\n${JSON.stringify(context)}\n\nהחזר אובייקט JSON במבנה:\n{"recommendations":[{"title":"...","priority":"high|medium|low","area":"campaigns|sms|automations|planning|strategy","why":"...","action":"...","expectedImpact":"...","effort":"low|medium|high","kpi":"..."}]}\nעד 5 המלצות. עברית בלבד.`,
+  );
   const parsed = JSON.parse(raw) as { recommendations?: AiActionRecommendation[] };
 
   return (parsed.recommendations ?? []).filter(Boolean).slice(0, 5);
@@ -864,38 +858,10 @@ export async function askOpenAiOnboardingDocuments(
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        {
-          role: "system",
-          content:
-            "אתה מבצע onboarding ללקוח Email/SMS Marketing לפי מסמכי אפיון/אסטרטגיה. החזר JSON בלבד בעברית. הפוך את המסמכים לפרופיל לקוח מובנה, חד ושימושי להמלצות AI. אל תמציא עובדות. אם משהו חסר, שים אותו ב-missingInfo.",
-        },
-        {
-          role: "user",
-          content: `מסמכי הלקוח:\n${JSON.stringify(documents.map((document) => ({ ...document, content: document.content.slice(0, 12_000) })))}\n\nמידע קיים:\n${JSON.stringify(memory)}\n\nהחזר JSON במבנה:\n{"summary":"סיכום קצר של מה שהבנת מהמסמכים","profile":{"brandVoice":"טון מותג במשפט קצר","audiences":["קהל 1","קהל 2"],"products":["מוצר/קטגוריה 1"],"positioning":"מיצוב והצעת ערך","constraints":["דברים לא לעשות"],"contentAngles":["זוויות תוכן מומלצות"],"commercialMoments":["עונות/חגים/רגעים מסחריים"],"missingInfo":["מה חסר כדי לדייק"]},"questions":["שאלה 1","שאלה 2","שאלה 3","שאלה 4","שאלה 5"]}`,
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    throw new Error(`OpenAI API error ${response.status}${errorText ? `: ${errorText.slice(0, 220)}` : ""}`);
-  }
-
-  const data = await response.json();
-  const raw = String(data.choices?.[0]?.message?.content ?? "{}");
+  const raw = await requestOpenAiJson(
+    "אתה מבצע onboarding ללקוח Email/SMS Marketing לפי מסמכי אפיון/אסטרטגיה. החזר אובייקט JSON בלבד בעברית. הפוך את המסמכים לפרופיל לקוח מובנה, חד ושימושי להמלצות AI. אל תמציא עובדות. אם משהו חסר, שים אותו ב-missingInfo.",
+    `מסמכי הלקוח:\n${JSON.stringify(documents.map((document) => ({ ...document, content: document.content.slice(0, 12_000) })))}\n\nמידע קיים:\n${JSON.stringify(memory)}\n\nהחזר אובייקט JSON במבנה:\n{"summary":"סיכום קצר של מה שהבנת מהמסמכים","profile":{"brandVoice":"טון מותג במשפט קצר","audiences":["קהל 1","קהל 2"],"products":["מוצר/קטגוריה 1"],"positioning":"מיצוב והצעת ערך","constraints":["דברים לא לעשות"],"contentAngles":["זוויות תוכן מומלצות"],"commercialMoments":["עונות/חגים/רגעים מסחריים"],"missingInfo":["מה חסר כדי לדייק"]},"questions":["שאלה 1","שאלה 2","שאלה 3","שאלה 4","שאלה 5"]}`,
+  );
   const parsed = JSON.parse(raw) as {
     summary?: string;
     profile?: Partial<AiClientProfile>;

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { askOpenAiOnboardingDocuments } from "@/lib/ai";
+import { askOpenAiOnboardingDocuments, getConfiguredOpenAiModel } from "@/lib/ai";
 import { requireOwner } from "@/lib/auth/access";
 
 type DocumentInput = { name: string; content: string; createdAt: string };
@@ -18,9 +18,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, message: "המסמכים ארוכים מדי לסריקה אחת." }, { status: 413 });
   }
 
-  const onboarding = await askOpenAiOnboardingDocuments(documents);
-  if (!onboarding) {
-    return NextResponse.json({ success: false, message: "OpenAI אינו מוגדר בשרת." }, { status: 503 });
+  try {
+    const onboarding = await askOpenAiOnboardingDocuments(documents);
+    if (!onboarding) {
+      return NextResponse.json({ success: false, message: "OpenAI אינו מוגדר בשרת." }, { status: 503 });
+    }
+    return NextResponse.json({ success: true, provider: "openai", model: getConfiguredOpenAiModel(), onboarding });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        success: false,
+        provider: "openai-error",
+        model: getConfiguredOpenAiModel(),
+        message: error instanceof Error ? error.message : "סריקת המסמכים באמצעות OpenAI נכשלה.",
+      },
+      { status: 502 },
+    );
   }
-  return NextResponse.json({ success: true, onboarding });
 }

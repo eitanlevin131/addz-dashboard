@@ -50,8 +50,12 @@ export async function GET(request: Request) {
           }
         : emptyMemory,
     });
-  } catch {
-    return NextResponse.json({ success: true, data: emptyMemory, persisted: false });
+  } catch (error) {
+    console.error("Failed to load AI account memory", error);
+    return NextResponse.json(
+      { success: false, message: "טעינת זיכרון הלקוח נכשלה. המסמכים לא נמחקו." },
+      { status: 500 },
+    );
   }
 }
 
@@ -110,7 +114,11 @@ export async function PATCH(request: Request) {
         documents: row.documents ?? [],
       },
     });
-  } catch {
-    return NextResponse.json({ success: true, data, persisted: false });
+  } catch (error) {
+    console.error("Failed to save AI account memory", error);
+    return NextResponse.json(
+      { success: false, message: "שמירת זיכרון הלקוח נכשלה." },
+      { status: 500 },
+    );
   }
 }

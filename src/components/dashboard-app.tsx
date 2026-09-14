@@ -72,7 +72,6 @@ import {
   summarizeSms,
 } from "@/lib/metrics";
 import {
-  answerFromData,
   buildAccountHealth,
   buildAiContextPack,
   buildNextBestSend,
@@ -85,8 +84,6 @@ import {
   type NextBestSend,
 } from "@/lib/ai";
 import {
-  buildAiEvidenceCatalog,
-  buildFallbackGroundedResponse,
   type AiGroundedResponse,
   type AiReportView,
 } from "@/lib/ai-grounding";
@@ -3155,62 +3152,6 @@ function buildAiInsights({
   return insights.slice(0, 8);
 }
 
-function answerAiQuestion({
-  question,
-  account,
-  summary,
-  emails,
-  sms,
-  automations,
-  plans,
-}: {
-  question: string;
-  account: FlashyAccount;
-  summary: MetricSummary;
-  emails: EmailCampaignReport[];
-  sms: SmsCampaignReport[];
-  automations: AutomationReport[];
-  plans: NewsletterPlan[];
-}) {
-  const lowerQuestion = question.toLowerCase();
-  const topEmail = [...emails].sort((a, b) => b.revenueGenerated - a.revenueGenerated)[0];
-  const topSms = [...sms].sort((a, b) => b.revenueGenerated - a.revenueGenerated)[0];
-  const topAutomation = [...automations].sort((a, b) => b.revenueGenerated - a.revenueGenerated)[0];
-
-  if (lowerQuestion.includes("נושא") || lowerQuestion.includes("subject")) {
-    return topEmail
-      ? `שורת הנושא/זווית שכדאי ללמוד ממנה היא מהקמפיין "${topEmail.campaignName}". הוא ייצר ${formatCurrency(
-          topEmail.revenueGenerated,
-          account.currency,
-        )} ו-${formatNumber(topEmail.totalClicks)} קליקים. הייתי בונה ממנו 2 וריאציות: אחת עם אותה הבטחה, ואחת עם דחיפות/מלאי.`
-      : "אין מספיק קמפייני אימייל בטווח הנוכחי כדי לבחור שורת נושא מנצחת.";
-  }
-
-  if (lowerQuestion.includes("sms") || lowerQuestion.includes("סמס")) {
-    return topSms
-      ? `ב-SMS המנצח כרגע הוא "${topSms.campaignName}" עם ${formatCurrency(
-          topSms.revenueGenerated,
-          account.currency,
-        )}. העלות הכוללת בטווח היא ${formatCurrency(summary.smsCost, account.currency)}, לכן הייתי ממשיך SMS רק לקהלים חמים ולא לשליחות רוחב בלי טריגר קנייה.`
-      : answerFromData(question, summary);
-  }
-
-  if (lowerQuestion.includes("אוטומ")) {
-    return topAutomation
-      ? `האוטומציה החזקה היא "${topAutomation.automationName}" עם ${formatCurrency(
-          topAutomation.revenueGenerated,
-          account.currency,
-        )}. הפעולה המומלצת: לבדוק האם יש לה המשך אחרי קליק ללא רכישה ולהוסיף פולואפ אם חסר.`
-      : "אין מספיק נתוני אוטומציות בטווח הנוכחי.";
-  }
-
-  if (lowerQuestion.includes("גאנט") || lowerQuestion.includes("תכנון")) {
-    return `בגאנט יש ${formatNumber(plans.length)} פריטים מתוכננים. כדי לשפר אותו הייתי בודק שאין כמה שליחות באותו יום, ושכל קמפיין מסחרי גדול מקבל תמיכה אחת בלבד ב-SMS לקהל חם.`;
-  }
-
-  return answerFromData(question, summary);
-}
-
 function AiAssistant({
   clientId,
   account,
@@ -3238,10 +3179,12 @@ function AiAssistant({
   const accountHealth = buildAccountHealth({ summary, emails, sms, automations, plans });
   const nextBestSend = buildNextBestSend({ context: aiContext, opportunities });
   const [recommendations, setRecommendations] = useState<AiActionRecommendation[]>([]);
-  const [provider, setProvider] = useState("rule-based-fallback");
+  const [provider, setProvider] = useState("idle");
+  const [model, setModel] = useState("");
   const [providerError, setProviderError] = useState("");
   const [aiState, setAiState] = useState("מוכן לשאלות על החשבון.");
-  const [memoryState, setMemoryState] = useState("");
+  const [memoryState, setMemoryState] = useState("טוען את זיכרון הלקוח...");
+  const [memoryLoaded, setMemoryLoaded] = useState(false);
   const [onboardingQuestions, setOnboardingQuestions] = useState<string[]>([]);
   const totalOpportunityPotential = opportunities.reduce((total, item) => total + item.potentialIls, 0);
   const opportunityLabels: Record<AiOpportunity["area"], string> = {
@@ -3275,7 +3218,7 @@ function AiAssistant({
   const workspaceTabs = [
     { key: "brief", label: "תקציר פעולה", detail: "מה חשוב עכשיו" },
     { key: "engine", label: "מנוע הזדמנויות", detail: `${opportunities.length} הזדמנויות` },
-    { key: "memory", label: "זיכרון לקוח", detail: `${memoryDocumentCount} מסמכים` },
+    { key: "memory", label: "זיכרון לקוח", detail: memoryLoaded ? `${memoryDocumentCount} מסמכים` : "טוען..." },
   ] as const;
   const memoryProfileCards = [
     { title: "טון מותג", value: memory.brandVoice },
@@ -3291,12 +3234,17 @@ function AiAssistant({
           cache: "no-store",
         });
         const payload = await response.json();
-        if (!cancelled && payload.success) {
+        if (!response.ok || !payload.success) throw new Error(payload.message || "טעינת זיכרון הלקוח נכשלה.");
+        if (!cancelled) {
           setMemory(payload.data ?? {});
-          setMemoryState(payload.persisted ? "זיכרון החשבון נטען." : "זיכרון מקומי עד שיוגדר DB/טבלה.");
+          setMemoryLoaded(true);
+          setMemoryState(payload.persisted ? `זיכרון ${account.name} נטען.` : `עדיין אין זיכרון שמור עבור ${account.name}.`);
         }
-      } catch {
-        if (!cancelled) setMemoryState("לא הצלחתי לטעון זיכרון חשבון.");
+      } catch (error) {
+        if (!cancelled) {
+          setMemoryLoaded(true);
+          setMemoryState(error instanceof Error ? error.message : "לא הצלחתי לטעון זיכרון חשבון.");
+        }
       }
     }
 
@@ -3304,7 +3252,7 @@ function AiAssistant({
     return () => {
       cancelled = true;
     };
-  }, [clientId]);
+  }, [account.name, clientId]);
 
   async function runAi(mode: "recommendations" | "onboarding") {
     setAiState(
@@ -3330,6 +3278,7 @@ function AiAssistant({
         }),
       });
       const payload = await response.json();
+      setModel(payload.model ?? "");
       if (!response.ok || !payload.success) throw new Error(payload.message || "בקשת AI נכשלה");
 
       setInsights(payload.insights ?? insights);
@@ -3377,8 +3326,9 @@ function AiAssistant({
           : payload.providerError || "תשובה מחישוב פנימי כי אין מפתח AI פעיל.",
       );
     } catch (error) {
-      setProviderError(error instanceof Error ? error.message : "הסוכן נכשל, הוצגה תשובת fallback.");
-      setAiState(error instanceof Error ? error.message : "הסוכן נכשל, הוצגה תשובת fallback.");
+      setProvider("openai-error");
+      setProviderError(error instanceof Error ? error.message : "החיבור למודל OpenAI נכשל.");
+      setAiState(error instanceof Error ? error.message : "החיבור למודל OpenAI נכשל.");
     }
   }
 
@@ -3446,7 +3396,9 @@ function AiAssistant({
             <div className="grid gap-2 sm:grid-cols-3 lg:min-w-[360px]">
               <div className="rounded-xl border border-[#dfe7ee] bg-white p-3">
                 <p className="text-xs font-bold text-[#65738a]">מודל</p>
-                <p className="mt-1 font-black text-[#080123]">{provider === "openai" ? "OpenAI" : "Fallback"}</p>
+                <p className="mt-1 font-black text-[#080123]">
+                  {provider === "openai" ? model || "OpenAI" : provider === "idle" ? "טרם הופעל" : "שגיאת חיבור"}
+                </p>
               </div>
               <div className="rounded-xl border border-[#dfe7ee] bg-white p-3">
                 <p className="text-xs font-bold text-[#65738a]">מוכנות AI</p>
@@ -3686,7 +3638,7 @@ function AiAssistant({
               <div>
                 <h3 className="text-xl font-black text-[#080123]">זיכרון לקוח ומסמכים</h3>
                 <p className="mt-1 text-sm leading-6 text-[#65738a]">
-                  מעלים בריף, אסטרטגיה או מסמכי אפיון, ואז ה־AI מייצר שאלות עומק שמשפרות את ההמלצות.
+                  לקוח פעיל: <strong className="text-[#080123]">{account.name}</strong> · המסמכים שלו בלבד נכנסים לשיחה.
                 </p>
               </div>
               <button
@@ -3785,6 +3737,11 @@ function AiAssistant({
                   ))}
                 </div>
               )}
+              {memoryLoaded && (memory.documents ?? []).length === 0 && (
+                <p className="mt-4 rounded-xl border border-dashed border-[#cfd8df] bg-white p-4 text-center text-sm text-[#65738a]">
+                  אין מסמכים שמורים עבור {account.name}.
+                </p>
+              )}
               <button
                 onClick={() => runAi("onboarding")}
                 disabled={(memory.documents ?? []).length === 0}
@@ -3858,7 +3815,8 @@ function FloatingAiChat({
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("אני מחובר ללקוח, לטווח הנתונים הנוכחי ולמסך שבו אתה נמצא. שאל אותי מה לבדוק.");
-  const [provider, setProvider] = useState("rule-based-fallback");
+  const [provider, setProvider] = useState("idle");
+  const [model, setModel] = useState("");
   const [providerError, setProviderError] = useState("");
   const [state, setState] = useState("מוכן");
   const [memory, setMemory] = useState<AiAccountMemory>({});
@@ -3887,9 +3845,10 @@ function FloatingAiChat({
           cache: "no-store",
         });
         const payload = await response.json();
-        if (!cancelled && payload.success) setMemory(payload.data ?? {});
-      } catch {
-        if (!cancelled) setMemory({});
+        if (!response.ok || !payload.success) throw new Error(payload.message || "טעינת זיכרון הלקוח נכשלה.");
+        if (!cancelled) setMemory(payload.data ?? {});
+      } catch (error) {
+        if (!cancelled) setProviderError(error instanceof Error ? error.message : "טעינת זיכרון הלקוח נכשלה.");
       }
     }
 
@@ -3928,27 +3887,23 @@ function FloatingAiChat({
         }),
       });
       const payload = await response.json();
+      setModel(payload.model ?? "");
       if (!response.ok || !payload.success) throw new Error(payload.message || "בקשת AI נכשלה");
 
+      if (!payload.grounding) throw new Error("המודל לא החזיר תשובה עם מקורות נתונים.");
       setAnswer(payload.answer);
-      setGrounding(payload.grounding ?? buildFallbackGroundedResponse(
-        payload.answer,
-        buildAiEvidenceCatalog({ account, summary, emails, sms, automations, plans, documents: memory.documents, question: resolvedQuestion, currentView: view }),
-      ));
+      setGrounding(payload.grounding);
       setProvider(payload.provider);
       setProviderError(payload.providerError ?? "");
-      setState(payload.provider === "openai" ? "OpenAI פעיל" : payload.providerError || "Fallback פעיל");
+      setState(payload.provider === "openai" ? `${payload.model || "OpenAI"} פעיל` : "שגיאת חיבור");
       setQuestion("");
     } catch (error) {
-      const fallbackAnswer = answerAiQuestion({ question: resolvedQuestion, account, summary, emails, sms, automations, plans });
-      setAnswer(fallbackAnswer);
-      setGrounding(buildFallbackGroundedResponse(
-        fallbackAnswer,
-        buildAiEvidenceCatalog({ account, summary, emails, sms, automations, plans, documents: memory.documents, question: resolvedQuestion, currentView: view }),
-      ));
-      setProvider("rule-based-fallback");
-      setProviderError(error instanceof Error ? error.message : "הסוכן נכשל, הוצגה תשובת fallback.");
-      setState("Fallback פעיל");
+      const message = error instanceof Error ? error.message : "החיבור למודל OpenAI נכשל.";
+      setAnswer("לא התקבלה תשובה מהמודל. הנתונים לא הוחלפו בתשובה אוטומטית.");
+      setGrounding(null);
+      setProvider("openai-error");
+      setProviderError(message);
+      setState("שגיאת חיבור");
     }
   }
 
@@ -3990,7 +3945,7 @@ function FloatingAiChat({
                 <Bot size={14} />
                 <span>{state}</span>
                 <span className="rounded-full bg-white px-2 py-0.5">
-                  {provider === "openai" ? "OpenAI" : "Fallback"}
+                  {provider === "openai" ? model || "OpenAI" : provider === "idle" ? "טרם הופעל" : "שגיאה"}
                 </span>
               </div>
               <p className="font-medium text-[#111318]">{grounding?.answer ?? answer}</p>
@@ -5961,6 +5916,7 @@ export function DashboardApp() {
               />
             ) : (
               <AiAssistant
+                key={selectedClient.id}
                 clientId={selectedClient.id}
                 account={account}
                 summary={summary}
@@ -5991,6 +5947,7 @@ export function DashboardApp() {
       </main>
       {!isRestrictedUser && (
         <FloatingAiChat
+          key={selectedClient.id}
           clientId={selectedClient.id}
           view={activeView}
           account={account}

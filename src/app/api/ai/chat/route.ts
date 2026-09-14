@@ -15,6 +15,7 @@ import {
   fallbackAgentAnswer,
   fallbackAgentInsights,
   fallbackOnboarding,
+  getConfiguredOpenAiModel,
   type AiAccountMemory,
 } from "@/lib/ai";
 import type {
@@ -112,7 +113,6 @@ export async function POST(request: Request) {
   let recommendations = fallbackActionPlan(context);
   let onboarding = fallbackOnboarding(context);
   let provider: "openai" | "rule-based-fallback" = "rule-based-fallback";
-  let providerError = process.env.OPENAI_API_KEY ? "" : "OPENAI_API_KEY לא נטען בשרת. צריך להפעיל מחדש את השרת אחרי עדכון .env.local.";
 
   try {
     if (mode === "recommendations") {
@@ -121,28 +121,33 @@ export async function POST(request: Request) {
         recommendations = openAiRecommendations;
         answer = openAiRecommendations.map((item) => `${item.title}: ${item.action}`).join("\n");
         provider = "openai";
-        providerError = "";
-      }
+      } else throw new Error("OpenAI לא החזיר המלצות.");
     } else if (mode === "onboarding") {
       const openAiOnboarding = await askOpenAiOnboarding(context);
       if (openAiOnboarding) {
         onboarding = openAiOnboarding;
         answer = openAiOnboarding.summary;
         provider = "openai";
-        providerError = "";
-      }
+      } else throw new Error("OpenAI אינו מוגדר בשרת.");
     } else {
       const openAiAnswer = await askOpenAiAgent({ question, context, evidence, currentView, mode });
       if (openAiAnswer) {
         grounding = openAiAnswer;
         answer = openAiAnswer.answer;
         provider = "openai";
-        providerError = "";
-      }
+      } else throw new Error("OpenAI אינו מוגדר בשרת.");
     }
   } catch (error) {
-    providerError = error instanceof Error ? error.message : "OpenAI failed, using fallback.";
-    answer = fallbackAnswer;
+    const message = error instanceof Error ? error.message : "קריאת OpenAI נכשלה.";
+    return NextResponse.json(
+      {
+        success: false,
+        provider: "openai-error",
+        model: getConfiguredOpenAiModel(),
+        message,
+      },
+      { status: 502 },
+    );
   }
 
   if (question) await trySaveMessage(clientId, "user", question);
@@ -151,7 +156,8 @@ export async function POST(request: Request) {
   return NextResponse.json({
     success: true,
     provider,
-    providerError,
+    providerError: "",
+    model: getConfiguredOpenAiModel(),
     recommendations,
     onboarding,
     context,
