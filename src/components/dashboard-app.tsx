@@ -2184,6 +2184,11 @@ function PlannerTableSection({
         hasFlashy: Boolean(report || plan.flashyUrl),
         isScheduled: Boolean(report || plan.flashyUrl),
         couponCode: plan.couponCode || "",
+        recipients,
+        delivered,
+        totalOpens: report?.channel === "email" ? report.totalOpens : 0,
+        uniqueClicks: report?.uniqueClicks ?? 0,
+        unsubscribed: report?.unsubscribed ?? 0,
         revenue: report ? revenue : null,
         purchases: report ? purchases : null,
         averagePurchase: report && purchases > 0 ? revenue / purchases : null,
@@ -2210,6 +2215,11 @@ function PlannerTableSection({
         hasFlashy: true,
         isScheduled: true,
         couponCode: "",
+        recipients: report.totalRecipients,
+        delivered: report.totalDelivered,
+        totalOpens: report.channel === "email" ? report.totalOpens : 0,
+        uniqueClicks: report.uniqueClicks,
+        unsubscribed: report.unsubscribed,
         revenue,
         purchases,
         averagePurchase: purchases > 0 ? revenue / purchases : null,
@@ -2236,6 +2246,20 @@ function PlannerTableSection({
     const difference = aValue - bValue;
     return difference === 0 ? classicOrder : sort.direction === "desc" ? -difference : difference;
   });
+  const totals = tableRows.reduce(
+    (result, row) => ({
+      revenue: result.revenue + (row.revenue ?? 0),
+      purchases: result.purchases + (row.purchases ?? 0),
+      recipients: result.recipients + row.recipients,
+      delivered: result.delivered + row.delivered,
+      totalOpens: result.totalOpens + row.totalOpens,
+      uniqueClicks: result.uniqueClicks + row.uniqueClicks,
+      unsubscribed: result.unsubscribed + row.unsubscribed,
+      sent: result.sent + (row.status === "sent" ? 1 : 0),
+      scheduled: result.scheduled + (row.isScheduled ? 1 : 0),
+    }),
+    { revenue: 0, purchases: 0, recipients: 0, delivered: 0, totalOpens: 0, uniqueClicks: 0, unsubscribed: 0, sent: 0, scheduled: 0 },
+  );
 
   function toggleSort(key: PlannerTableSortKey) {
     setSort((current) => current?.key === key
@@ -2329,6 +2353,27 @@ function PlannerTableSection({
               <tr><td colSpan={15} className="px-4 py-8 text-center text-sm text-[#667085]">אין פריטים מתוכננים בחודש הזה.</td></tr>
             )}
           </tbody>
+          {tableRows.length > 0 && (
+            <tfoot>
+              <tr className="border-t-2 border-[#98a2b3] bg-[#f4f7f6] font-bold text-[#111318]">
+                <td className="whitespace-nowrap border-l border-[#d9dee5] px-3 py-3">סה״כ</td>
+                <td className="whitespace-nowrap border-l border-[#d9dee5] px-3 py-3">{formatNumber(tableRows.length)} דיוורים</td>
+                <td className="border-l border-[#d9dee5] px-3 py-3">—</td>
+                <td className="border-l border-[#d9dee5] px-3 py-3">סיכום אוטומטי</td>
+                <td className="whitespace-nowrap border-l border-[#d9dee5] px-3 py-3">{formatNumber(totals.sent)} נשלחו</td>
+                <td className="border-l border-[#d9dee5] px-3 py-3 text-center">{formatNumber(totals.sent)}</td>
+                <td className="border-l border-[#d9dee5] px-3 py-3 text-center">{formatNumber(totals.scheduled)}</td>
+                <td className="border-l border-[#d9dee5] px-3 py-3">—</td>
+                <td className="whitespace-nowrap border-l border-[#d9dee5] bg-[#dfeeda] px-3 py-3 tabular-nums">{formatCurrency(totals.revenue, account.currency)}</td>
+                <td className="whitespace-nowrap border-l border-[#d9dee5] bg-[#dfeeda] px-3 py-3 tabular-nums">{formatNumber(totals.purchases)}</td>
+                <td className="whitespace-nowrap border-l border-[#d9dee5] bg-[#dfeeda] px-3 py-3 tabular-nums">{totals.purchases > 0 ? formatCurrency(totals.revenue / totals.purchases, account.currency) : "—"}</td>
+                <td className="whitespace-nowrap border-l border-[#d9dee5] bg-[#dfeeda] px-3 py-3 tabular-nums">{totals.recipients > 0 ? formatPercent(totals.purchases / totals.recipients) : "—"}</td>
+                <td className="whitespace-nowrap border-l border-[#d9dee5] bg-[#dce8f5] px-3 py-3 tabular-nums">{isEmail && totals.delivered > 0 ? formatPercent(totals.totalOpens / totals.delivered) : "—"}</td>
+                <td className="whitespace-nowrap border-l border-[#d9dee5] bg-[#dce8f5] px-3 py-3 tabular-nums">{totals.delivered > 0 ? formatPercent(totals.uniqueClicks / totals.delivered) : "—"}</td>
+                <td className="whitespace-nowrap bg-[#dce8f5] px-3 py-3 tabular-nums">{totals.recipients > 0 ? formatPercent(totals.unsubscribed / totals.recipients) : "—"}</td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     </section>
