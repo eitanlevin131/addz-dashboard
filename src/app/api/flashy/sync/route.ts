@@ -41,13 +41,6 @@ export async function POST(request: Request) {
     }
   }
 
-  if (!account) {
-    return NextResponse.json(
-      { success: false, message: "חשבון Flashy לא נמצא" },
-      { status: 404 },
-    );
-  }
-
   if (apiKey) {
     try {
       const accountResponse = await validateFlashyAccount(apiKey);
@@ -102,6 +95,13 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+  }
+
+  if (!account) {
+    return NextResponse.json(
+      { success: false, message: "חשבון Flashy לא נמצא" },
+      { status: 404 },
+    );
   }
 
   return NextResponse.json({
