@@ -6,7 +6,7 @@ export type CampaignKind = "campaign" | "automation";
 
 export type PlanStatus = "planned" | "postponed" | "draft" | "ready" | "approved" | "sent";
 
-export type UserRole = "admin" | "client";
+export type UserRole = "owner" | "admin" | "client";
 
 export interface Client {
   id: string;

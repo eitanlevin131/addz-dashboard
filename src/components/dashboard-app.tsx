@@ -41,6 +41,7 @@ import {
   WeekdayBars,
   type PeriodComparisonPoint,
 } from "@/components/reporting-charts";
+import { ClientOnboardingWizard } from "@/components/client-onboarding-wizard";
 import { campaignTiming, measuredRate } from "@/lib/report-chart-data";
 import {
   matchNewsletterPlans,
@@ -236,6 +237,55 @@ function LoginGate({ message }: { message: string }) {
 
         {state && <p role="status" className="mt-4 whitespace-pre-wrap text-sm leading-6 text-[#4a5870]">{state}</p>}
         <p className="mt-4 text-xs text-[#667085]">שכחת סיסמה? פנה למנהל החשבון בסוכנות.</p>
+      </section>
+    </div>
+  );
+}
+
+function PasswordChangeGate({ message }: { message: string }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [state, setState] = useState(message);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setState("הסיסמאות החדשות אינן זהות.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message || "עדכון הסיסמה נכשל.");
+      await signOut({ callbackUrl: "/" });
+    } catch (error) {
+      setState(error instanceof Error ? error.message : "עדכון הסיסמה נכשל.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div dir="rtl" className="grid min-h-screen place-items-center bg-[#0b0c10] px-4">
+      <section className="w-full max-w-md rounded-xl bg-white p-7 shadow-2xl">
+        <div className="flex items-center gap-3">
+          <div className="grid size-10 place-items-center rounded-lg bg-[#42dfcf]"><KeyRound size={19} /></div>
+          <div><p className="text-xs font-bold text-[#667085]">אבטחת החשבון</p><h1 className="text-2xl font-black text-[#111318]">בחירת סיסמה חדשה</h1></div>
+        </div>
+        <p className="mt-4 text-sm leading-6 text-[#667085]">{state}</p>
+        <form onSubmit={submit} className="mt-5 space-y-3">
+          <input required type="password" autoComplete="current-password" placeholder="סיסמה זמנית" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} className="h-11 w-full rounded-lg border border-[#d0d5dd] px-3 text-left" dir="ltr" />
+          <input required minLength={10} maxLength={128} type="password" autoComplete="new-password" placeholder="סיסמה חדשה, לפחות 10 תווים" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="h-11 w-full rounded-lg border border-[#d0d5dd] px-3 text-left" dir="ltr" />
+          <input required minLength={10} maxLength={128} type="password" autoComplete="new-password" placeholder="אימות סיסמה חדשה" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="h-11 w-full rounded-lg border border-[#d0d5dd] px-3 text-left" dir="ltr" />
+          <button disabled={busy} className="h-11 w-full rounded-lg bg-[#111318] font-bold text-white disabled:opacity-50">{busy ? "מעדכן..." : "עדכן והתחבר מחדש"}</button>
+        </form>
       </section>
     </div>
   );
@@ -609,7 +659,7 @@ type DashboardDataPayload = {
   viewer?: {
     canManageUsers?: boolean;
     email: string;
-    role: "admin" | "client";
+    role: "owner" | "admin" | "client";
   };
   clients: Client[];
   accounts: FlashyAccount[];
@@ -624,7 +674,10 @@ type AdminUserAccess = {
   id: string;
   name: string;
   email: string;
-  role: "admin" | "client";
+  role: "owner" | "admin" | "client";
+  status: "active" | "suspended";
+  mustChangePassword: boolean;
+  lastLoginAt: string | null;
   hasPassword: boolean;
   createdAt: string;
   clients: {
@@ -4213,6 +4266,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
   const [state, setState] = useState("טוען משתמשים...");
   const [resetUserId, setResetUserId] = useState<string | null>(null);
   const [resetPassword, setResetPassword] = useState("");
+  const [assignmentByUser, setAssignmentByUser] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
 
   async function savePassword(userId: string) {
@@ -4302,6 +4356,34 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
       setState("התפקיד עודכן.");
     } catch (error) {
       setState(error instanceof Error ? error.message : "עדכון תפקיד נכשל.");
+    }
+  }
+
+  async function updateUserStatus(userId: string, status: "active" | "suspended") {
+    setState(status === "suspended" ? "משעה משתמש..." : "מפעיל משתמש...");
+    try {
+      const response = await fetch("/api/admin/users", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId, status }) });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "עדכון הסטטוס נכשל");
+      await loadUsers();
+      setState(status === "suspended" ? "המשתמש הושעה וכל הסשנים בוטלו." : "המשתמש הופעל מחדש.");
+    } catch (error) {
+      setState(error instanceof Error ? error.message : "עדכון הסטטוס נכשל.");
+    }
+  }
+
+  async function addClientAccess(userId: string) {
+    const targetClientId = assignmentByUser[userId] || clients[0]?.id;
+    if (!targetClientId) return;
+    setState("מוסיף שיוך לקוח...");
+    try {
+      const response = await fetch("/api/admin/users", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId, clientId: targetClientId }) });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "הוספת השיוך נכשלה");
+      await loadUsers();
+      setState("הלקוח שויך למשתמש.");
+    } catch (error) {
+      setState(error instanceof Error ? error.message : "הוספת השיוך נכשלה.");
     }
   }
 
@@ -4405,6 +4487,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
               <th className="p-3 text-right">משתמש</th>
               <th className="p-3 text-right">תפקיד</th>
               <th className="p-3 text-right">התחברות</th>
+              <th className="p-3 text-right">סטטוס</th>
               <th className="p-3 text-right">לקוחות משויכים</th>
               <th className="p-3 text-right">נוצר</th>
             </tr>
@@ -4426,6 +4509,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
                     onChange={(event) => updateUserRole(user.id, event.target.value as "admin" | "client")}
                     className="h-9 rounded-md border border-[#dfe7ee] px-2 text-sm"
                   >
+                    <option value="owner">בעלים</option>
                     <option value="client">לקוח</option>
                     <option value="admin">אדמין</option>
                   </select>
@@ -4451,7 +4535,19 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
                   )}
                 </td>
                 <td className="p-3">
-                  {user.role === "admin" ? (
+                  <button
+                    type="button"
+                    disabled={user.isOwner}
+                    onClick={() => updateUserStatus(user.id, user.status === "active" ? "suspended" : "active")}
+                    className={classNames("rounded-full px-3 py-1 text-xs font-bold", user.status === "active" ? "bg-[#e8fbf8] text-[#087f72]" : "bg-rose-50 text-rose-700")}
+                  >
+                    {user.status === "active" ? "פעיל" : "מושעה"}
+                  </button>
+                  {user.mustChangePassword && <p className="mt-2 text-xs text-amber-700">נדרשת החלפת סיסמה</p>}
+                  <p className="mt-2 text-xs text-[#667085]">{user.lastLoginAt ? `כניסה: ${new Date(user.lastLoginAt).toLocaleDateString("he-IL")}` : "טרם התחבר"}</p>
+                </td>
+                <td className="p-3">
+                  {user.role === "admin" || user.role === "owner" ? (
                     <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
                       גישה לכל הלקוחות
                     </span>
@@ -4475,7 +4571,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
                   ) : (
                     <span className="text-[#65738a]">אין שיוך לקוח</span>
                   )}
-                  {user.role !== "admin" && (
+                  {user.role === "client" && (
                     <div className="mt-2">
                       <span
                         className={classNames(
@@ -4489,6 +4585,14 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
                       </span>
                     </div>
                   )}
+                  {user.role === "client" && (
+                    <div className="mt-3 flex gap-2">
+                      <select aria-label={`שיוך לקוח עבור ${user.email}`} value={assignmentByUser[user.id] || clients[0]?.id || ""} onChange={(event) => setAssignmentByUser((current) => ({ ...current, [user.id]: event.target.value }))} className="h-8 min-w-0 rounded-md border border-[#dfe7ee] px-2 text-xs">
+                        {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
+                      </select>
+                      <button type="button" onClick={() => addClientAccess(user.id)} className="h-8 rounded-md border border-[#d0d5dd] px-2 text-xs font-bold">שייך</button>
+                    </div>
+                  )}
                 </td>
                 <td className="p-3 text-[#65738a]">
                   {new Date(user.createdAt).toLocaleDateString("he-IL")}
@@ -4497,13 +4601,56 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
             ))}
             {!users.length && (
               <tr>
-                <td colSpan={5} className="p-6 text-center text-[#65738a]">
+                <td colSpan={6} className="p-6 text-center text-[#65738a]">
                   אין משתמשים להצגה.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+      </div>
+    </section>
+  );
+}
+
+function AdminActivityLog() {
+  const [items, setItems] = useState<{ id: string; action: string; entityType: string; actorName: string | null; actorEmail: string | null; createdAt: string }[]>([]);
+  const [state, setState] = useState("טוען פעילות...");
+
+  async function load() {
+    try {
+      const response = await fetch("/api/admin/activity", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "טעינת הפעילות נכשלה.");
+      setItems(payload.data ?? []);
+      setState(payload.data?.length ? "" : "עדיין אין פעולות ניהול מתועדות.");
+    } catch (error) {
+      setState(error instanceof Error ? error.message : "טעינת הפעילות נכשלה.");
+    }
+  }
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, []);
+  const labels: Record<string, string> = {
+    "client.created": "נוצר לקוח",
+    "user.created": "נוצר משתמש",
+    "user.password_reset": "אופסה סיסמה",
+    "user.role_changed": "שונה תפקיד",
+    "user.active": "הופעל משתמש",
+    "user.suspended": "הושעה משתמש",
+    "user.client_assigned": "שויך לקוח",
+    "user.client_unassigned": "הוסר שיוך לקוח",
+    "password.changed": "הוחלפה סיסמה",
+  };
+
+  return (
+    <section className="rounded-xl border border-[#e4e7ec] bg-white p-5">
+      <div className="flex items-center justify-between"><div><p className="text-xs font-bold text-[#667085]">AUDIT</p><h2 className="mt-1 text-xl font-black text-[#111318]">פעילות ניהול</h2></div><button type="button" onClick={load} className="h-9 rounded-lg border border-[#d0d5dd] px-3 text-xs font-bold">רענון</button></div>
+      {state && <p className="mt-4 text-sm text-[#667085]">{state}</p>}
+      <div className="mt-4 divide-y divide-[#eaecf0]">
+        {items.slice(0, 12).map((item) => <div key={item.id} className="grid gap-1 py-3 text-sm sm:grid-cols-[1fr_auto]"><div><span className="font-bold text-[#111318]">{labels[item.action] || item.action}</span><span className="mr-2 text-[#667085]">{item.actorName || item.actorEmail || "מערכת"}</span></div><time className="text-xs text-[#98a2b3]">{new Date(item.createdAt).toLocaleString("he-IL")}</time></div>)}
       </div>
     </section>
   );
@@ -4543,6 +4690,16 @@ function AdminPanel({
     | { status: "success"; message: string; details: string[] }
     | { status: "error"; message: string; details?: string[] }
   >({ status: "idle" });
+
+  if (canManageUsers) {
+    return (
+      <div className="grid gap-5">
+        <ClientOnboardingWizard />
+        <UserAccessManager clients={clients} />
+        <AdminActivityLog />
+      </div>
+    );
+  }
 
   async function testFlashyConnection() {
     if (!apiKey.trim()) {
@@ -5175,11 +5332,12 @@ export function DashboardApp() {
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
   const [showDeepAnalysis, setShowDeepAnalysis] = useState(false);
-  const [viewerRole, setViewerRole] = useState<"admin" | "client">("admin");
+  const [viewerRole, setViewerRole] = useState<"owner" | "admin" | "client">("owner");
   const [canManageUsers, setCanManageUsers] = useState(false);
   const [dataSource, setDataSource] = useState<"demo" | "neon" | "loading">("loading");
   const [dataNotice, setDataNotice] = useState("טוען נתונים מ-Neon...");
   const [authRequired, setAuthRequired] = useState(false);
+  const [passwordChangeRequired, setPasswordChangeRequired] = useState(false);
   const [liveDataIssue, setLiveDataIssue] = useState("");
   const [refreshState, setRefreshState] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -5252,8 +5410,9 @@ export function DashboardApp() {
   const previousRangeLabel = previousRangeBounds
     ? `${new Date(previousRangeBounds.start).toLocaleDateString("he-IL", { timeZone: account.timezone })}–${new Date(previousRangeBounds.end).toLocaleDateString("he-IL", { timeZone: account.timezone })}`
     : "התקופה הקודמת";
-  const viewerIsAdmin = viewerRole === "admin";
-  const isRestrictedUser = !viewerIsAdmin;
+  const viewerIsStaff = viewerRole === "owner" || viewerRole === "admin";
+  const viewerIsOwner = viewerRole === "owner";
+  const isRestrictedUser = !viewerIsStaff;
   const syncPresentation = {
     healthy: { label: "מסונכרן", dot: "before:bg-[#42dfcf]", text: "text-[#087f72]" },
     syncing: { label: "מסתנכרן", dot: "before:bg-[#2e90fa]", text: "text-[#175cd3]" },
@@ -5263,7 +5422,8 @@ export function DashboardApp() {
   }[account.syncStatus ?? "healthy"];
 
   const visibleViews = views.filter((item) => {
-    if (isRestrictedUser && (item.key === "admin" || item.key === "settings")) return false;
+    if (item.key === "admin" && !viewerIsOwner) return false;
+    if (isRestrictedUser && item.key === "settings") return false;
     return !item.module || selectedClient.visibleModules.includes(item.module) || item.key === "admin";
   });
   const effectiveShowDeepAnalysis = showDeepAnalysis;
@@ -5280,6 +5440,14 @@ export function DashboardApp() {
 
         if (cancelled) return;
         if (!response.ok || !payload.success) {
+          if (response.status === 428 && payload.code === "PASSWORD_CHANGE_REQUIRED") {
+            setPasswordChangeRequired(true);
+            setAuthRequired(false);
+            setLiveDataIssue("");
+            setDataSource("loading");
+            setDataNotice(payload.message || "צריך לבחור סיסמה חדשה.");
+            return;
+          }
           if (response.status === 401 || response.status === 403) {
             setAuthRequired(true);
             setLiveDataIssue("");
@@ -5322,6 +5490,7 @@ export function DashboardApp() {
         setLocalNewsletterPlans(data.newsletterPlans);
         setSelectedClientId(data.clients[0].id);
         setAuthRequired(false);
+        setPasswordChangeRequired(false);
         setLiveDataIssue("");
         setDataSource("neon");
         setDataNotice(`נטענו ${data.clients.length} לקוחות מ-Neon.`);
@@ -5483,6 +5652,10 @@ export function DashboardApp() {
 
   if (authRequired) {
     return <LoginGate message={dataNotice} />;
+  }
+
+  if (passwordChangeRequired) {
+    return <PasswordChangeGate message={dataNotice} />;
   }
 
   if (liveDataIssue) {
@@ -5660,7 +5833,7 @@ export function DashboardApp() {
                 sms={accountSms}
                 automations={accountAutomations}
                 showDeepAnalysis={effectiveShowDeepAnalysis}
-                canAudit={viewerIsAdmin}
+                canAudit={viewerIsStaff}
                 rangeStart={activeRangeBounds.start}
                 rangeEnd={activeRangeBounds.end}
               />
@@ -5729,7 +5902,7 @@ export function DashboardApp() {
               onUpdateAccount={updateAccountSettings}
             />
           )}
-          {activeView === "admin" && !isRestrictedUser && (
+          {activeView === "admin" && viewerIsOwner && (
             <AdminPanel
               canManageUsers={canManageUsers}
               clientName={selectedClient.name}

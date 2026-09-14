@@ -37,7 +37,7 @@ const passwordProvider = CredentialsProvider({
     const bootstrapPassword = process.env.ADMIN_PASSWORD || process.env.ADMIN_LOGIN_CODE;
     const isOwner = isOwnerEmail(email);
     if (isOwner && bootstrapPassword) {
-      await db.insert(users).values({ id: crypto.randomUUID(), email, name: "Agency Admin" }).onConflictDoNothing();
+      await db.insert(users).values({ id: crypto.randomUUID(), email, name: "Agency Owner", role: "owner" }).onConflictDoNothing();
     }
 
     // Reserve attempts atomically in Postgres so the limit holds across serverless instances.
@@ -47,7 +47,7 @@ const passwordProvider = CredentialsProvider({
       loginWindowStart: sql`CASE WHEN ${windowExpired} THEN now() ELSE ${users.loginWindowStart} END`,
     }).where(and(eq(users.email, email), sql`(${windowExpired} OR ${users.loginAttempts} < 10)`)).returning();
 
-    if (!user) return null;
+    if (!user || user.status === "suspended") return null;
     const usingBootstrap = !user.passwordHash && isOwner && Boolean(bootstrapPassword);
     const valid = user.passwordHash
       ? await verifyPassword(password, user.passwordHash)
@@ -56,11 +56,16 @@ const passwordProvider = CredentialsProvider({
 
     if (usingBootstrap) {
       const passwordHash = await hashPassword(password);
-      const [initialized] = await db.update(users).set({ passwordHash, role: "admin" })
+      const [initialized] = await db.update(users).set({ passwordHash, role: "owner", mustChangePassword: false })
         .where(and(eq(users.id, user.id), sql`${users.passwordHash} IS NULL`)).returning({ id: users.id });
       if (!initialized) return null;
     }
-    await db.update(users).set({ loginAttempts: 0, loginWindowStart: null }).where(eq(users.id, user.id));
+    await db.update(users).set({
+      loginAttempts: 0,
+      loginWindowStart: null,
+      lastLoginAt: new Date(),
+      ...(isOwner ? { role: "owner" } : {}),
+    }).where(eq(users.id, user.id));
 
     return {
       id: user.id,

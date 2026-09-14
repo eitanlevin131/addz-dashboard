@@ -11,13 +11,18 @@ export type AccessContext = {
   email: string;
   role: string;
   clientIds: string[] | null;
+  mustChangePassword: boolean;
 };
 
 export function isAdminRole(role: string) {
-  return role === "admin" || role === "agency";
+  return role === "owner" || role === "admin" || role === "agency";
 }
 
-export async function getAccessContext(): Promise<
+export function isOwnerRole(role: string) {
+  return role === "owner";
+}
+
+export async function getAccessContext(options: { allowPasswordChangeRequired?: boolean } = {}): Promise<
   | { ok: true; access: AccessContext }
   | { ok: false; response: NextResponse }
 > {
@@ -27,8 +32,9 @@ export async function getAccessContext(): Promise<
       access: {
         userId: "dev-admin",
         email: "dev@local",
-        role: "admin",
+        role: "owner",
         clientIds: null,
+        mustChangePassword: false,
       },
     };
   }
@@ -63,7 +69,31 @@ export async function getAccessContext(): Promise<
     };
   }
 
-  const role = isOwnerEmail(email) ? "admin" : user.role;
+  if (user.status === "suspended") {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { success: false, code: "USER_SUSPENDED", message: "המשתמש הושעה. פנה לבעל המערכת." },
+        { status: 403 },
+      ),
+    };
+  }
+
+  if (user.mustChangePassword && !options.allowPasswordChangeRequired) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { success: false, code: "PASSWORD_CHANGE_REQUIRED", message: "צריך לבחור סיסמה חדשה לפני הכניסה." },
+        { status: 428 },
+      ),
+    };
+  }
+
+  const ownerByEmail = isOwnerEmail(email);
+  if (ownerByEmail && user.role !== "owner") {
+    await db.update(users).set({ role: "owner" }).where(eq(users.id, user.id));
+  }
+  const role = ownerByEmail ? "owner" : user.role;
 
   if (isAdminRole(role)) {
     return {
@@ -73,6 +103,7 @@ export async function getAccessContext(): Promise<
         email: user.email,
         role,
         clientIds: null,
+        mustChangePassword: user.mustChangePassword,
       },
     };
   }
@@ -86,6 +117,7 @@ export async function getAccessContext(): Promise<
       email: user.email,
       role: user.role,
       clientIds: rows.map((row) => row.clientId).filter(Boolean) as string[],
+      mustChangePassword: user.mustChangePassword,
     },
   };
 }
@@ -110,7 +142,7 @@ export async function requireAdmin() {
 export async function requireOwner() {
   const context = await requireAdmin();
   if (!context.ok) return context;
-  if (!isOwnerEmail(context.access.email)) {
+  if (!isOwnerRole(context.access.role) && !isOwnerEmail(context.access.email)) {
     return { ok: false as const, response: NextResponse.json({ success: false, message: "ניהול משתמשים זמין לבעל המערכת בלבד." }, { status: 403 }) };
   }
   return context;

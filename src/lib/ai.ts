@@ -854,6 +854,13 @@ export function fallbackOnboarding(context: AiContextPack) {
 }
 
 export async function askOpenAiOnboarding(context: AiContextPack) {
+  return askOpenAiOnboardingDocuments(context.memory.documents ?? [], context.memory);
+}
+
+export async function askOpenAiOnboardingDocuments(
+  documents: { name: string; content: string; createdAt: string }[],
+  memory: AiAccountMemory = {},
+) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
@@ -876,7 +883,7 @@ export async function askOpenAiOnboarding(context: AiContextPack) {
         },
         {
           role: "user",
-          content: `Context Pack:\n${JSON.stringify(context)}\n\nהחזר JSON במבנה:\n{"summary":"סיכום קצר של מה שהבנת מהמסמכים","profile":{"brandVoice":"טון מותג במשפט קצר","audiences":["קהל 1","קהל 2"],"products":["מוצר/קטגוריה 1"],"positioning":"מיצוב והצעת ערך","constraints":["דברים לא לעשות"],"contentAngles":["זוויות תוכן מומלצות"],"commercialMoments":["עונות/חגים/רגעים מסחריים"],"missingInfo":["מה חסר כדי לדייק"]},"questions":["שאלה 1","שאלה 2","שאלה 3","שאלה 4","שאלה 5"]}`,
+          content: `מסמכי הלקוח:\n${JSON.stringify(documents.map((document) => ({ ...document, content: document.content.slice(0, 12_000) })))}\n\nמידע קיים:\n${JSON.stringify(memory)}\n\nהחזר JSON במבנה:\n{"summary":"סיכום קצר של מה שהבנת מהמסמכים","profile":{"brandVoice":"טון מותג במשפט קצר","audiences":["קהל 1","קהל 2"],"products":["מוצר/קטגוריה 1"],"positioning":"מיצוב והצעת ערך","constraints":["דברים לא לעשות"],"contentAngles":["זוויות תוכן מומלצות"],"commercialMoments":["עונות/חגים/רגעים מסחריים"],"missingInfo":["מה חסר כדי לדייק"]},"questions":["שאלה 1","שאלה 2","שאלה 3","שאלה 4","שאלה 5"]}`,
         },
       ],
     }),

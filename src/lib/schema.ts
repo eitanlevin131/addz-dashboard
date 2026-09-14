@@ -23,6 +23,9 @@ export const users = pgTable("users", {
   loginAttempts: integer("login_attempts").notNull().default(0),
   loginWindowStart: timestamp("login_window_start", { withTimezone: true }),
   role: text("role").notNull().default("client"),
+  status: text("status").notNull().default("active"),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -70,6 +73,17 @@ export const clients = pgTable("clients", {
   owner: text("owner"),
   industry: text("industry"),
   visibleModules: text("visible_modules").array().notNull().default(["reports", "planner", "ai"]),
+  onboardingStatus: text("onboarding_status").notNull().default("ready"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const auditLogs = pgTable("audit_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  action: text("action").notNull(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

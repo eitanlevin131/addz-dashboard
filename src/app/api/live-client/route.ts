@@ -1,293 +1,157 @@
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { eq, sql } from "drizzle-orm";
-import { requireAdmin } from "@/lib/auth/access";
+import { recordAudit } from "@/lib/audit";
+import { requireOwner } from "@/lib/auth/access";
+import { hashPassword, validatePassword } from "@/lib/auth/password";
 import { encryptSecret } from "@/lib/crypto";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
-import { getFlashyReports, validateFlashyAccount } from "@/lib/flashy";
-import {
-  normalizeAutomationReports,
-  normalizeEmailReports,
-  normalizeSmsReports,
-  type RawFlashyRow,
-} from "@/lib/flashy-normalize";
-import {
-  automationReports,
-  clientUsers,
-  clients,
-  emailCampaignReports,
-  flashyAccounts,
-  smsCampaignReports,
-  syncRuns,
-  users,
-} from "@/lib/schema";
+import { validateFlashyAccount } from "@/lib/flashy";
+import { PersistedSyncError, syncPersistedFlashyAccount } from "@/lib/flashy-sync";
+import { aiAccountMemory, clientUsers, clients, flashyAccounts, users } from "@/lib/schema";
+
+type ClientDocument = { name: string; content: string; createdAt: string };
+type AiOnboarding = {
+  summary?: string;
+  profile?: {
+    brandVoice?: string;
+    audiences?: string[];
+    products?: string[];
+    positioning?: string;
+    constraints?: string[];
+    contentAngles?: string[];
+    commercialMoments?: string[];
+    missingInfo?: string[];
+  };
+  questions?: string[];
+};
+
+function numeric(value: unknown, fallback = 0) {
+  const result = Number(value);
+  return Number.isFinite(result) && result >= 0 ? result : fallback;
+}
+
+function cleanDocuments(value: unknown): ClientDocument[] {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 8).map((document) => ({
+    name: String(document?.name ?? "מסמך לקוח").slice(0, 180),
+    content: String(document?.content ?? "").slice(0, 40_000),
+    createdAt: String(document?.createdAt ?? new Date().toISOString()),
+  })).filter((document) => document.content.trim().length >= 20);
+}
+
+function memoryFromOnboarding(documents: ClientDocument[], onboarding: AiOnboarding | undefined) {
+  const profile = onboarding?.profile;
+  const learnings = [
+    onboarding?.summary,
+    profile?.positioning && `מיצוב: ${profile.positioning}`,
+    profile?.contentAngles?.length && `זוויות תוכן: ${profile.contentAngles.join(", ")}`,
+    profile?.commercialMoments?.length && `רגעים מסחריים: ${profile.commercialMoments.join(", ")}`,
+    profile?.missingInfo?.length && `מידע חסר: ${profile.missingInfo.join(", ")}`,
+    onboarding?.questions?.length && `שאלות להשלמה: ${onboarding.questions.join(" | ")}`,
+  ].filter(Boolean).join("\n");
+  return {
+    brandVoice: profile?.brandVoice ?? "",
+    audiences: profile?.audiences?.join("\n") ?? "",
+    products: profile?.products?.join("\n") ?? "",
+    constraints: profile?.constraints?.join("\n") ?? "",
+    learnings,
+    documents,
+    updatedAt: new Date(),
+  };
+}
 
 export async function POST(request: Request) {
-  const body = await request.json().catch(() => ({}));
-
   if (!isDatabaseConfigured()) {
-    return NextResponse.json(
-      {
-        success: false,
-        code: "DATABASE_NOT_CONFIGURED",
-        message: "Neon עדיין לא מחובר. הוסף DATABASE_URL ל-.env.local והריץ migration.",
-      },
-      { status: 409 },
-    );
+    return NextResponse.json({ success: false, code: "DATABASE_NOT_CONFIGURED", message: "Neon עדיין לא מחובר." }, { status: 409 });
   }
-
-  const adminContext = await requireAdmin();
-  if (!adminContext.ok) return adminContext.response;
-
+  const context = await requireOwner();
+  if (!context.ok) return context.response;
+  const body = await request.json().catch(() => ({}));
   const apiKey = String(body.apiKey ?? "").trim();
   const clientName = String(body.clientName ?? "").trim();
+  const industry = String(body.industry ?? "").trim();
   const clientEmail = String(body.clientEmail ?? "").trim().toLowerCase();
-  if (!apiKey || !clientName) {
-    return NextResponse.json(
-      { success: false, message: "חסרים שם לקוח או API key." },
-      { status: 400 },
-    );
+  const clientUserName = String(body.clientUserName ?? clientName).trim();
+  const temporaryPassword = String(body.temporaryPassword ?? "");
+  const visibleModules = Array.isArray(body.visibleModules)
+    ? body.visibleModules.filter((module: unknown) => ["reports", "planner", "ai"].includes(String(module)))
+    : ["reports", "planner", "ai"];
+  const documents = cleanDocuments(body.documents);
+  const onboarding = body.onboarding as AiOnboarding | undefined;
+
+  if (!apiKey || !clientName) return NextResponse.json({ success: false, message: "חסרים שם לקוח או API key." }, { status: 400 });
+  if (clientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail)) {
+    return NextResponse.json({ success: false, message: "אימייל משתמש הלקוח אינו תקין." }, { status: 400 });
+  }
+  if (clientEmail) {
+    const passwordError = validatePassword(temporaryPassword);
+    if (passwordError) return NextResponse.json({ success: false, message: passwordError }, { status: 400 });
   }
 
-  const flashyAccount = await validateFlashyAccount(apiKey).then((response) => response.data);
-  const to = Math.floor(Date.now() / 1000);
-  const from = to - 60 * 60 * 24 * 30;
-  const reports = await getFlashyReports(apiKey, from, to);
+  let flashyAccount;
+  try {
+    flashyAccount = (await validateFlashyAccount(apiKey)).data;
+  } catch (error) {
+    return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "אימות Flashy נכשל." }, { status: 400 });
+  }
 
   const db = getDb();
-  const [client] = await db
-    .insert(clients)
-    .values({
-      name: clientName,
-      owner: clientEmail || null,
-      industry: "לקוח Flashy חי",
-      visibleModules: ["reports", "planner", "ai"],
-    })
-    .returning();
-
-  let userId: string | null = null;
+  const [duplicateAccount] = await db.select({ id: flashyAccounts.id, clientId: flashyAccounts.clientId })
+    .from(flashyAccounts).where(eq(flashyAccounts.flashyAccountId, flashyAccount.id)).limit(1);
+  if (duplicateAccount) {
+    return NextResponse.json({ success: false, code: "FLASHY_ACCOUNT_EXISTS", message: "חשבון Flashy הזה כבר מחובר למערכת.", data: duplicateAccount }, { status: 409 });
+  }
   if (clientEmail) {
-    const existingUser = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, clientEmail))
-      .then((rows) => rows[0]);
-
-    const user =
-      existingUser ??
-      (await db
-        .insert(users)
-        .values({
-          id: crypto.randomUUID(),
-          email: clientEmail,
-          name: clientName,
-          role: "client",
-        })
-        .returning()
-        .then((rows) => rows[0]));
-
-    userId = user.id;
-    await db
-      .insert(clientUsers)
-      .values({ clientId: client.id, userId })
-      .onConflictDoNothing();
+    const [duplicateUser] = await db.select({ id: users.id }).from(users).where(eq(users.email, clientEmail));
+    if (duplicateUser) return NextResponse.json({ success: false, code: "USER_EXISTS", message: "כבר קיים משתמש עם האימייל הזה. אפשר לשייך אותו ללקוח אחרי ההקמה." }, { status: 409 });
   }
 
-  const [account] = await db
-    .insert(flashyAccounts)
-    .values({
-      clientId: client.id,
+  const clientId = crypto.randomUUID();
+  const accountId = crypto.randomUUID();
+  const userId = clientEmail ? crypto.randomUUID() : null;
+  const insertClient = db.insert(clients).values({ id: clientId, name: clientName, owner: clientEmail || null, industry: industry || "לקוח Flashy", visibleModules, onboardingStatus: "syncing" });
+  const insertAccount = db.insert(flashyAccounts).values({
+      id: accountId,
+      clientId,
       flashyAccountId: flashyAccount.id,
       name: flashyAccount.name || flashyAccount.account || clientName,
       website: flashyAccount.website || null,
       currency: flashyAccount.currency || "ILS",
       timezone: flashyAccount.timezone || "Asia/Jerusalem",
       encryptedApiKey: encryptSecret(apiKey),
-      usdIlsRate: String(Number(body.usdIlsRate) || 3.7),
-      smsCreditPriceUsd: String(Number(body.smsCreditPriceUsd) || 0),
-      monthlySubscriptionCostUsd: String(Number(body.monthlySubscriptionCostUsd) || 0),
-      agencyRetainerCostIls: String(Number(body.agencyRetainerCostIls) || 0),
+      usdIlsRate: String(numeric(body.usdIlsRate, 3.7)),
+      smsCreditPriceUsd: String(numeric(body.smsCreditPriceUsd)),
+      monthlySubscriptionCostUsd: String(numeric(body.monthlySubscriptionCostUsd)),
+      agencyRetainerCostIls: String(numeric(body.agencyRetainerCostIls)),
       active: true,
-      lastSyncAt: new Date(),
-    })
-    .returning();
-
-  const [syncRun] = await db
-    .insert(syncRuns)
-    .values({
-      flashyAccountId: account.id,
-      status: "running",
-      startedAt: new Date(),
-    })
-    .returning();
+    });
+  const insertMemory = db.insert(aiAccountMemory).values({ clientId, ...memoryFromOnboarding(documents, onboarding) });
 
   try {
-    const emailRows = reports.emails as RawFlashyRow[];
-    const smsRows = reports.sms as RawFlashyRow[];
-    const automationRows = reports.automations as RawFlashyRow[];
-    const normalizedEmails = normalizeEmailReports(emailRows, account.id, flashyAccount.timezone || account.timezone);
-    const normalizedSms = normalizeSmsReports(smsRows, account.id, flashyAccount.timezone || account.timezone);
-    const normalizedAutomations = normalizeAutomationReports(automationRows, account.id);
-
-    if (normalizedEmails.length) {
-      await db
-        .insert(emailCampaignReports)
-        .values(
-          normalizedEmails.map((report, index) => ({
-            flashyAccountId: account.id,
-            campaignId: report.campaignId,
-            sentAt: new Date(report.sentAt),
-            campaignName: report.campaignName,
-            subjectLine: report.subjectLine,
-            totalRecipients: report.totalRecipients,
-            totalDelivered: report.totalDelivered,
-            totalOpens: report.totalOpens,
-            totalClicks: report.totalClicks,
-            purchases: report.purchases,
-            revenueGenerated: String(report.revenueGenerated),
-            raw: { ...emailRows[index], _syncStartedAt: syncRun.startedAt.getTime() },
-          })),
-        )
-        .onConflictDoUpdate({
-          target: [
-            emailCampaignReports.flashyAccountId,
-            emailCampaignReports.campaignId,
-            emailCampaignReports.sentAt,
-          ],
-          set: {
-            campaignName: sql`excluded.campaign_name`,
-            subjectLine: sql`excluded.subject_line`,
-            totalRecipients: sql`excluded.total_recipients`,
-            totalDelivered: sql`excluded.total_delivered`,
-            totalOpens: sql`excluded.total_opens`,
-            totalClicks: sql`excluded.total_clicks`,
-            purchases: sql`excluded.purchases`,
-            revenueGenerated: sql`excluded.revenue_generated`,
-            raw: sql`excluded.raw`,
-          },
-        });
+    if (clientEmail && userId) {
+      const passwordHash = await hashPassword(temporaryPassword);
+      await db.batch([
+        insertClient,
+        insertAccount,
+        insertMemory,
+        db.insert(users).values({ id: userId, email: clientEmail, name: clientUserName || clientName, passwordHash, role: "client", status: "active", mustChangePassword: true }),
+        db.insert(clientUsers).values({ clientId, userId }),
+      ]);
+    } else {
+      await db.batch([insertClient, insertAccount, insertMemory]);
     }
-
-    if (normalizedSms.length) {
-      await db
-        .insert(smsCampaignReports)
-        .values(
-          normalizedSms.map((report, index) => ({
-            flashyAccountId: account.id,
-            campaignId: report.campaignId,
-            sentAt: new Date(report.sentAt),
-            campaignName: report.campaignName,
-            totalRecipients: report.totalRecipients,
-            totalDelivered: report.totalDelivered,
-            totalClicks: report.totalClicks,
-            purchases: report.purchases,
-            revenueGenerated: String(report.revenueGenerated),
-            raw: { ...smsRows[index], _syncStartedAt: syncRun.startedAt.getTime() },
-          })),
-        )
-        .onConflictDoUpdate({
-          target: [
-            smsCampaignReports.flashyAccountId,
-            smsCampaignReports.campaignId,
-            smsCampaignReports.sentAt,
-          ],
-          set: {
-            campaignName: sql`excluded.campaign_name`,
-            totalRecipients: sql`excluded.total_recipients`,
-            totalDelivered: sql`excluded.total_delivered`,
-            totalClicks: sql`excluded.total_clicks`,
-            purchases: sql`excluded.purchases`,
-            revenueGenerated: sql`excluded.revenue_generated`,
-            raw: sql`excluded.raw`,
-          },
-        });
-    }
-
-    if (normalizedAutomations.length) {
-      await db
-        .insert(automationReports)
-        .values(
-          normalizedAutomations.map((report, index) => ({
-            flashyAccountId: account.id,
-            automationId: report.automationId,
-            reportDate: report.date,
-            automationName: report.automationName,
-            channel: report.channel,
-            totalRecipients: report.totalRecipients,
-            totalDelivered: report.totalDelivered,
-            totalOpens: report.totalOpens,
-            totalClicks: report.totalClicks,
-            sentEmails: report.sentEmails ?? 0,
-            openedEmails: report.openedEmails ?? 0,
-            clickedEmails: report.clickedEmails ?? 0,
-            sentSms: report.sentSms ?? 0,
-            clickedSms: report.clickedSms ?? 0,
-            totalEntered: report.totalEntered ?? 0,
-            totalCompleted: report.totalCompleted ?? 0,
-            failedMessages: report.failedMessages ?? 0,
-            purchases: report.purchases,
-            revenueGenerated: String(report.revenueGenerated),
-            raw: { ...automationRows[index], _syncStartedAt: syncRun.startedAt.getTime() },
-          })),
-        )
-        .onConflictDoUpdate({
-          target: [
-            automationReports.flashyAccountId,
-            automationReports.automationId,
-            automationReports.reportDate,
-            automationReports.channel,
-          ],
-          set: {
-            automationName: sql`excluded.automation_name`,
-            totalRecipients: sql`excluded.total_recipients`,
-            totalDelivered: sql`excluded.total_delivered`,
-            totalOpens: sql`excluded.total_opens`,
-            totalClicks: sql`excluded.total_clicks`,
-            sentEmails: sql`excluded.sent_emails`,
-            openedEmails: sql`excluded.opened_emails`,
-            clickedEmails: sql`excluded.clicked_emails`,
-            sentSms: sql`excluded.sent_sms`,
-            clickedSms: sql`excluded.clicked_sms`,
-            totalEntered: sql`excluded.total_entered`,
-            totalCompleted: sql`excluded.total_completed`,
-            failedMessages: sql`excluded.failed_messages`,
-            purchases: sql`excluded.purchases`,
-            revenueGenerated: sql`excluded.revenue_generated`,
-            raw: sql`excluded.raw`,
-          },
-        });
-    }
-
-    await db
-      .update(syncRuns)
-      .set({
-        status: "success",
-        finishedAt: new Date(),
-      })
-      .where(eq(syncRuns.id, syncRun.id));
-  } catch (error) {
-    await db
-      .update(syncRuns)
-      .set({
-        status: "failed",
-        finishedAt: new Date(),
-        errorMessage: error instanceof Error ? error.message : "Unknown sync error",
-      })
-      .where(eq(syncRuns.id, syncRun.id));
-
-    throw error;
+  } catch {
+    return NextResponse.json({ success: false, message: "שמירת הלקוח נכשלה. לא נוצרו רשומות חלקיות." }, { status: 409 });
   }
+  await recordAudit({ actorUserId: context.access.userId, action: "client.created", entityType: "client", entityId: clientId, metadata: { flashyAccountId: flashyAccount.id, documents: documents.length, userCreated: Boolean(userId) } });
 
-  return NextResponse.json({
-    success: true,
-    data: {
-      clientId: client.id,
-      accountId: account.id,
-      userId,
-      imported: {
-        emailCampaigns: reports.emails.length,
-        smsCampaigns: reports.sms.length,
-        automations: reports.automations.length,
-      },
-    },
-  });
+  try {
+    const sync = await syncPersistedFlashyAccount(accountId, { lookbackDays: 365 });
+    await db.update(clients).set({ onboardingStatus: "ready" }).where(eq(clients.id, clientId));
+    return NextResponse.json({ success: true, data: { clientId, accountId, userId, sync } }, { status: 201 });
+  } catch (error) {
+    await db.update(clients).set({ onboardingStatus: "needs_attention" }).where(eq(clients.id, clientId));
+    const message = error instanceof PersistedSyncError ? error.message : "הסנכרון הראשוני נכשל.";
+    return NextResponse.json({ success: true, warning: true, message: `${message} הלקוח נשמר ואפשר לנסות לסנכרן שוב.`, data: { clientId, accountId, userId } }, { status: 201 });
+  }
 }

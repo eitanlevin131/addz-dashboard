@@ -57,6 +57,13 @@
       "when": 1789368469753,
       "tag": "0007_perpetual_mister_fear",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789385241562,
+      "tag": "0008_reflective_sinister_six",
+      "breakpoints": true
     }
   ]
 }

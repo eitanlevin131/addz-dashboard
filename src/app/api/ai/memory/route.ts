@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
-import { assertClientAccess, getAccessContext } from "@/lib/auth/access";
+import { assertClientAccess, getAccessContext, requireAdmin } from "@/lib/auth/access";
 import { aiAccountMemory } from "@/lib/schema";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 
@@ -83,7 +83,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ success: true, data, persisted: false });
   }
 
-  const accessContext = await getAccessContext();
+  const accessContext = await requireAdmin();
   if (!accessContext.ok) return accessContext.response;
   const denied = assertClientAccess(accessContext.access, clientId);
   if (denied) return denied;

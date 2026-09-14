@@ -1,5 +1,6 @@
 import { inflateRawSync } from "node:zlib";
 import { NextResponse } from "next/server";
+import { requireAdmin } from "@/lib/auth/access";
 
 export const runtime = "nodejs";
 
@@ -113,6 +114,8 @@ function extractPdf(buffer: Buffer) {
 }
 
 export async function POST(request: Request) {
+  const context = await requireAdmin();
+  if (!context.ok) return context.response;
   const formData = await request.formData();
   const file = formData.get("file");
 
