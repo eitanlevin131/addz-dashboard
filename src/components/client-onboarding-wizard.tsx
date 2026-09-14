@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, FileText, KeyRound, Loader2, Upload, X } from "lucide-react";
+import { Check, ChevronLeft, FileText, KeyRound, Loader2, Upload, X } from "lucide-react";
 import { useState } from "react";
 
 type ClientDocument = { name: string; content: string; createdAt: string };
@@ -20,6 +20,14 @@ type OnboardingProfile = {
 };
 
 const steps = ["פרטי לקוח", "חיבור Flashy", "הגדרות", "מסמכים ו-AI", "משתמש לקוח", "אישור"];
+const stepDescriptions = [
+  "הגדרת זהות הלקוח והתחום העסקי",
+  "אימות מקור הנתונים של החשבון",
+  "עלויות והרשאות צפייה ללקוח",
+  "בניית פרופיל עסקי מתוך חומרי הלקוח",
+  "פתיחת גישה מאובטחת ללקוח",
+  "בדיקה אחרונה לפני יצירה וסנכרון",
+];
 const fieldClass = "mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] bg-white px-3 text-sm outline-none transition focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20";
 
 export function ClientOnboardingWizard() {
@@ -151,15 +159,35 @@ export function ClientOnboardingWizard() {
   }
 
   return (
-    <section className="rounded-xl border border-[#e4e7ec] bg-white p-5 shadow-[0_8px_24px_rgba(16,24,40,0.04)]">
-      <div className="flex flex-col gap-4 border-b border-[#eaecf0] pb-5 lg:flex-row lg:items-center lg:justify-between">
-        <div><p className="text-xs font-bold text-[#087f72]">OWNER</p><h2 className="mt-1 text-2xl font-black text-[#111318]">הקמת לקוח חדש</h2></div>
-        <ol className="flex max-w-full gap-1 overflow-x-auto" aria-label="שלבי הקמת לקוח">
-          {steps.map((label, index) => <li key={label} className={`whitespace-nowrap border-b-2 px-2 py-2 text-xs font-bold ${index === step ? "border-[#42dfcf] text-[#111318]" : index < step ? "border-[#98a2b3] text-[#667085]" : "border-transparent text-[#98a2b3]"}`}>{index + 1}. {label}</li>)}
+    <section className="overflow-hidden rounded-lg border border-[#e4e7ec] bg-white shadow-[0_8px_24px_rgba(16,24,40,0.04)]">
+      <div className="border-b border-[#eaecf0] px-5 py-4 sm:px-6">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold text-[#087f72]">הקמת לקוח</p>
+            <h2 className="mt-1 text-xl font-black text-[#111318]">{steps[step]}</h2>
+            <p className="mt-1 text-sm text-[#667085]">{stepDescriptions[step]}</p>
+          </div>
+          <span dir="ltr" className="shrink-0 text-xs font-bold text-[#667085]">{step + 1} / {steps.length}</span>
+        </div>
+        <ol className="mt-5 grid grid-cols-6 gap-2" aria-label="שלבי הקמת לקוח">
+          {steps.map((label, index) => (
+            <li key={label} className="min-w-0">
+              <button
+                type="button"
+                disabled={index > step || Boolean(busy)}
+                onClick={() => { setStep(index); setMessage(""); }}
+                aria-current={index === step ? "step" : undefined}
+                className="group w-full text-right disabled:cursor-default"
+              >
+                <span className={`block h-1 rounded-full ${index <= step ? "bg-[#42dfcf]" : "bg-[#eaecf0]"}`} />
+                <span className={`mt-2 hidden truncate text-[11px] font-bold sm:block ${index === step ? "text-[#111318]" : index < step ? "text-[#667085]" : "text-[#98a2b3]"}`}>{label}</span>
+              </button>
+            </li>
+          ))}
         </ol>
       </div>
 
-      <div className="mx-auto mt-6 min-h-[300px] max-w-3xl">
+      <div className="mx-auto max-w-3xl px-5 py-5 sm:px-6">
         {step === 0 && <div className="grid gap-4 md:grid-cols-2"><label className="text-sm font-bold text-[#344054]">שם לקוח<input className={fieldClass} value={clientName} onChange={(event) => setClientName(event.target.value)} /></label><label className="text-sm font-bold text-[#344054]">תחום פעילות<input className={fieldClass} value={industry} onChange={(event) => setIndustry(event.target.value)} placeholder="איקומרס, בריאות, אופנה..." /></label></div>}
         {step === 1 && <div><label className="text-sm font-bold text-[#344054]">Flashy API key<input type="password" dir="ltr" className={`${fieldClass} text-left`} value={apiKey} onChange={(event) => { setApiKey(event.target.value); setFlashyAccount(null); }} /></label><button type="button" onClick={validateFlashy} disabled={busy === "flashy"} className="mt-4 inline-flex h-10 items-center gap-2 rounded-lg bg-[#111318] px-4 text-sm font-bold text-white disabled:opacity-50">{busy === "flashy" ? <Loader2 className="animate-spin" size={16} /> : <KeyRound size={16} />}בדוק חיבור</button>{flashyAccount && <div className="mt-4 rounded-lg border border-[#c8eee8] bg-[#f3fffc] p-4 text-sm font-bold text-[#087f72]">חשבון מאומת · {flashyAccount.name || flashyAccount.account} · ID {flashyAccount.id}</div>}</div>}
         {step === 2 && <div className="grid gap-5"><div className="grid gap-4 md:grid-cols-2"><label className="text-sm font-bold text-[#344054]">מחיר SMS בדולר<input type="number" step="0.0001" className={fieldClass} value={smsCreditPriceUsd} onChange={(event) => setSmsCreditPriceUsd(event.target.value)} /></label><label className="text-sm font-bold text-[#344054]">שער דולר<input type="number" step="0.01" className={fieldClass} value={usdIlsRate} onChange={(event) => setUsdIlsRate(event.target.value)} /></label><label className="text-sm font-bold text-[#344054]">מנוי Flashy חודשי בדולר<input type="number" className={fieldClass} value={monthlySubscriptionCostUsd} onChange={(event) => setMonthlySubscriptionCostUsd(event.target.value)} /></label><label className="text-sm font-bold text-[#344054]">ריטיינר חודשי בשקל<input type="number" className={fieldClass} value={agencyRetainerCostIls} onChange={(event) => setAgencyRetainerCostIls(event.target.value)} /></label></div><div><p className="text-sm font-bold text-[#344054]">מודולים ללקוח</p><div className="mt-2 flex flex-wrap gap-2">{[["reports","דוחות"],["planner","גאנט"],["ai","AI"]].map(([key,label]) => <label key={key} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold ${visibleModules.includes(key) ? "border-[#42dfcf] bg-[#f3fffc]" : "border-[#d0d5dd]"}`}><input type="checkbox" checked={visibleModules.includes(key)} onChange={() => toggleModule(key)} />{label}</label>)}</div></div></div>}
@@ -168,8 +196,8 @@ export function ClientOnboardingWizard() {
         {step === 5 && <div className="divide-y divide-[#eaecf0] rounded-xl border border-[#e4e7ec]">{[["לקוח",clientName],["Flashy",`${flashyAccount?.name || flashyAccount?.account} · ${flashyAccount?.id}`],["מודולים",visibleModules.join(" · ")],["מסמכים",`${documents.length + (manualContext.trim() ? 1 : 0) + (onboardingAnswers.trim() ? 1 : 0)} מסמכים/מקורות`],["פרופיל AI",onboarding ? "נסרק ומוכן" : "לא נסרק"],["משתמש",clientEmail || "ייווצר בהמשך"]].map(([label,value]) => <div key={label} className="grid grid-cols-[120px_1fr] gap-4 p-4 text-sm"><span className="font-bold text-[#667085]">{label}</span><span className="font-bold text-[#111318]">{value}</span></div>)}</div>}
       </div>
 
-      {message && <p role="status" className="mt-4 rounded-lg bg-[#f2f4f7] px-4 py-3 text-sm text-[#475467]">{message}</p>}
-      <div className="mt-5 flex items-center justify-between border-t border-[#eaecf0] pt-4"><button type="button" disabled={step === 0 || Boolean(busy)} onClick={() => { setStep((current) => Math.max(0, current - 1)); setMessage(""); }} className="h-10 rounded-lg border border-[#d0d5dd] px-4 text-sm font-bold disabled:opacity-40">חזרה</button>{step < steps.length - 1 ? <button type="button" disabled={Boolean(busy)} onClick={next} className="h-10 rounded-lg bg-[#111318] px-5 text-sm font-bold text-white disabled:opacity-40">המשך</button> : <button type="button" disabled={busy === "create"} onClick={createClient} className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#087f72] px-5 text-sm font-bold text-white disabled:opacity-50">{busy === "create" && <Loader2 className="animate-spin" size={16} />}צור לקוח וסנכרן</button>}</div>
+      {message && <p role="status" className="mx-5 mb-4 rounded-lg bg-[#f2f4f7] px-4 py-3 text-sm text-[#475467] sm:mx-6">{message}</p>}
+      <div className="flex items-center justify-between border-t border-[#eaecf0] bg-[#fcfcfd] px-5 pt-4 pb-20 sm:px-6 sm:py-4"><button type="button" disabled={step === 0 || Boolean(busy)} onClick={() => { setStep((current) => Math.max(0, current - 1)); setMessage(""); }} className="h-10 rounded-lg border border-[#d0d5dd] px-4 text-sm font-bold disabled:opacity-40">חזרה</button>{step < steps.length - 1 ? <button type="button" disabled={Boolean(busy)} onClick={next} className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#111318] px-5 text-sm font-bold text-white disabled:opacity-40">המשך<ChevronLeft size={16} /></button> : <button type="button" disabled={busy === "create"} onClick={createClient} className="inline-flex h-10 items-center gap-2 rounded-lg bg-[#087f72] px-5 text-sm font-bold text-white disabled:opacity-50">{busy === "create" && <Loader2 className="animate-spin" size={16} />}צור לקוח וסנכרן</button>}</div>
     </section>
   );
 }

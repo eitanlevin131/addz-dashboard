@@ -2,6 +2,7 @@
 
 import {
   Activity,
+  Building2,
   ArrowDownWideNarrow,
   ArrowDownRight,
   ArrowUpRight,
@@ -13,6 +14,7 @@ import {
   Database,
   ExternalLink,
   KeyRound,
+  History,
   Lightbulb,
   LineChart,
   MessageSquareText,
@@ -21,12 +23,15 @@ import {
   RefreshCw,
   RotateCcw,
   Send,
+  Search,
   Settings,
   ShieldCheck,
   Sparkles,
   Table2,
   Trash2,
   TrendingUp,
+  Users,
+  UserPlus,
   X,
 } from "lucide-react";
 import { signIn, signOut } from "next-auth/react";
@@ -4268,6 +4273,8 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
   const [resetPassword, setResetPassword] = useState("");
   const [assignmentByUser, setAssignmentByUser] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [query, setQuery] = useState("");
 
   async function savePassword(userId: string) {
     if (busy || resetPassword.length < 10) return;
@@ -4335,6 +4342,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
       setName("");
       setPassword("");
       setRole("client");
+      setShowCreateForm(false);
       await loadUsers();
       setState("המשתמש וההרשאות נשמרו.");
     } catch (error) {
@@ -4405,21 +4413,30 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
     }
   }
 
+  const normalizedQuery = query.trim().toLocaleLowerCase("he-IL");
+  const filteredUsers = normalizedQuery
+    ? users.filter((user) => [user.name, user.email, ...user.clients.map((client) => client.clientName)].join(" ").toLocaleLowerCase("he-IL").includes(normalizedQuery))
+    : users;
+  const activeUsers = users.filter((user) => user.status === "active").length;
+  const clientUsers = users.filter((user) => user.role === "client").length;
+  const userCountLabel = users.length === 1 ? "משתמש אחד" : `${users.length} משתמשים`;
+
   return (
-    <section className="rounded-xl border border-[#dfe7ee] bg-white p-5 shadow-[0_8px_22px_rgba(8,1,35,0.04)] xl:col-span-2">
-      <div className="flex flex-col gap-2 border-b border-slate-100 pb-4 md:flex-row md:items-start md:justify-between">
+    <section className="overflow-hidden rounded-lg border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)] xl:col-span-2">
+      <div className="flex flex-col gap-4 border-b border-slate-100 px-5 py-4 md:flex-row md:items-center md:justify-between sm:px-6">
         <div>
           <h2 className="text-xl font-bold text-[#080123]">משתמשים והרשאות לקוחות</h2>
+          <p className="mt-1 text-sm text-[#667085]">{userCountLabel} · {activeUsers} פעילים · {clientUsers} משתמשי לקוח</p>
         </div>
-        <button
-          onClick={loadUsers}
-          className="h-10 rounded-md border border-[#dfe7ee] px-3 text-sm font-bold text-[#263548]"
-        >
-          רענון משתמשים
-        </button>
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={loadUsers} title="רענון משתמשים" aria-label="רענון משתמשים" className="grid size-10 place-items-center rounded-md border border-[#dfe7ee] text-[#475467] hover:bg-[#f8fafc]"><RefreshCw size={16} /></button>
+          <button type="button" onClick={() => setShowCreateForm((current) => !current)} aria-expanded={showCreateForm} className="inline-flex h-10 items-center gap-2 rounded-md bg-[#111318] px-4 text-sm font-bold text-white"><UserPlus size={16} />משתמש חדש</button>
+        </div>
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_130px_1fr_auto]">
+      {showCreateForm && <div className="grid gap-4 border-b border-[#eaecf0] bg-[#f8fafc] px-5 py-5 sm:px-6">
+        <div><h3 className="text-sm font-black text-[#111318]">פרטי המשתמש החדש</h3><p className="mt-1 text-xs text-[#667085]">משתמש לקוח יראה רק את החשבון המשויך אליו. אדמין יקבל גישה לכל הלקוחות.</p></div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_130px_1fr]">
         <input
           type="email"
           value={email}
@@ -4470,17 +4487,42 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
             </option>
           ))}
         </select>
-        <button
-          onClick={saveUserAccess}
-          className="h-10 rounded-md bg-[#080123] px-4 text-sm font-bold text-white"
-        >
-          צור משתמש
-        </button>
+        </div>
+        <div className="flex items-center justify-end gap-3"><button type="button" onClick={() => setShowCreateForm(false)} className="h-10 px-3 text-sm font-bold text-[#667085]">ביטול</button><button onClick={saveUserAccess} className="h-10 rounded-md bg-[#087f72] px-5 text-sm font-bold text-white">צור משתמש</button></div>
+      </div>
+      }
+
+      <div className="flex flex-col gap-3 px-5 pt-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <label className="relative block w-full sm:max-w-xs"><Search className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#98a2b3]" size={16} /><span className="sr-only">חיפוש משתמשים</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="חיפוש לפי שם, אימייל או לקוח" className="h-10 w-full rounded-md border border-[#dfe7ee] pr-10 pl-3 text-sm outline-none focus:border-[#42dfcf]" /></label>
+        <p role="status" className="text-xs text-[#667085]">{state}</p>
       </div>
 
-      <p className="mt-3 text-sm text-[#65738a]">{state}</p>
+      <div className="mx-5 mb-5 mt-4 grid gap-3 sm:mx-6 lg:hidden">
+        {filteredUsers.map((user) => (
+          <article key={user.id} className="rounded-lg border border-[#dfe7ee] p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0"><p className="truncate font-bold text-[#111318]">{user.name || "ללא שם"}</p><p className="truncate text-left text-xs text-[#667085]" dir="ltr">{user.email}</p></div>
+              <button type="button" disabled={user.isOwner} onClick={() => updateUserStatus(user.id, user.status === "active" ? "suspended" : "active")} className={classNames("shrink-0 rounded-full px-3 py-1 text-xs font-bold", user.status === "active" ? "bg-[#e8fbf8] text-[#087f72]" : "bg-rose-50 text-rose-700")}>{user.status === "active" ? "פעיל" : "מושעה"}</button>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3 border-y border-[#eaecf0] py-3 text-xs">
+              <label className="text-[#667085]">תפקיד<select value={user.role} aria-label={`תפקיד ${user.email}`} disabled={user.isOwner} onChange={(event) => updateUserRole(user.id, event.target.value as "admin" | "client")} className="mt-1 h-9 w-full rounded-md border border-[#dfe7ee] bg-white px-2 text-sm text-[#111318]"><option value="owner">בעלים</option><option value="client">לקוח</option><option value="admin">אדמין</option></select></label>
+              <div><p className="text-[#667085]">התחברות</p><p className="mt-2 font-bold text-[#344054]">{user.hasPassword ? "סיסמה פעילה" : "חסרה סיסמה"}</p></div>
+              <div><p className="text-[#667085]">כניסה אחרונה</p><p className="mt-2 font-bold text-[#344054]">{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString("he-IL") : "טרם התחבר"}</p></div>
+              <div><p className="text-[#667085]">נוצר</p><p className="mt-2 font-bold text-[#344054]">{new Date(user.createdAt).toLocaleDateString("he-IL")}</p></div>
+            </div>
+            <div className="mt-3">
+              <p className="text-xs text-[#667085]">גישה ללקוחות</p>
+              <p className="mt-1 text-sm font-bold text-[#344054]">{user.role === "admin" || user.role === "owner" ? "כל הלקוחות" : user.clients.length ? user.clients.map((client) => client.clientName).join(" · ") : "אין שיוך"}</p>
+              {user.role === "client" && <div className="mt-3 flex gap-2"><select aria-label={`שיוך לקוח עבור ${user.email}`} value={assignmentByUser[user.id] || clients[0]?.id || ""} onChange={(event) => setAssignmentByUser((current) => ({ ...current, [user.id]: event.target.value }))} className="h-9 min-w-0 flex-1 rounded-md border border-[#dfe7ee] px-2 text-xs">{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select><button type="button" onClick={() => addClientAccess(user.id)} className="h-9 rounded-md border border-[#d0d5dd] px-3 text-xs font-bold">שייך</button></div>}
+            </div>
+            <button type="button" className="mt-4 text-xs font-bold text-[#087f72]" onClick={() => { setResetUserId(user.id); setResetPassword(""); }}>שינוי סיסמה</button>
+            {resetUserId === user.id && <form className="mt-2 flex gap-2" onSubmit={(event) => { event.preventDefault(); void savePassword(user.id); }}><input autoFocus aria-label={`סיסמה חדשה עבור ${user.email}`} type="password" autoComplete="new-password" required minLength={10} maxLength={128} dir="ltr" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} className="h-9 min-w-0 flex-1 rounded-md border border-[#dfe7ee] px-2" /><button disabled={busy} className="rounded-md bg-[#111318] px-3 text-xs text-white">שמור</button><button type="button" aria-label="ביטול שינוי סיסמה" onClick={() => { setResetUserId(null); setResetPassword(""); }}><X size={16} /></button></form>}
+          </article>
+        ))}
+        {!filteredUsers.length && <p className="py-8 text-center text-sm text-[#667085]">{query ? "לא נמצאו משתמשים שמתאימים לחיפוש." : "אין משתמשים להצגה."}</p>}
+      </div>
 
-      <div className="mt-4 overflow-x-auto rounded-xl border border-[#dfe7ee]">
+      <div className="mx-5 mb-5 mt-4 hidden overflow-x-auto rounded-lg border border-[#dfe7ee] sm:mx-6 lg:block">
         <table className="w-full min-w-[760px] border-collapse text-sm">
           <thead className="bg-[#f4f7f6] text-[#65738a]">
             <tr>
@@ -4493,7 +4535,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-[#eef3f7]">
-            {users.map((user) => (
+            {filteredUsers.map((user) => (
               <tr key={user.id} className="align-top text-[#263548]">
                 <td className="p-3">
                   <p className="font-bold text-[#080123]">{user.name || "ללא שם"}</p>
@@ -4599,10 +4641,10 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
                 </td>
               </tr>
             ))}
-            {!users.length && (
+            {!filteredUsers.length && (
               <tr>
                 <td colSpan={6} className="p-6 text-center text-[#65738a]">
-                  אין משתמשים להצגה.
+                  {query ? "לא נמצאו משתמשים שמתאימים לחיפוש." : "אין משתמשים להצגה."}
                 </td>
               </tr>
             )}
@@ -4656,6 +4698,47 @@ function AdminActivityLog() {
   );
 }
 
+function OwnerAdminWorkspace({ clients }: { clients: Client[] }) {
+  const [tab, setTab] = useState<"clients" | "users" | "activity">("clients");
+  const tabs = [
+    { key: "clients" as const, label: "לקוחות", icon: Building2 },
+    { key: "users" as const, label: "משתמשים", icon: Users },
+    { key: "activity" as const, label: "פעילות", icon: History },
+  ];
+
+  return (
+    <div>
+      <div className="mb-5 flex items-end justify-between gap-4 border-b border-[#dfe3e8]">
+        <div className="flex gap-1" role="tablist" aria-label="ניהול מערכת">
+          {tabs.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                role="tab"
+                aria-selected={tab === item.key}
+                onClick={() => setTab(item.key)}
+                className={classNames(
+                  "inline-flex h-11 items-center gap-2 border-b-2 px-4 text-sm font-bold transition",
+                  tab === item.key ? "border-[#111318] text-[#111318]" : "border-transparent text-[#667085] hover:text-[#344054]",
+                )}
+              >
+                <Icon size={16} />
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="hidden pb-3 text-xs text-[#98a2b3] sm:block">ניהול מערכת · לבעלים בלבד</p>
+      </div>
+      {tab === "clients" && <ClientOnboardingWizard />}
+      {tab === "users" && <UserAccessManager clients={clients} />}
+      {tab === "activity" && <AdminActivityLog />}
+    </div>
+  );
+}
+
 function AdminPanel({
   clientName,
   clients,
@@ -4692,13 +4775,7 @@ function AdminPanel({
   >({ status: "idle" });
 
   if (canManageUsers) {
-    return (
-      <div className="grid gap-5">
-        <ClientOnboardingWizard />
-        <UserAccessManager clients={clients} />
-        <AdminActivityLog />
-      </div>
-    );
+    return <OwnerAdminWorkspace clients={clients} />;
   }
 
   async function testFlashyConnection() {
