@@ -12,6 +12,7 @@ import {
   LineChart,
   MessageSquareText,
   Minus,
+  Plus,
   RefreshCw,
   Send,
   Settings,
@@ -2118,15 +2119,18 @@ function reportSendTime(report: PlannerCampaignReport | undefined, timezone: str
 function PlannerTableSection({
   channel,
   matches,
+  unmatchedReports,
   account,
   onEdit,
 }: {
   channel: Channel;
   matches: PlanCampaignMatch[];
+  unmatchedReports: PlannerCampaignReport[];
   account: FlashyAccount;
   onEdit: (plan: NewsletterPlan) => void;
 }) {
   const rows = matches.filter((item) => item.plan.channel === channel);
+  const liveRows = unmatchedReports.filter((item) => item.channel === channel);
   const isEmail = channel === "email";
 
   return (
@@ -2194,7 +2198,44 @@ function PlannerTableSection({
                 </tr>
               );
             })}
-            {!rows.length && (
+            {liveRows.map((report) => {
+              const reportDate = accountDate(new Date(report.sentAt), account.timezone);
+              const delivered = report.totalDelivered;
+              const recipients = report.totalRecipients;
+              const purchases = report.purchases;
+              const revenue = report.revenueGenerated;
+              const openRate = report.channel === "email" && delivered > 0
+                ? report.totalOpens / delivered
+                : null;
+              const clickRate = delivered > 0 ? report.uniqueClicks / delivered : null;
+              const unsubscribeRate = recipients > 0 ? report.unsubscribed / recipients : null;
+
+              return (
+                <tr key={`live-${report.channel}-${report.id}`} className="border-t border-[#e8ebef] bg-white transition hover:bg-[#f8fafb]">
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 tabular-nums">{new Date(`${reportDate}T12:00:00Z`).toLocaleDateString("he-IL")}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">{new Date(`${reportDate}T12:00:00Z`).toLocaleDateString("he-IL", { weekday: "long" })}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 tabular-nums">{reportSendTime(report, account.timezone)}</td>
+                  <td className="max-w-[390px] border-l border-[#e8ebef] px-3 py-3 font-semibold text-[#111318]">
+                    {report.campaignName}
+                    <span className="mt-1 block text-[11px] font-normal text-[#667085]">נשלח ב־Flashy ללא פריט תכנון</span>
+                  </td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">
+                    <span className="inline-flex rounded-full bg-[#d9f7ef] px-2 py-1 text-[11px] font-bold text-[#087f72]">נשלח</span>
+                  </td>
+                  <td className="border-l border-[#e8ebef] px-3 py-3 text-center"><CheckCircle2 className="mx-auto text-[#087f72]" size={18} /></td>
+                  <td className="border-l border-[#e8ebef] px-3 py-3 text-center"><CheckCircle2 className="mx-auto text-[#087f72]" size={18} /></td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">—</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 font-bold tabular-nums">{formatCurrency(revenue, account.currency)}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{formatNumber(purchases)}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{purchases > 0 ? formatCurrency(revenue / purchases, account.currency) : "—"}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#edf6e8] px-3 py-3 tabular-nums">{recipients > 0 ? formatPercent(purchases / recipients) : "—"}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#e8f1fb] px-3 py-3 tabular-nums">{openRate === null ? "—" : formatPercent(openRate)}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] bg-[#e8f1fb] px-3 py-3 tabular-nums">{clickRate === null ? "—" : formatPercent(clickRate)}</td>
+                  <td className="whitespace-nowrap bg-[#e8f1fb] px-3 py-3 tabular-nums">{unsubscribeRate === null ? "—" : formatPercent(unsubscribeRate)}</td>
+                </tr>
+              );
+            })}
+            {!rows.length && !liveRows.length && (
               <tr><td colSpan={15} className="px-4 py-8 text-center text-sm text-[#667085]">אין פריטים מתוכננים בחודש הזה.</td></tr>
             )}
           </tbody>
@@ -2244,9 +2285,11 @@ function Planner({
   const monthPlans = plans.filter((plan) => isSameMonth(plan.date, month));
   const planMatching = matchNewsletterPlans(plans, emails, sms, account.timezone);
   const monthMatches = planMatching.matches.filter((item) => isSameMonth(item.plan.date, month));
+  const monthUnmatchedReports = planMatching.unmatchedReports.filter((item) =>
+    isSameMonth(accountDate(new Date(item.sentAt), account.timezone), month),
+  );
   const liveEvents = [
-    ...planMatching.unmatchedReports
-      .filter((item) => isSameMonth(accountDate(new Date(item.sentAt), account.timezone), month))
+    ...monthUnmatchedReports
       .map((item) => ({
         id: `live-${item.channel}-${item.id}`,
         date: accountDate(new Date(item.sentAt), account.timezone),
@@ -2441,6 +2484,13 @@ function Planner({
             </p>
           </div>
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+            <button
+              onClick={() => startQuickPlan("דיוור חדש", "email", toDateInputValue(new Date()).slice(0, 7) === month ? toDateInputValue(new Date()) : `${month}-01`)}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#111318] px-4 text-sm font-bold text-white transition hover:bg-black"
+            >
+              <Plus size={17} />
+              הוסף דיוור
+            </button>
             <div className="inline-flex h-11 rounded-lg border border-[#d0d5dd] bg-[#f2f4f7] p-1">
               <button
                 onClick={() => setLayout("calendar")}
@@ -2576,8 +2626,8 @@ function Planner({
         </section>
       ) : (
         <section className="overflow-hidden rounded-xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
-          <PlannerTableSection channel="email" matches={monthMatches} account={account} onEdit={editPlan} />
-          <PlannerTableSection channel="sms" matches={monthMatches} account={account} onEdit={editPlan} />
+          <PlannerTableSection channel="email" matches={monthMatches} unmatchedReports={monthUnmatchedReports} account={account} onEdit={editPlan} />
+          <PlannerTableSection channel="sms" matches={monthMatches} unmatchedReports={monthUnmatchedReports} account={account} onEdit={editPlan} />
         </section>
       )}
 
