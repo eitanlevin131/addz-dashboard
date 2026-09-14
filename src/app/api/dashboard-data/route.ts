@@ -11,7 +11,9 @@ import {
   flashyAccounts,
   newsletterPlans,
   smsCampaignReports,
+  syncRuns,
 } from "@/lib/schema";
+import { deriveSyncHealth } from "@/lib/sync-policy";
 import type {
   AutomationReport,
   Channel,
@@ -50,6 +52,7 @@ export async function GET() {
     smsRows,
     automationRows,
     planRows,
+    syncRunRows,
   ] = await Promise.all([
     db.select().from(clients).orderBy(desc(clients.createdAt)),
     db.select().from(flashyAccounts).orderBy(desc(flashyAccounts.createdAt)),
@@ -57,6 +60,7 @@ export async function GET() {
     db.select().from(smsCampaignReports).orderBy(desc(smsCampaignReports.sentAt)),
     db.select().from(automationReports).orderBy(desc(automationReports.reportDate)),
     db.select().from(newsletterPlans).orderBy(asc(newsletterPlans.plannedDate)),
+    db.select().from(syncRuns).orderBy(desc(syncRuns.startedAt)),
   ]);
   const allowedClientIds = isAdminRole(accessContext.access.role)
     ? null
@@ -70,6 +74,12 @@ export async function GET() {
   );
   const visibleAccountIdSet = new Set(visibleAccountRows.map((account) => account.id));
   const visiblePlanRows = planRows.filter((plan) => plan.clientId && visibleClientIdSet.has(plan.clientId));
+  const latestSyncRunByAccount = new Map<string, (typeof syncRunRows)[number]>();
+  for (const run of syncRunRows) {
+    if (run.flashyAccountId && !latestSyncRunByAccount.has(run.flashyAccountId)) {
+      latestSyncRunByAccount.set(run.flashyAccountId, run);
+    }
+  }
   const permitted = <T extends { flashyAccountId: string | null }>(rows: T[]) => rows.filter(row => row.flashyAccountId && visibleAccountIdSet.has(row.flashyAccountId));
   let currentEmails: typeof emailRows, currentSms: typeof smsRows, currentAutomations: typeof automationRows;
   try {
@@ -98,22 +108,31 @@ export async function GET() {
         }),
       ),
       accounts: visibleAccountRows.map(
-        (account): FlashyAccount => ({
-          id: account.id,
-          clientId: account.clientId ?? "",
-          flashyAccountId: account.flashyAccountId ?? 0,
-          name: account.name,
-          website: account.website ?? "",
-          currency: account.currency,
-          timezone: account.timezone,
-          credits: 0,
-          usdIlsRate: toNumber(account.usdIlsRate),
-          smsCreditPriceUsd: toNumber(account.smsCreditPriceUsd),
-          monthlySubscriptionCostUsd: toNumber(account.monthlySubscriptionCostUsd),
-          agencyRetainerCostIls: toNumber(account.agencyRetainerCostIls),
-          active: account.active,
-          lastSyncAt: account.lastSyncAt?.toISOString() ?? account.createdAt.toISOString(),
-        }),
+        (account): FlashyAccount => {
+          const syncHealth = deriveSyncHealth(
+            account.lastSyncAt,
+            latestSyncRunByAccount.get(account.id) ?? null,
+          );
+          return {
+            id: account.id,
+            clientId: account.clientId ?? "",
+            flashyAccountId: account.flashyAccountId ?? 0,
+            name: account.name,
+            website: account.website ?? "",
+            currency: account.currency,
+            timezone: account.timezone,
+            credits: 0,
+            usdIlsRate: toNumber(account.usdIlsRate),
+            smsCreditPriceUsd: toNumber(account.smsCreditPriceUsd),
+            monthlySubscriptionCostUsd: toNumber(account.monthlySubscriptionCostUsd),
+            agencyRetainerCostIls: toNumber(account.agencyRetainerCostIls),
+            active: account.active,
+            lastSyncAt: account.lastSyncAt?.toISOString() ?? account.createdAt.toISOString(),
+            syncStatus: syncHealth.status,
+            syncError: syncHealth.error,
+            syncStartedAt: syncHealth.startedAt,
+          };
+        },
       ),
       emailReports: currentEmails.map(
         (report): EmailCampaignReport => ({

@@ -31,6 +31,9 @@ export interface FlashyAccount {
   agencyRetainerCostIls: number;
   active: boolean;
   lastSyncAt: string;
+  syncStatus?: "healthy" | "syncing" | "failed" | "stale" | "never";
+  syncError?: string | null;
+  syncStartedAt?: string | null;
 }
 
 export interface EmailCampaignReport {

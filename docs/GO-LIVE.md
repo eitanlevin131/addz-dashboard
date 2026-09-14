@@ -54,11 +54,20 @@ OPENAI_API_KEY
 OPENAI_MODEL
 OWNER_EMAIL
 ADMIN_PASSWORD
+CRON_SECRET
 ```
 
 ב־Preview/Production, הערכים של `AUTH_URL` ו־`NEXTAUTH_URL` צריכים להיות הכתובת של Vercel, לא localhost.
 
 לא להגדיר `AUTH_DEV_BYPASS=true` ב־Vercel Production.
+
+`CRON_SECRET` מאבטח את הסנכרון היומי מול Flashy. אפשר ליצור אותו פעם אחת עם:
+
+```bash
+openssl rand -hex 32
+```
+
+הסנכרון רץ מדי יום דרך Vercel Cron על כל חשבונות Flashy הפעילים, עם טווח ברירת מחדל של 120 יום. אפשר לשנות את הטווח באמצעות `FLASHY_SYNC_LOOKBACK_DAYS` לערך בין 1 ל־365; כפתור הרענון הידני נשאר זמין.
 
 ## מעבר מהגרסה הקודמת
 

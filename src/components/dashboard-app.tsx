@@ -5182,6 +5182,7 @@ export function DashboardApp() {
   const [authRequired, setAuthRequired] = useState(false);
   const [liveDataIssue, setLiveDataIssue] = useState("");
   const [refreshState, setRefreshState] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const selectedClient =
     localClients.find((client) => client.id === selectedClientId) ?? localClients[0];
   const account =
@@ -5253,6 +5254,13 @@ export function DashboardApp() {
     : "התקופה הקודמת";
   const viewerIsAdmin = viewerRole === "admin";
   const isRestrictedUser = !viewerIsAdmin;
+  const syncPresentation = {
+    healthy: { label: "מסונכרן", dot: "before:bg-[#42dfcf]", text: "text-[#087f72]" },
+    syncing: { label: "מסתנכרן", dot: "before:bg-[#2e90fa]", text: "text-[#175cd3]" },
+    failed: { label: "סנכרון נכשל", dot: "before:bg-[#f04438]", text: "text-[#b42318]" },
+    stale: { label: "הנתונים לא עדכניים", dot: "before:bg-[#f79009]", text: "text-[#b54708]" },
+    never: { label: "טרם סונכרן", dot: "before:bg-[#98a2b3]", text: "text-[#667085]" },
+  }[account.syncStatus ?? "healthy"];
 
   const visibleViews = views.filter((item) => {
     if (isRestrictedUser && (item.key === "admin" || item.key === "settings")) return false;
@@ -5332,6 +5340,8 @@ export function DashboardApp() {
   }, []);
 
   async function refreshDashboardData() {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
     setRefreshState("מסנכרן מול Flashy...");
     try {
       const syncResponse = await fetch("/api/flashy/sync", {
@@ -5372,13 +5382,15 @@ export function DashboardApp() {
       setLiveDataIssue("");
       setDataSource("neon");
       setDataNotice(`רוענן עכשיו: ${data.clients.length} לקוחות מ-Neon.`);
-      setRefreshState(
-        `סונכרן: ${syncPayload.imported?.emailCampaigns ?? 0} אימייל, ${
-          syncPayload.imported?.smsCampaigns ?? 0
-        } SMS, ${syncPayload.imported?.automations ?? 0} אוטומציות.`,
-      );
+      setRefreshState(syncPayload.skipped
+        ? "החשבון כבר מסתנכרן ברקע. נטענו הנתונים הזמינים."
+        : `סונכרן: ${syncPayload.imported?.emailCampaigns ?? 0} אימייל, ${
+            syncPayload.imported?.smsCampaigns ?? 0
+          } SMS, ${syncPayload.imported?.automations ?? 0} אוטומציות.`);
     } catch (error) {
       setRefreshState(error instanceof Error ? error.message : "הרענון נכשל.");
+    } finally {
+      setIsRefreshing(false);
     }
   }
 
@@ -5533,8 +5545,19 @@ export function DashboardApp() {
             {!isRestrictedUser && (
               <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-[#667085]">
                 <span>Flashy Account #{account.flashyAccountId}</span>
-                <span className="inline-flex items-center gap-1 font-medium text-[#087f72] before:size-1.5 before:rounded-full before:bg-[#42dfcf]">פעיל</span>
-                <span>סנכרון אחרון: {new Date(account.lastSyncAt).toLocaleString("he-IL")}</span>
+                <span
+                  title={account.syncError || undefined}
+                  className={classNames(
+                    "inline-flex items-center gap-1 font-medium before:size-1.5 before:rounded-full",
+                    syncPresentation.dot,
+                    syncPresentation.text,
+                  )}
+                >
+                  {syncPresentation.label}
+                </span>
+                {account.syncStatus !== "never" && (
+                  <span>עדכון אחרון: {new Date(account.lastSyncAt).toLocaleString("he-IL")}</span>
+                )}
               </div>
             )}
             <h1 className="m-0 text-[clamp(26px,3vw,38px)] font-bold leading-tight tracking-normal text-[#111318]">
@@ -5547,10 +5570,11 @@ export function DashboardApp() {
           <div className="flex flex-wrap items-center gap-2">
             {!isRestrictedUser && <button
               onClick={refreshDashboardData}
-              className="h-9 rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#344054] transition hover:bg-[#f8fafb]"
+              disabled={isRefreshing}
+              className="h-9 rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#344054] transition hover:bg-[#f8fafb] disabled:cursor-wait disabled:opacity-60"
             >
-              <RefreshCw className="ml-2 inline" size={16} />
-              רענון
+              <RefreshCw className={classNames("ml-2 inline", isRefreshing && "animate-spin")} size={16} />
+              {isRefreshing ? "מסנכרן" : "רענון"}
             </button>}
             <button
               onClick={logout}
@@ -5559,7 +5583,7 @@ export function DashboardApp() {
               יציאה
             </button>
           </div>
-          {refreshState && <p className="text-xs text-[#667085]">{refreshState}</p>}
+          {refreshState && <p aria-live="polite" className="text-xs text-[#667085]">{refreshState}</p>}
         </header>
 
         <div>
