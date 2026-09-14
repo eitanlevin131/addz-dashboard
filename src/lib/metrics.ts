@@ -120,6 +120,45 @@ export function summarizeSms(
   );
 }
 
+export function combineMetricSummaries(summaries: MetricSummary[]): MetricSummary {
+  const combined = summaries.reduce(
+    (total, summary) => ({
+      revenue: total.revenue + summary.revenue,
+      smsCost: total.smsCost + summary.smsCost,
+      smsCostUsd: total.smsCostUsd + summary.smsCostUsd,
+      fixedCosts: total.fixedCosts + summary.fixedCosts,
+      subscriptionCostIls: total.subscriptionCostIls + summary.subscriptionCostIls,
+      profit: total.profit + summary.profit,
+      recipients: total.recipients + summary.recipients,
+      delivered: total.delivered + summary.delivered,
+      opens: total.opens + summary.opens,
+      clicks: total.clicks + summary.clicks,
+      purchases: total.purchases + summary.purchases,
+    }),
+    {
+      revenue: 0,
+      smsCost: 0,
+      smsCostUsd: 0,
+      fixedCosts: 0,
+      subscriptionCostIls: 0,
+      profit: 0,
+      recipients: 0,
+      delivered: 0,
+      opens: 0,
+      clicks: 0,
+      purchases: 0,
+    },
+  );
+  const totalCost = combined.smsCost + combined.fixedCosts;
+
+  return {
+    ...combined,
+    roas: totalCost > 0 ? combined.revenue / totalCost : null,
+    conversionRate: safeRate(combined.purchases, combined.delivered),
+    revenuePerMessage: safeRate(combined.revenue, combined.recipients),
+  };
+}
+
 export function parseMoney(value: string | number | null | undefined) {
   if (typeof value === "number") return value;
   if (!value) return 0;

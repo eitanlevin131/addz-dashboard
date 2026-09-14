@@ -47,6 +47,7 @@ import {
   type PeriodComparisonPoint,
 } from "@/components/reporting-charts";
 import { ClientOnboardingWizard } from "@/components/client-onboarding-wizard";
+import { AgencyPortfolio, type AgencyPortfolioRow } from "@/components/agency-portfolio";
 import { campaignTiming, measuredRate } from "@/lib/report-chart-data";
 import {
   matchNewsletterPlans,
@@ -55,6 +56,7 @@ import {
   type PlannerCampaignReport,
 } from "@/lib/planner-match";
 import { accountDate, accountLocalTimestamp, reportRange, reportDateInstant } from "@/lib/report-time";
+import { canonicalPortfolioAccounts } from "@/lib/portfolio";
 import {
   automationReports,
   clients,
@@ -67,6 +69,7 @@ import {
   formatCurrency,
   formatNumber,
   formatPercent,
+  combineMetricSummaries,
   getAutomationSmsRecipients,
   summarizeAccount,
   summarizeSms,
@@ -109,6 +112,7 @@ import type {
 } from "@/lib/types";
 
 type ViewKey =
+  | "portfolio"
   | "overview"
   | "sms"
   | "automations"
@@ -314,6 +318,7 @@ function LiveDataIssue({ message }: { message: string }) {
 }
 
 const views: { key: ViewKey; label: string; icon: typeof Activity; module?: ModuleKey }[] = [
+  { key: "portfolio", label: "סוכנות", icon: Building2 },
   { key: "overview", label: "כללי", icon: LineChart, module: "reports" },
   { key: "sms", label: "SMS", icon: MessageSquareText, module: "reports" },
   { key: "automations", label: "אוטומציות", icon: RefreshCw, module: "reports" },
@@ -3822,6 +3827,7 @@ function FloatingAiChat({
   const [memory, setMemory] = useState<AiAccountMemory>({});
   const [grounding, setGrounding] = useState<AiGroundedResponse | null>(null);
   const viewLabels: Record<ViewKey, string> = {
+    portfolio: "סוכנות",
     overview: "כללי",
     sms: "SMS",
     automations: "אוטומציות",
@@ -5445,6 +5451,89 @@ export function DashboardApp() {
   const viewerIsStaff = viewerRole === "owner" || viewerRole === "admin";
   const viewerIsOwner = viewerRole === "owner";
   const isRestrictedUser = !viewerIsStaff;
+  const canonicalAccountIds = new Set(canonicalPortfolioAccounts(localAccounts).map((item) => item.id));
+  const portfolioRows: AgencyPortfolioRow[] = localClients.flatMap((client) => {
+    const allClientAccounts = localAccounts.filter((item) => item.clientId === client.id);
+    const clientAccounts = allClientAccounts.filter((item) => canonicalAccountIds.has(item.id));
+    if (allClientAccounts.length > 0 && clientAccounts.length === 0) return [];
+    const accountResults = clientAccounts.map((clientAccount) => {
+      const currentEmails = filterByTimeRange(
+        byAccount(localEmailReports, clientAccount.id),
+        timeRange,
+        (item) => item.sentAt,
+        customStartDate,
+        customEndDate,
+        clientAccount.timezone,
+      );
+      const currentSms = filterByTimeRange(
+        byAccount(localSmsReports, clientAccount.id),
+        timeRange,
+        (item) => item.sentAt,
+        customStartDate,
+        customEndDate,
+        clientAccount.timezone,
+      );
+      const currentAutomationRows = filterByTimeRange(
+        byAccount(localAutomationReports, clientAccount.id),
+        timeRange,
+        (item) => item.date,
+        customStartDate,
+        customEndDate,
+        clientAccount.timezone,
+      );
+      const currentAutomations = consolidateAutomations(currentAutomationRows);
+      const bounds = getTimeRangeBounds(timeRange, customStartDate, customEndDate, clientAccount.timezone);
+      const priorBounds = getPreviousRangeBounds(bounds, clientAccount.timezone);
+      const priorEmails = priorBounds
+        ? filterByBounds(byAccount(localEmailReports, clientAccount.id), priorBounds, (item) => item.sentAt, clientAccount.timezone)
+        : [];
+      const priorSms = priorBounds
+        ? filterByBounds(byAccount(localSmsReports, clientAccount.id), priorBounds, (item) => item.sentAt, clientAccount.timezone)
+        : [];
+      const priorAutomationRows = priorBounds
+        ? filterByBounds(byAccount(localAutomationReports, clientAccount.id), priorBounds, (item) => item.date, clientAccount.timezone)
+        : [];
+
+      return {
+        summary: summarizeAccount(clientAccount, currentEmails, currentSms, currentAutomations),
+        previousSummary: priorBounds
+          ? summarizeAccount(clientAccount, priorEmails, priorSms, consolidateAutomations(priorAutomationRows))
+          : null,
+        activityCount: currentEmails.length + currentSms.length + currentAutomations.length,
+      };
+    });
+    const statusPriority = { failed: 5, stale: 4, syncing: 3, never: 2, healthy: 1 } as const;
+    const syncAccount = [...clientAccounts].sort(
+      (a, b) => statusPriority[b.syncStatus ?? "healthy"] - statusPriority[a.syncStatus ?? "healthy"],
+    )[0];
+    const latestSyncAt = clientAccounts
+      .map((item) => item.lastSyncAt)
+      .filter(Boolean)
+      .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
+    const previousSummaries = accountResults.flatMap((result) => result.previousSummary ? [result.previousSummary] : []);
+
+    return [{
+      clientId: client.id,
+      clientName: client.name,
+      accountName: clientAccounts.map((item) => item.name).join(" · ") || "אין חשבון Flashy",
+      accountCount: clientAccounts.length,
+      currency: clientAccounts[0]?.currency ?? "ILS",
+      summary: combineMetricSummaries(accountResults.map((result) => result.summary)),
+      previousSummary: previousSummaries.length ? combineMetricSummaries(previousSummaries) : null,
+      activityCount: accountResults.reduce((total, result) => total + result.activityCount, 0),
+      syncStatus: syncAccount?.syncStatus ?? "never",
+      syncError: syncAccount?.syncError,
+      lastSyncAt: latestSyncAt,
+    }];
+  });
+  const portfolioSummary = combineMetricSummaries(portfolioRows.map((row) => row.summary));
+  const portfolioPreviousRows = portfolioRows.flatMap((row) => row.previousSummary ? [row.previousSummary] : []);
+  const portfolioPreviousSummary = portfolioPreviousRows.length
+    ? combineMetricSummaries(portfolioPreviousRows)
+    : null;
+  const portfolioCurrencies = new Set(portfolioRows.map((row) => row.currency));
+  const portfolioCurrency = portfolioRows[0]?.currency ?? "ILS";
+  const portfolioHasMixedCurrencies = portfolioCurrencies.size > 1;
   const syncPresentation = {
     healthy: { label: "מסונכרן", dot: "before:bg-[#42dfcf]", text: "text-[#087f72]" },
     syncing: { label: "מסתנכרן", dot: "before:bg-[#2e90fa]", text: "text-[#175cd3]" },
@@ -5454,13 +5543,14 @@ export function DashboardApp() {
   }[account.syncStatus ?? "healthy"];
 
   const visibleViews = views.filter((item) => {
+    if (item.key === "portfolio" && !viewerIsStaff) return false;
     if (item.key === "admin" && !viewerIsOwner) return false;
     if (isRestrictedUser && item.key === "settings") return false;
     return !item.module || selectedClient.visibleModules.includes(item.module) || item.key === "admin";
   });
   const effectiveShowDeepAnalysis = showDeepAnalysis;
-  const activeView = isRestrictedUser && (view === "settings" || view === "admin") ? "overview" : view;
-  const showTimeRange = costViewKeys.includes(activeView);
+  const activeView = isRestrictedUser && (view === "portfolio" || view === "settings" || view === "admin") ? "overview" : view;
+  const showTimeRange = activeView === "portfolio" || costViewKeys.includes(activeView);
 
   useEffect(() => {
     let cancelled = false;
@@ -5512,7 +5602,9 @@ export function DashboardApp() {
         setViewerRole(incomingRole);
         if (incomingRole === "client") {
           setShowDeepAnalysis(false);
-          setView((current) => (current === "settings" || current === "admin" ? "overview" : current));
+          setView((current) => (current === "portfolio" || current === "settings" || current === "admin" ? "overview" : current));
+        } else if (data.clients.length > 1) {
+          setView("portfolio");
         }
         setLocalClients(data.clients);
         setLocalAccounts(data.accounts);
@@ -5571,7 +5663,7 @@ export function DashboardApp() {
       setViewerRole(incomingRole);
       if (incomingRole === "client") {
         setShowDeepAnalysis(false);
-        setView((current) => (current === "settings" || current === "admin" ? "overview" : current));
+        setView((current) => (current === "portfolio" || current === "settings" || current === "admin" ? "overview" : current));
       }
       setLocalClients(data.clients);
       setLocalAccounts(data.accounts);
@@ -5737,7 +5829,7 @@ export function DashboardApp() {
       </div>
 
       <main className="dashboard-content relative min-w-0 p-3 text-[#111318] md:p-5 lg:p-6">
-        {localClients.length > 1 && (
+        {localClients.length > 1 && activeView !== "portfolio" && (
           <ClientSelector
             clients={localClients}
             selectedClientId={selectedClientId}
@@ -5747,7 +5839,7 @@ export function DashboardApp() {
         )}
         <header className="mb-4 flex flex-col items-start justify-between gap-3 border-b border-[#e4e7ec] pb-4 lg:flex-row lg:items-end">
           <div>
-            {!isRestrictedUser && (
+            {!isRestrictedUser && activeView !== "portfolio" && (
               <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-[#667085]">
                 <span>Flashy Account #{account.flashyAccountId}</span>
                 <span
@@ -5766,14 +5858,17 @@ export function DashboardApp() {
               </div>
             )}
             <h1 className="m-0 text-[clamp(26px,3vw,38px)] font-bold leading-tight tracking-normal text-[#111318]">
-              {account.name}
+              {activeView === "portfolio" ? "סקירת סוכנות" : account.name}
             </h1>
+            {activeView === "portfolio" && (
+              <p className="mt-1 text-xs text-[#667085]">{formatNumber(portfolioRows.length)} לקוחות · תמונת ביצועים מרוכזת</p>
+            )}
             {isRestrictedUser && (
               <p className="mt-1 text-xs text-[#667085]">ביצועים · {timeRanges.find((range) => range.key === timeRange)?.label}</p>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {!isRestrictedUser && <button
+            {!isRestrictedUser && activeView !== "portfolio" && <button
               onClick={refreshDashboardData}
               disabled={isRefreshing}
               className="h-9 rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#344054] transition hover:bg-[#f8fafb] disabled:cursor-wait disabled:opacity-60"
@@ -5794,7 +5889,7 @@ export function DashboardApp() {
         <div>
           {showTimeRange && (
             <section className="mb-4 rounded-lg border border-[#e4e7ec] bg-white px-3 py-2.5">
-              {activeRangeBounds.start && activeRangeBounds.end && <p className="mb-2 text-xs tabular-nums text-[#667085]">
+              {activeView !== "portfolio" && activeRangeBounds.start && activeRangeBounds.end && <p className="mb-2 text-xs tabular-nums text-[#667085]">
                 {new Date(activeRangeBounds.start).toLocaleDateString("he-IL", { timeZone: account.timezone })} עד {new Date(activeRangeBounds.end).toLocaleDateString("he-IL", { timeZone: account.timezone })}
               </p>}
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -5853,6 +5948,16 @@ export function DashboardApp() {
                 </div>
               </div>
             </section>
+          )}
+          {activeView === "portfolio" && viewerIsStaff && (
+            <AgencyPortfolio
+              rows={portfolioRows}
+              summary={portfolioSummary}
+              previousSummary={portfolioPreviousSummary}
+              currency={portfolioCurrency}
+              mixedCurrencies={portfolioHasMixedCurrencies}
+              onOpenClient={selectClient}
+            />
           )}
           {activeView === "overview" && (
             <Overview
@@ -5945,7 +6050,7 @@ export function DashboardApp() {
           )}
         </div>
       </main>
-      {!isRestrictedUser && (
+      {!isRestrictedUser && activeView !== "portfolio" && (
         <FloatingAiChat
           key={selectedClient.id}
           clientId={selectedClient.id}
