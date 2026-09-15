@@ -92,12 +92,21 @@ test.describe("agency dashboard critical journey", () => {
 
     await navigation.getByRole("button", { name: "כללי", exact: true }).click();
     await expect(page.getByText("הכנסה מיוחסת לפעילות", { exact: true })).toBeVisible();
+    const revenueChartFilter = page.getByRole("group", { name: "ערוץ בגרף ההכנסות" });
+    await revenueChartFilter.getByRole("button", { name: "SMS", exact: true }).click();
+    await expect(revenueChartFilter.getByRole("button", { name: "SMS", exact: true })).toHaveAttribute("aria-pressed", "true");
     await navigation.getByRole("button", { name: "SMS", exact: true }).click();
     await expect(page.getByText("הכנסות פעילות SMS", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "מסלול קמפיין SMS", exact: true })).toBeVisible();
     await navigation.getByRole("button", { name: "אוטומציות", exact: true }).click();
     await expect(page.getByText("הכנסות אוטומציות", { exact: true })).toBeVisible();
     await navigation.getByRole("button", { name: "קמפיינים", exact: true }).click();
     await expect(page.getByText("הכנסות קמפיינים", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "תמהיל הכנסות קמפיינים", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "מסע מקמפיין לרכישה", exact: true })).toBeVisible();
+    const campaignFunnelFilter = page.getByRole("group", { name: "ערוץ במשפך הקמפיינים" });
+    await campaignFunnelFilter.getByRole("button", { name: "SMS", exact: true }).click();
+    await expect(campaignFunnelFilter.getByRole("button", { name: "SMS", exact: true })).toHaveAttribute("aria-pressed", "true");
 
     await navigation.getByRole("button", { name: "גאנט דיוורים", exact: true }).click();
     await expect(page.getByRole("heading", { name: "גאנט דיוורים", exact: true })).toBeVisible();

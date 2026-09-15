@@ -41,6 +41,7 @@ import { signIn, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import {
   chartColors,
+  CampaignJourneyChart,
   EngagementPlot,
   PeriodComparisonChart,
   RankedBars,
@@ -1828,6 +1829,9 @@ function SmsDashboard({ account, sms, automations, showDeepAnalysis }: {
     const items = rowsForGroup(label);
     return { label, comparable: label !== "אוטומציות מעורבות", revenue: items.reduce((s,r) => s+r.revenue,0), cost: items.reduce((s,r) => s+r.cost,0), count: items.length };
   });
+  const smsCampaignDelivered = sms.reduce((total, item) => total + item.totalDelivered, 0);
+  const smsCampaignClicks = sms.reduce((total, item) => total + item.uniqueClicks, 0);
+  const smsCampaignPurchases = sms.reduce((total, item) => total + item.purchases, 0);
   return <div className="space-y-4">
     <div className="grid grid-cols-2 gap-2 md:gap-3 xl:grid-cols-4">
       <MetricCard title="הכנסות פעילות SMS" value={formatCurrency(summary.revenue, account.currency)} caption="קמפיינים ואוטומציות עם SMS" icon={TrendingUp} tone="good" />
@@ -1836,12 +1840,27 @@ function SmsDashboard({ account, sms, automations, showDeepAnalysis }: {
       <MetricCard title="רכישות" value={formatNumber(summary.purchases)} caption="מהפעילות שנבחרה" icon={CheckCircle2} />
     </div>
     <div className="grid min-w-0 gap-4 2xl:grid-cols-2">
+      <CampaignJourneyChart
+        title="מסלול קמפיין SMS"
+        detail="מהודעות שנמסרו ועד רכישה"
+        series={[{
+          id: "sms-campaigns",
+          label: "קמפייני SMS",
+          color: chartColors.sms,
+          stages: [
+            { label: "נמסרו", value: smsCampaignDelivered },
+            { label: "הקלקות ייחודיות", value: smsCampaignClicks },
+            { label: "רכישות", value: smsCampaignPurchases },
+          ],
+        }]}
+      />
       <SmsReturnChart groups={groups} currency={account.currency} onSelect={(label) => setDrilldown({
         title: label,
         context: "הפעילויות שמרכיבות את יחס ההכנסה לעלות",
         items: rowsForGroup(label).map(toDrilldownItem),
       })} />
-      <RankedBars key={sortBy} title="ביצועי פעילות SMS" currency={sortBy === "revenue" ? account.currency : undefined} unit={sortBy === "revenue" ? "הכנסה" : "הכנסה / עלות SMS"}
+    </div>
+    <RankedBars key={sortBy} title="ביצועי פעילות SMS" currency={sortBy === "revenue" ? account.currency : undefined} unit={sortBy === "revenue" ? "הכנסה" : "הכנסה / עלות SMS"}
         controls={<select aria-label="מדד דירוג SMS" value={sortBy} onChange={e=>setSortBy(e.target.value as "revenue" | "roas")} className="h-8 rounded-md border border-[#e4e7ec] bg-white px-2 text-xs"><option value="revenue">הכנסה</option><option value="roas">הכנסה / עלות SMS</option></select>}
         rows={rows.filter(row => sortBy === "revenue" || (row.cost > 0 && row.comparable)).map(row => ({
           id: row.id, label: row.name, value: sortBy === "revenue" ? row.revenue : row.revenue / row.cost,
@@ -1851,7 +1870,6 @@ function SmsDashboard({ account, sms, automations, showDeepAnalysis }: {
           const row = rows.find((candidate) => candidate.id === selected.id);
           if (row) setDrilldown({ title: row.name, context: "פירוט פעילות SMS", items: [toDrilldownItem(row)] });
         }} />
-    </div>
     {showDeepAnalysis && <DataTable title="פירוט פעילות SMS" columns={["פעילות","סוג","נמענים","קליקים","עלות SMS","הכנסה","רכישות"]} rows={rows.map(row=>[row.name,row.type,formatNumber(row.recipients),formatNumber(row.clicks),formatCurrency(row.cost,account.currency),formatCurrency(row.revenue,account.currency),formatNumber(row.purchases)])} />}
     <ChartDrilldown state={drilldown} currency={account.currency} onClose={() => setDrilldown(null)} />
   </div>;
@@ -1949,6 +1967,13 @@ function CampaignDashboard({
     0,
   );
   const smsRoas = smsCost > 0 ? smsRevenue / smsCost : null;
+  const emailPurchases = emails.reduce((total, item) => total + item.purchases, 0);
+  const smsPurchases = sms.reduce((total, item) => total + item.purchases, 0);
+  const emailDelivered = emails.reduce((total, item) => total + item.totalDelivered, 0);
+  const emailOpens = emails.reduce((total, item) => total + item.totalOpens, 0);
+  const emailClicks = emails.reduce((total, item) => total + item.uniqueClicks, 0);
+  const smsDelivered = sms.reduce((total, item) => total + item.totalDelivered, 0);
+  const smsClicks = sms.reduce((total, item) => total + item.uniqueClicks, 0);
   const emailToDrilldown = (item: EmailCampaignReport): DrilldownItem => ({
     id: item.id,
     title: item.campaignName,
@@ -1997,9 +2022,7 @@ function CampaignDashboard({
       hour: `${parts.find((part) => part.type === "hour")?.value ?? "00"}:00`,
     };
   };
-  const campaignPurchases =
-    emails.reduce((total, item) => total + item.purchases, 0) +
-    sms.reduce((total, item) => total + item.purchases, 0);
+  const campaignPurchases = emailPurchases + smsPurchases;
   const emailLeaders = [...emails].sort((a, b) => b.revenueGenerated - a.revenueGenerated).slice(0, 8);
   const smsLeaders = [...sms].sort((a, b) => b.revenueGenerated - a.revenueGenerated).slice(0, 8);
   const weakCampaigns = [
@@ -2085,17 +2108,16 @@ function CampaignDashboard({
           tone="good"
         />
         <MetricCard
-          title="קמפייני אימייל"
-          value={formatCurrency(emailRevenue, account.currency)}
-          caption={`${formatNumber(emails.length)} שליחות`}
+          title="קמפיינים שנשלחו"
+          value={formatNumber(emails.length + sms.length)}
+          caption={`${formatNumber(emails.length)} אימייל · ${formatNumber(sms.length)} SMS`}
           icon={LineChart}
         />
         <MetricCard
-          title="קמפייני SMS"
-          value={formatCurrency(smsRevenue, account.currency)}
-          caption={`ROAS ${formatRoas(smsRoas)} · ${formatCurrency(smsCost, account.currency)} עלות`}
+          title="עלות SMS"
+          value={formatCurrency(smsCost, account.currency)}
+          caption={`הכנסה / עלות SMS ${formatRoas(smsRoas)}`}
           icon={MessageSquareText}
-          tone="good"
         />
         <MetricCard
           title="רכישות"
@@ -2103,6 +2125,50 @@ function CampaignDashboard({
           caption="אימייל ו-SMS יחד"
           icon={CheckCircle2}
           tone="good"
+        />
+      </div>
+
+      <div className="grid min-w-0 gap-4 2xl:grid-cols-2">
+        <RevenueShareChart
+          title="תמהיל הכנסות קמפיינים"
+          currency={account.currency}
+          showCosts
+          segments={[
+            { label: "אימייל", revenue: emailRevenue, count: emails.length, purchases: emailPurchases, cost: 0, color: chartColors.email },
+            { label: "SMS", revenue: smsRevenue, count: sms.length, purchases: smsPurchases, cost: smsCost, color: chartColors.sms },
+          ]}
+          onSelect={(segment) => setDrilldown({
+            title: `קמפייני ${segment.label}`,
+            context: "הקמפיינים שמרכיבים את פלח ההכנסה",
+            items: segment.label === "אימייל" ? emails.map(emailToDrilldown) : sms.map(smsToDrilldown),
+          })}
+        />
+        <CampaignJourneyChart
+          title="מסע מקמפיין לרכישה"
+          detail="היחס בין כל שלב לשלב שקדם לו"
+          series={[
+            {
+              id: "email",
+              label: "אימייל",
+              color: chartColors.email,
+              stages: [
+                { label: "נמסרו", value: emailDelivered },
+                { label: "פתיחות", value: emailOpens },
+                { label: "הקלקות ייחודיות", value: emailClicks },
+                { label: "רכישות", value: emailPurchases },
+              ],
+            },
+            {
+              id: "sms",
+              label: "SMS",
+              color: chartColors.sms,
+              stages: [
+                { label: "נמסרו", value: smsDelivered },
+                { label: "הקלקות ייחודיות", value: smsClicks },
+                { label: "רכישות", value: smsPurchases },
+              ],
+            },
+          ]}
         />
       </div>
 

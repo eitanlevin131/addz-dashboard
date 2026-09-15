@@ -3,7 +3,7 @@
 import { useId, useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import {
-  Bar,
+  Area,
   CartesianGrid,
   Cell,
   ComposedChart,
@@ -67,6 +67,7 @@ export function PeriodComparisonChart({
   previousRangeLabel: string;
   onSelect?: (point: PeriodComparisonPoint, series: "email" | "sms" | "automations") => void;
 }) {
+  const [focus, setFocus] = useState<"all" | "email" | "sms" | "automations">("all");
   const hasData = points.some(
     (point) => point.email || point.sms || point.automations || point.previousTotal,
   );
@@ -78,77 +79,59 @@ export function PeriodComparisonChart({
   return (
     <ChartFrame
       title="הכנסות לאורך התקופה"
-      detail={`עמודות: התקופה הנוכחית לפי ערוץ · קו: ${previousRangeLabel}`}
+      detail={`הכנסה יומית לפי ערוץ · הקו המקווקו מציג את ${previousRangeLabel}`}
       controls={
-        <Legend
-          items={[
-            { label: "אימייל", color: chartColors.email },
-            { label: "SMS", color: chartColors.sms },
-            { label: "אוטומציות", color: chartColors.automation },
-            { label: "תקופה קודמת", color: "#7b8491" },
-          ]}
-        />
+        <div className="flex rounded-md bg-[#f1f4f5] p-0.5" role="group" aria-label="ערוץ בגרף ההכנסות">
+          {([
+            { value: "all", label: "הכל" },
+            { value: "email", label: "אימייל" },
+            { value: "sms", label: "SMS" },
+            { value: "automations", label: "אוטומציות" },
+          ] as const).map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={focus === option.value}
+              onClick={() => setFocus(option.value)}
+              className={`min-h-8 rounded px-2.5 text-xs transition ${focus === option.value ? "bg-white font-bold text-[#111318] shadow-sm" : "text-[#667085] hover:text-[#344054]"}`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
       }
     >
       {!hasData ? (
         <EmptyChart />
       ) : (
-        <div
-          className="h-[300px] min-w-0 px-2 pb-3 pl-0 sm:h-[340px] sm:px-4 sm:pb-4"
-          dir="ltr"
-          role="img"
-          aria-label="השוואת הכנסות יומית לתקופה הקודמת"
-        >
-          <ResponsiveContainer
-            width="100%"
-            height="100%"
-            minWidth={0}
-            initialDimension={{ width: 900, height: 320 }}
+        <div className="min-w-0">
+          <div className="px-4 pb-1 sm:px-5">
+            <Legend items={[
+              ...(focus === "all" || focus === "email" ? [{ label: "אימייל", color: chartColors.email }] : []),
+              ...(focus === "all" || focus === "sms" ? [{ label: "SMS", color: chartColors.sms }] : []),
+              ...(focus === "all" || focus === "automations" ? [{ label: "אוטומציות", color: chartColors.automation }] : []),
+              { label: "תקופה קודמת", color: "#7b8491" },
+            ]} />
+          </div>
+          <div
+            className="h-[300px] min-w-0 px-2 pb-3 pl-0 sm:h-[340px] sm:px-4 sm:pb-4"
+            dir="ltr"
+            role="img"
+            aria-label="השוואת הכנסות יומית לתקופה הקודמת"
           >
-            <ComposedChart data={points} margin={{ top: 12, right: 4, bottom: 0, left: 0 }}>
-              <CartesianGrid vertical={false} stroke="#eef0f2" />
-              <XAxis
-                dataKey="label"
-                axisLine={{ stroke: "#dfe3e7" }}
-                tickLine={false}
-                interval="preserveStartEnd"
-                minTickGap={28}
-                tick={{ fill: "#667085", fontSize: 10 }}
-              />
-              <YAxis
-                width={54}
-                axisLine={false}
-                tickLine={false}
-                tickFormatter={compact}
-                tick={{ fill: "#667085", fontSize: 10 }}
-              />
-              <Tooltip
-                formatter={(value, name) => [formatCurrency(Number(value), currency), String(name)]}
-                contentStyle={{ direction: "rtl", borderRadius: 8, borderColor: "#e4e7ec", fontSize: 12 }}
-              />
-              <Bar dataKey="email" name="אימייל" stackId="current" fill={chartColors.email} maxBarSize={18} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("email")} />
-              <Bar dataKey="sms" name="SMS" stackId="current" fill={chartColors.sms} maxBarSize={18} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("sms")} />
-              <Bar
-                dataKey="automations"
-                name="אוטומציות"
-                stackId="current"
-                fill={chartColors.automation}
-                maxBarSize={18}
-                cursor={onSelect ? "pointer" : undefined}
-                onClick={selectPoint("automations")}
-              />
-              <Line
-                type="monotone"
-                dataKey="previousTotal"
-                name="תקופה קודמת"
-                stroke="#7b8491"
-                strokeWidth={2}
-                strokeDasharray="5 4"
-                dot={false}
-                activeDot={{ r: 3 }}
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 900, height: 320 }}>
+              <ComposedChart data={points} margin={{ top: 12, right: 4, bottom: 0, left: 0 }}>
+                <CartesianGrid vertical={false} stroke="#eef0f2" />
+                <XAxis dataKey="label" axisLine={{ stroke: "#dfe3e7" }} tickLine={false} interval="preserveStartEnd" minTickGap={28} tick={{ fill: "#667085", fontSize: 10 }} />
+                <YAxis width={54} axisLine={false} tickLine={false} tickFormatter={compact} tick={{ fill: "#667085", fontSize: 10 }} />
+                <Tooltip formatter={(value, name) => [formatCurrency(Number(value), currency), String(name)]} contentStyle={{ direction: "rtl", borderRadius: 8, borderColor: "#e4e7ec", fontSize: 12 }} />
+                {(focus === "all" || focus === "email") && <Area type="monotone" dataKey="email" name="אימייל" stackId={focus === "all" ? "current" : undefined} stroke={chartColors.email} fill={chartColors.email} fillOpacity={0.13} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("email")} />}
+                {(focus === "all" || focus === "sms") && <Area type="monotone" dataKey="sms" name="SMS" stackId={focus === "all" ? "current" : undefined} stroke={chartColors.sms} fill={chartColors.sms} fillOpacity={0.18} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("sms")} />}
+                {(focus === "all" || focus === "automations") && <Area type="monotone" dataKey="automations" name="אוטומציות" stackId={focus === "all" ? "current" : undefined} stroke={chartColors.automation} fill={chartColors.automation} fillOpacity={0.14} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("automations")} />}
+                <Line type="monotone" dataKey="previousTotal" name="תקופה קודמת" stroke="#7b8491" strokeWidth={2} strokeDasharray="5 4" dot={false} activeDot={{ r: 3 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       )}
     </ChartFrame>
@@ -196,6 +179,83 @@ export function RevenueShareChart({ title = "מאיפה מגיעות ההכנס�
           </button>)}
         </div>
       </div>}
+    </ChartFrame>
+  );
+}
+
+export type JourneySeries = {
+  id: string;
+  label: string;
+  color: string;
+  stages: Array<{ label: string; value: number }>;
+};
+
+export function CampaignJourneyChart({
+  title = "מהגעה לרכישה",
+  detail = "המעבר בין שלבי הקמפיין בטווח שנבחר",
+  series,
+}: {
+  title?: string;
+  detail?: string;
+  series: JourneySeries[];
+}) {
+  const firstActive = series.find((item) => (item.stages[0]?.value ?? 0) > 0) ?? series[0];
+  const [activeId, setActiveId] = useState(firstActive?.id ?? "");
+  const active = series.find((item) => item.id === activeId) ?? firstActive;
+  const base = active?.stages[0]?.value ?? 0;
+
+  return (
+    <ChartFrame
+      title={title}
+      detail={detail}
+      controls={series.length > 1 ? (
+        <div className="flex rounded-md bg-[#f1f4f5] p-0.5" role="group" aria-label="ערוץ במשפך הקמפיינים">
+          {series.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              aria-pressed={active?.id === item.id}
+              onClick={() => setActiveId(item.id)}
+              className={`min-h-8 rounded px-3 text-xs transition ${active?.id === item.id ? "bg-white font-bold text-[#111318] shadow-sm" : "text-[#667085] hover:text-[#344054]"}`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : undefined}
+    >
+      {!active || base <= 0 ? (
+        <EmptyChart />
+      ) : (
+        <ol className="space-y-3 px-4 pb-5 sm:px-5">
+          {active.stages.map((stage, index) => {
+            const previous = active.stages[index - 1]?.value ?? stage.value;
+            const share = Math.max(0, Math.min(1, stage.value / base));
+            const stepRate = previous > 0 ? stage.value / previous : 0;
+            return (
+              <li key={stage.label}>
+                <div className="mb-1.5 flex items-baseline justify-between gap-3">
+                  <span className="text-xs font-semibold text-[#475467]">{stage.label}</span>
+                  <span className="flex items-baseline gap-2">
+                    {index > 0 && <span className="text-[11px] tabular-nums text-[#667085]">{formatPercent(stepRate)} מהשלב הקודם</span>}
+                    <b className="text-base tabular-nums text-[#111318]">{formatNumber(stage.value)}</b>
+                  </span>
+                </div>
+                <div className="h-7 rounded-sm bg-[#f1f4f5] px-1 py-1" role="img" aria-label={`${stage.label}: ${formatNumber(stage.value)}, ${formatPercent(share)} מהנמענים שנמסרו`}>
+                  <div
+                    className="mx-auto h-full rounded-sm transition-[width] duration-300"
+                    style={{
+                      width: `${Math.max(stage.value > 0 ? 2 : 0, share * 100)}%`,
+                      background: active.color,
+                      opacity: Math.max(0.45, 1 - index * 0.13),
+                    }}
+                  />
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </ChartFrame>
   );
 }
