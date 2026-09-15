@@ -1,6 +1,6 @@
 import { parseMoney } from "./metrics";
 
-const FLASHY_BASE_URL = "https://api.flashy.app";
+const FLASHY_BASE_URL = process.env.FLASHY_API_BASE_URL?.trim() || "https://api.flashy.app";
 
 export class FlashyApiError extends Error {
   status: number;

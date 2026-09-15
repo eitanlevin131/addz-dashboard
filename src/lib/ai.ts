@@ -749,7 +749,8 @@ async function requestOpenAiJson(instructions: string, input: string) {
   if (!apiKey) throw new Error("OPENAI_API_KEY לא מוגדר בשרת.");
   const model = getConfiguredOpenAiModel();
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const openAiBaseUrl = process.env.OPENAI_API_BASE_URL?.trim() || "https://api.openai.com";
+  const response = await fetch(`${openAiBaseUrl.replace(/\/$/, "")}/v1/responses`, {
     method: "POST",
     headers: {
       "content-type": "application/json",

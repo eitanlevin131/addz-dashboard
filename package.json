@@ -11,6 +11,9 @@
     "start": "next start",
     "preview": "npm run build && next start -p 3015",
     "lint": "eslint",
+    "test:unit": "node --test tests/*.test.mjs",
+    "test:e2e": "npm run build && playwright test",
+    "test:e2e:headed": "npm run build && playwright test --headed",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push"
   },
@@ -26,6 +29,7 @@
     "recharts": "^3.8.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
