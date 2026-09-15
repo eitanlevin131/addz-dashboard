@@ -2,6 +2,7 @@ import {
   boolean,
   date,
   integer,
+  index,
   jsonb,
   numeric,
   pgTable,
@@ -11,6 +12,7 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { DailyMetricSnapshot, MetricSnapshotRevision } from "@/lib/types";
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
@@ -135,6 +137,51 @@ export const syncRuns = pgTable("sync_runs", {
   finishedAt: timestamp("finished_at", { withTimezone: true }),
   errorMessage: text("error_message"),
 });
+
+export const accountMetricSnapshots = pgTable(
+  "account_metric_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    flashyAccountId: uuid("flashy_account_id")
+      .notNull()
+      .references(() => flashyAccounts.id, { onDelete: "cascade" }),
+    snapshotDate: date("snapshot_date").notNull(),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+    coverageStart: date("coverage_start").notNull(),
+    coverageEnd: date("coverage_end").notNull(),
+    lookbackDays: integer("lookback_days").notNull(),
+    source: text("source").notNull(),
+    currency: text("currency").notNull(),
+    timezone: text("timezone").notNull(),
+    emailRevenue: numeric("email_revenue", { precision: 16, scale: 2 }).notNull(),
+    smsRevenue: numeric("sms_revenue", { precision: 16, scale: 2 }).notNull(),
+    automationRevenue: numeric("automation_revenue", { precision: 16, scale: 2 }).notNull(),
+    totalRevenue: numeric("total_revenue", { precision: 16, scale: 2 }).notNull(),
+    emailPurchases: integer("email_purchases").notNull(),
+    smsPurchases: integer("sms_purchases").notNull(),
+    automationPurchases: integer("automation_purchases").notNull(),
+    totalPurchases: integer("total_purchases").notNull(),
+    smsMessages: integer("sms_messages").notNull(),
+    smsCostUsd: numeric("sms_cost_usd", { precision: 16, scale: 2 }).notNull(),
+    smsCostIls: numeric("sms_cost_ils", { precision: 16, scale: 2 }).notNull(),
+    subscriptionCostIls: numeric("subscription_cost_ils", { precision: 16, scale: 2 }).notNull(),
+    retainerCostIls: numeric("retainer_cost_ils", { precision: 16, scale: 2 }).notNull(),
+    totalCostIls: numeric("total_cost_ils", { precision: 16, scale: 2 }).notNull(),
+    usdIlsRate: numeric("usd_ils_rate", { precision: 10, scale: 4 }).notNull(),
+    smsCreditPriceUsd: numeric("sms_credit_price_usd", { precision: 10, scale: 4 }).notNull(),
+    emailReports: integer("email_reports").notNull(),
+    smsReports: integer("sms_reports").notNull(),
+    automationReports: integer("automation_reports").notNull(),
+    dailyMetrics: jsonb("daily_metrics").$type<DailyMetricSnapshot[]>().notNull(),
+    revision: jsonb("revision").$type<MetricSnapshotRevision>().notNull(),
+  },
+  (table) => [
+    index("account_metric_snapshots_account_captured_at_idx").on(
+      table.flashyAccountId,
+      table.capturedAt,
+    ),
+  ],
+);
 
 export const emailCampaignReports = pgTable(
   "email_campaign_reports",

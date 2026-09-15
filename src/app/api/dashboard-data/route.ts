@@ -108,6 +108,12 @@ export async function GET() {
     const warnings = Array.isArray(metadata.warnings)
       ? metadata.warnings.filter((warning): warning is string => typeof warning === "string")
       : [];
+    const rawMetricSnapshot = metadata.metricSnapshot && typeof metadata.metricSnapshot === "object"
+      ? metadata.metricSnapshot as Record<string, unknown>
+      : null;
+    const rawLargestChanges = rawMetricSnapshot && Array.isArray(rawMetricSnapshot.largestChanges)
+      ? rawMetricSnapshot.largestChanges
+      : [];
     const rawStatus = String(metadata.status ?? "");
     const status: SyncHistoryEntry["status"] = rawStatus === "warning"
       ? "warning"
@@ -139,6 +145,32 @@ export async function GET() {
       checksTotal: checks.length,
       warnings,
       message: typeof metadata.message === "string" ? metadata.message : "סנכרון Flashy",
+      metricSnapshot: rawMetricSnapshot
+        ? {
+            snapshotId: String(rawMetricSnapshot.snapshotId ?? ""),
+            comparedToPrevious: rawMetricSnapshot.comparedToPrevious === true,
+            capturedAt: String(rawMetricSnapshot.capturedAt ?? row.createdAt.toISOString()),
+            coverageStart: String(rawMetricSnapshot.coverageStart ?? ""),
+            coverageEnd: String(rawMetricSnapshot.coverageEnd ?? ""),
+            totalRevenue: toNumber(rawMetricSnapshot.totalRevenue),
+            totalPurchases: toNumber(rawMetricSnapshot.totalPurchases),
+            totalCostIls: toNumber(rawMetricSnapshot.totalCostIls),
+            historicalChangedDays: toNumber(rawMetricSnapshot.historicalChangedDays),
+            historicalRevenueDelta: toNumber(rawMetricSnapshot.historicalRevenueDelta),
+            historicalPurchasesDelta: toNumber(rawMetricSnapshot.historicalPurchasesDelta),
+            historicalSmsCostIlsDelta: toNumber(rawMetricSnapshot.historicalSmsCostIlsDelta),
+            costConfigurationChanged: rawMetricSnapshot.costConfigurationChanged === true,
+            largestChanges: rawLargestChanges
+              .filter((change): change is Record<string, unknown> => Boolean(change) && typeof change === "object")
+              .map((change) => ({
+                date: String(change.date ?? ""),
+                revenueDelta: toNumber(change.revenueDelta),
+                purchasesDelta: toNumber(change.purchasesDelta),
+                smsCostIlsDelta: toNumber(change.smsCostIlsDelta),
+              }))
+              .filter((change) => Boolean(change.date)),
+          }
+        : undefined,
     };
   });
   const permitted = <T extends { flashyAccountId: string | null }>(rows: T[]) => rows.filter(row => row.flashyAccountId && visibleAccountIdSet.has(row.flashyAccountId));

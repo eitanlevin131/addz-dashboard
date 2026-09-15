@@ -5265,6 +5265,23 @@ function SyncReliabilityPanel({
                   </div>
                   <div className="tabular-nums text-[#98a2b3] sm:text-left">{duration}</div>
                   {run.warnings.length > 0 && <p className="text-[#b54708] sm:col-span-4">{run.warnings.join(" · ")}</p>}
+                  {run.metricSnapshot && (
+                    <p className={classNames(
+                      "sm:col-span-4",
+                      run.metricSnapshot.historicalChangedDays > 0 ? "text-[#b54708]" : "text-[#667085]",
+                    )}>
+                      צילום מדדים: {formatCurrency(run.metricSnapshot.totalRevenue, account.currency)} · {formatNumber(run.metricSnapshot.totalPurchases)} רכישות · {formatCurrency(run.metricSnapshot.totalCostIls, account.currency)} עלויות
+                      {!run.metricSnapshot.comparedToPrevious
+                        ? " · צילום בסיס ראשון"
+                        : run.metricSnapshot.historicalChangedDays > 0
+                          ? ` · ${formatNumber(run.metricSnapshot.historicalChangedDays)} ימים קודמים השתנו (${run.metricSnapshot.historicalRevenueDelta >= 0 ? "+" : ""}${formatCurrency(run.metricSnapshot.historicalRevenueDelta, account.currency)})`
+                          : " · אין שינוי בימים קודמים"}
+                      {run.metricSnapshot.costConfigurationChanged ? " · הגדרות העלות השתנו" : ""}
+                      {run.metricSnapshot.largestChanges.length > 0
+                        ? ` · מוקדי השינוי: ${run.metricSnapshot.largestChanges.slice(0, 3).map((change) => `${new Date(`${change.date}T12:00:00`).toLocaleDateString("he-IL")} (${change.revenueDelta >= 0 ? "+" : ""}${formatCurrency(change.revenueDelta, account.currency)})`).join(" · ")}`
+                        : ""}
+                    </p>
+                  )}
                 </div>
               );
             })}

@@ -27,6 +27,9 @@ import {
   validateSyncCompleteness,
 } from "@/lib/sync-policy";
 import { persistAutomaticPlannerMatches } from "@/lib/planner-persistence";
+import { persistMetricSnapshot } from "@/lib/metric-snapshot";
+import { accountDate } from "@/lib/report-time";
+import type { MetricSnapshotSummary } from "@/lib/types";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 
@@ -61,6 +64,7 @@ export type PersistedSyncResult = {
   completeness: ReturnType<typeof validateSyncCompleteness> | null;
   checks: ReportCheck[];
   plannerMatchesSaved: number;
+  metricSnapshot: MetricSnapshotSummary | null;
   message: string;
 };
 
@@ -293,6 +297,7 @@ export async function syncPersistedFlashyAccount(
       completeness: null,
       checks: [],
       plannerMatchesSaved: 0,
+      metricSnapshot: null,
       message: "סנכרון אחר כבר פעיל עבור החשבון.",
     };
   }
@@ -474,6 +479,25 @@ export async function syncPersistedFlashyAccount(
       sms: normalizedSms,
     });
     const finishedAt = new Date();
+    const metricSnapshot = await persistMetricSnapshot({
+      accountId: account.id,
+      source,
+      lookbackDays,
+      capturedAt: finishedAt,
+      coverageStart: accountDate(new Date(from * 1000), timezone),
+      coverageEnd: accountDate(new Date(to * 1000), timezone),
+      currency: accountResponse.data.currency || account.currency,
+      timezone,
+      costs: {
+        usdIlsRate: Number(account.usdIlsRate),
+        smsCreditPriceUsd: Number(account.smsCreditPriceUsd),
+        monthlySubscriptionCostUsd: Number(account.monthlySubscriptionCostUsd),
+        agencyRetainerCostIls: Number(account.agencyRetainerCostIls),
+      },
+      emails: normalizedEmails,
+      sms: normalizedSms,
+      automations: normalizedAutomations,
+    });
     await Promise.all([
       db
         .update(flashyAccounts)
@@ -511,6 +535,7 @@ export async function syncPersistedFlashyAccount(
         checks: latestChecks,
         warnings: completeness.warnings,
         plannerMatchesSaved,
+        metricSnapshot,
         message,
       },
     });
@@ -528,6 +553,7 @@ export async function syncPersistedFlashyAccount(
       completeness,
       checks: reports.checks,
       plannerMatchesSaved,
+      metricSnapshot,
       message,
     };
   } catch (error) {

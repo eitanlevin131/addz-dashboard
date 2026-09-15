@@ -1,0 +1,36 @@
+CREATE TABLE "account_metric_snapshots" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"flashy_account_id" uuid NOT NULL,
+	"snapshot_date" date NOT NULL,
+	"captured_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"coverage_start" date NOT NULL,
+	"coverage_end" date NOT NULL,
+	"lookback_days" integer NOT NULL,
+	"source" text NOT NULL,
+	"currency" text NOT NULL,
+	"timezone" text NOT NULL,
+	"email_revenue" numeric(16, 2) NOT NULL,
+	"sms_revenue" numeric(16, 2) NOT NULL,
+	"automation_revenue" numeric(16, 2) NOT NULL,
+	"total_revenue" numeric(16, 2) NOT NULL,
+	"email_purchases" integer NOT NULL,
+	"sms_purchases" integer NOT NULL,
+	"automation_purchases" integer NOT NULL,
+	"total_purchases" integer NOT NULL,
+	"sms_messages" integer NOT NULL,
+	"sms_cost_usd" numeric(16, 2) NOT NULL,
+	"sms_cost_ils" numeric(16, 2) NOT NULL,
+	"subscription_cost_ils" numeric(16, 2) NOT NULL,
+	"retainer_cost_ils" numeric(16, 2) NOT NULL,
+	"total_cost_ils" numeric(16, 2) NOT NULL,
+	"usd_ils_rate" numeric(10, 4) NOT NULL,
+	"sms_credit_price_usd" numeric(10, 4) NOT NULL,
+	"email_reports" integer NOT NULL,
+	"sms_reports" integer NOT NULL,
+	"automation_reports" integer NOT NULL,
+	"daily_metrics" jsonb NOT NULL,
+	"revision" jsonb NOT NULL
+);
+--> statement-breakpoint
+ALTER TABLE "account_metric_snapshots" ADD CONSTRAINT "account_metric_snapshots_flashy_account_id_flashy_accounts_id_fk" FOREIGN KEY ("flashy_account_id") REFERENCES "public"."flashy_accounts"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "account_metric_snapshots_account_captured_at_idx" ON "account_metric_snapshots" USING btree ("flashy_account_id","captured_at");

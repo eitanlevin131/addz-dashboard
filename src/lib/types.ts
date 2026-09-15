@@ -58,6 +58,58 @@ export interface SyncHistoryEntry {
   checksTotal: number;
   warnings: string[];
   message: string;
+  metricSnapshot?: MetricSnapshotSummary;
+}
+
+export interface DailyMetricSnapshot {
+  date: string;
+  emailRevenue: number;
+  smsRevenue: number;
+  automationRevenue: number;
+  totalRevenue: number;
+  emailPurchases: number;
+  smsPurchases: number;
+  automationPurchases: number;
+  totalPurchases: number;
+  smsMessages: number;
+  smsCostUsd: number;
+  smsCostIls: number;
+}
+
+export interface MetricSnapshotRevisionDay {
+  date: string;
+  revenueDelta: number;
+  purchasesDelta: number;
+  smsCostIlsDelta: number;
+}
+
+export interface MetricSnapshotRevision {
+  previousSnapshotId: string | null;
+  comparableDays: number;
+  changedDays: number;
+  historicalChangedDays: number;
+  historicalRevenueDelta: number;
+  historicalPurchasesDelta: number;
+  historicalSmsCostIlsDelta: number;
+  costConfigurationChanged: boolean;
+  largestChanges: MetricSnapshotRevisionDay[];
+}
+
+export interface MetricSnapshotSummary {
+  snapshotId: string;
+  comparedToPrevious: boolean;
+  capturedAt: string;
+  coverageStart: string;
+  coverageEnd: string;
+  totalRevenue: number;
+  totalPurchases: number;
+  totalCostIls: number;
+  historicalChangedDays: number;
+  historicalRevenueDelta: number;
+  historicalPurchasesDelta: number;
+  historicalSmsCostIlsDelta: number;
+  costConfigurationChanged: boolean;
+  largestChanges: MetricSnapshotRevisionDay[];
 }
 
 export interface EmailCampaignReport {
