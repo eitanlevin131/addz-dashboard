@@ -132,6 +132,13 @@ export interface NewsletterPlan {
   couponCode?: string;
   flashyUrl?: string;
   assetUrl?: string;
+  matchedCampaignId?: number;
+  matchedCampaignChannel?: Channel;
+  matchMethod?: "auto" | "manual";
+  matchConfidence?: number;
+  matchedAt?: string;
+  matchConfirmedAt?: string;
+  matchingDisabled?: boolean;
 }
 
 export interface AiInsight {

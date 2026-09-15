@@ -210,25 +210,38 @@ export const automationReports = pgTable(
   ],
 );
 
-export const newsletterPlans = pgTable("newsletter_plans", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  clientId: uuid("client_id").references(() => clients.id, { onDelete: "cascade" }),
-  flashyAccountId: uuid("flashy_account_id").references(() => flashyAccounts.id, {
-    onDelete: "cascade",
-  }),
-  plannedDate: date("planned_date").notNull(),
-  plannedTime: text("planned_time"),
-  channel: text("channel").notNull(),
-  kind: text("kind").notNull(),
-  status: text("status").notNull(),
-  title: text("title").notNull(),
-  owner: text("owner"),
-  notes: text("notes"),
-  couponCode: text("coupon_code"),
-  flashyUrl: text("flashy_url"),
-  assetUrl: text("asset_url"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const newsletterPlans = pgTable(
+  "newsletter_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id").references(() => clients.id, { onDelete: "cascade" }),
+    flashyAccountId: uuid("flashy_account_id").references(() => flashyAccounts.id, {
+      onDelete: "cascade",
+    }),
+    plannedDate: date("planned_date").notNull(),
+    plannedTime: text("planned_time"),
+    channel: text("channel").notNull(),
+    kind: text("kind").notNull(),
+    status: text("status").notNull(),
+    title: text("title").notNull(),
+    owner: text("owner"),
+    notes: text("notes"),
+    couponCode: text("coupon_code"),
+    flashyUrl: text("flashy_url"),
+    assetUrl: text("asset_url"),
+    matchedCampaignId: integer("matched_campaign_id"),
+    matchedCampaignChannel: text("matched_campaign_channel"),
+    matchMethod: text("match_method"),
+    matchConfidence: numeric("match_confidence", { precision: 5, scale: 4 }),
+    matchedAt: timestamp("matched_at", { withTimezone: true }),
+    matchConfirmedAt: timestamp("match_confirmed_at", { withTimezone: true }),
+    matchingDisabled: boolean("matching_disabled").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique().on(table.flashyAccountId, table.matchedCampaignChannel, table.matchedCampaignId),
+  ],
+);
 
 export const aiInsights = pgTable("ai_insights", {
   id: uuid("id").primaryKey().defaultRandom(),

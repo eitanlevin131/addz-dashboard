@@ -81,3 +81,72 @@ test("future and postponed plans keep distinct operational states", () => {
 test("title similarity ignores channel and agency wrapper words", () => {
   assert.ok(plannerTitleSimilarity("SMS מבצע חגים", "מבצע חגים | ADDZ") > 0.8);
 });
+
+test("a persisted campaign match wins even when title and date no longer qualify", () => {
+  const result = matchNewsletterPlans(
+    [plan({
+      date: "2026-08-01",
+      title: "שם פנימי",
+      matchedCampaignId: 77881,
+      matchedCampaignChannel: "email",
+      matchMethod: "manual",
+      matchConfidence: 1,
+      matchConfirmedAt: "2026-09-14T08:00:00.000Z",
+    })],
+    [email({ campaignName: "שם חיצוני", sentAt: "2026-09-13T06:00:00.000Z" })],
+    [],
+    "Asia/Jerusalem",
+    new Date("2026-09-14T08:00:00Z"),
+  );
+
+  assert.equal(result.matches[0].report?.campaignId, 77881);
+  assert.equal(result.matches[0].matchState, "confirmed");
+  assert.equal(result.unmatchedReports.length, 0);
+  assert.equal(result.availableReports.length, 0);
+});
+
+test("automatic matches remain reviewable until confirmed", () => {
+  const result = matchNewsletterPlans(
+    [plan({
+      matchedCampaignId: 77881,
+      matchedCampaignChannel: "email",
+      matchMethod: "auto",
+      matchConfidence: 0.91,
+    })],
+    [email()],
+    [],
+    "Asia/Jerusalem",
+    new Date("2026-09-14T08:00:00Z"),
+  );
+
+  assert.equal(result.matches[0].matchState, "automatic");
+  assert.equal(result.matches[0].confidence, 0.91);
+});
+
+test("dismissed plans do not reconnect automatically", () => {
+  const result = matchNewsletterPlans(
+    [plan({ matchingDisabled: true })],
+    [email()],
+    [],
+    "Asia/Jerusalem",
+    new Date("2026-09-14T08:00:00Z"),
+  );
+
+  assert.equal(result.matches[0].matchState, "none");
+  assert.equal(result.matches[0].report, undefined);
+  assert.equal(result.unmatchedReports.length, 1);
+  assert.equal(result.availableReports.length, 1);
+});
+
+test("a stored campaign that is absent from the current reports is marked missing", () => {
+  const result = matchNewsletterPlans(
+    [plan({ matchedCampaignId: 77881, matchedCampaignChannel: "email", matchMethod: "auto" })],
+    [],
+    [],
+    "Asia/Jerusalem",
+    new Date("2026-09-14T08:00:00Z"),
+  );
+
+  assert.equal(result.matches[0].matchState, "missing");
+  assert.equal(result.matches[0].status, "not_found");
+});

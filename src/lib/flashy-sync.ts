@@ -26,6 +26,7 @@ import {
   SYNC_LOCK_TIMEOUT_MS,
   validateSyncCompleteness,
 } from "@/lib/sync-policy";
+import { persistAutomaticPlannerMatches } from "@/lib/planner-persistence";
 
 const DEFAULT_MAX_ATTEMPTS = 3;
 
@@ -59,6 +60,7 @@ export type PersistedSyncResult = {
   };
   completeness: ReturnType<typeof validateSyncCompleteness> | null;
   checks: ReportCheck[];
+  plannerMatchesSaved: number;
   message: string;
 };
 
@@ -290,6 +292,7 @@ export async function syncPersistedFlashyAccount(
       attempts: { account: 0, reports: 0 },
       completeness: null,
       checks: [],
+      plannerMatchesSaved: 0,
       message: "סנכרון אחר כבר פעיל עבור החשבון.",
     };
   }
@@ -464,6 +467,12 @@ export async function syncPersistedFlashyAccount(
         });
     }
 
+    const plannerMatchesSaved = await persistAutomaticPlannerMatches({
+      accountId: account.id,
+      timezone,
+      emails: normalizedEmails,
+      sms: normalizedSms,
+    });
     const finishedAt = new Date();
     await Promise.all([
       db
@@ -501,6 +510,7 @@ export async function syncPersistedFlashyAccount(
         imported: latestImported,
         checks: latestChecks,
         warnings: completeness.warnings,
+        plannerMatchesSaved,
         message,
       },
     });
@@ -517,6 +527,7 @@ export async function syncPersistedFlashyAccount(
       attempts: { account: accountAttempt.attempts, reports: reportAttempt.attempts },
       completeness,
       checks: reports.checks,
+      plannerMatchesSaved,
       message,
     };
   } catch (error) {

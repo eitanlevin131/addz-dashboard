@@ -2,7 +2,7 @@ import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { auditLogs } from "@/lib/schema";
 
 export async function recordAudit(input: {
-  actorUserId: string;
+  actorUserId?: string | null;
   action: string;
   entityType: string;
   entityId?: string | null;
@@ -11,7 +11,7 @@ export async function recordAudit(input: {
   if (!isDatabaseConfigured()) return;
 
   await getDb().insert(auditLogs).values({
-    actorUserId: input.actorUserId,
+    actorUserId: input.actorUserId && input.actorUserId !== "dev-admin" ? input.actorUserId : null,
     action: input.action,
     entityType: input.entityType,
     entityId: input.entityId ?? null,

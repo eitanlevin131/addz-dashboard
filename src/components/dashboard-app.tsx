@@ -17,6 +17,8 @@ import {
   History,
   Lightbulb,
   LineChart,
+  Link2,
+  Link2Off,
   MessageSquareText,
   Minus,
   Plus,
@@ -2238,7 +2240,7 @@ function PlannerTableSection({
   const isEmail = channel === "email";
   const [sort, setSort] = useState<{ key: PlannerTableSortKey; direction: "asc" | "desc" } | null>(null);
   const tableRows = [
-    ...rows.map(({ plan, report, status }) => {
+    ...rows.map(({ plan, report, status, matchState, confidence }) => {
       const delivered = report?.totalDelivered ?? 0;
       const recipients = report?.totalRecipients ?? 0;
       const purchases = report?.purchases ?? 0;
@@ -2254,6 +2256,8 @@ function PlannerTableSection({
         time,
         title: plan.title,
         subtitle: report && report.campaignName !== plan.title ? `Flashy: ${report.campaignName}` : "",
+        matchState,
+        confidence,
         hasFlashy: Boolean(report || plan.flashyUrl),
         isScheduled: Boolean(report || plan.flashyUrl),
         couponCode: plan.couponCode || "",
@@ -2285,6 +2289,8 @@ function PlannerTableSection({
         time: reportSendTime(report, account.timezone),
         title: report.campaignName,
         subtitle: "נשלח ב־Flashy ללא פריט תכנון",
+        matchState: "none" as const,
+        confidence: 0,
         hasFlashy: true,
         isScheduled: true,
         couponCode: "",
@@ -2399,6 +2405,12 @@ function PlannerTableSection({
                       </button>
                     ) : <span className="font-semibold text-[#111318]">{row.title}</span>}
                     {row.subtitle && <span className="mt-1 block truncate text-[11px] text-[#667085]">{row.subtitle}</span>}
+                    {row.plan && row.report && (
+                      <span className="mt-1 block text-[11px] font-semibold text-[#087f72]">
+                        {row.matchState === "confirmed" ? "התאמה מאושרת" : row.matchState === "automatic" ? "התאמה אוטומטית" : "הצעת התאמה"}
+                        {row.confidence > 0 ? ` · ${formatPercent(row.confidence)}` : ""}
+                      </span>
+                    )}
                   </td>
                   <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">
                     <span className={classNames(
@@ -2492,8 +2504,22 @@ function Planner({
   const [draggingPlanId, setDraggingPlanId] = useState<string | null>(null);
   const [syncedHolidays, setSyncedHolidays] = useState<Record<string, SyncedHoliday[]>>({});
   const [saveState, setSaveState] = useState("");
+  const [matchBusy, setMatchBusy] = useState(false);
+  const [manualCampaignKey, setManualCampaignKey] = useState("");
   const monthPlans = plans.filter((plan) => isSameMonth(plan.date, month));
   const planMatching = matchNewsletterPlans(plans, emails, sms, account.timezone);
+  const editingMatch = editingPlanId
+    ? planMatching.matches.find((item) => item.plan.id === editingPlanId)
+    : undefined;
+  const manualMatchCandidates = editingMatch
+    ? planMatching.availableReports
+        .filter((report) => report.accountId === editingMatch.plan.accountId && report.channel === editingMatch.plan.channel)
+        .sort((left, right) => {
+          const target = Date.parse(`${editingMatch.plan.date}T12:00:00Z`);
+          return Math.abs(Date.parse(left.sentAt) - target) - Math.abs(Date.parse(right.sentAt) - target);
+        })
+        .slice(0, 30)
+    : [];
   const monthMatches = planMatching.matches.filter((item) => isSameMonth(item.plan.date, month));
   const monthUnmatchedReports = planMatching.unmatchedReports.filter((item) =>
     isSameMonth(accountDate(new Date(item.sentAt), account.timezone), month),
@@ -2509,13 +2535,15 @@ function Planner({
         status: "sent" as OperationalPlanStatus,
         caption: `${formatNumber(item.totalRecipients)} נמענים · ${formatCurrency(item.revenueGenerated, account.currency)}`,
       })),
-    ...monthMatches.map(({ plan, report, status }) => ({
+    ...monthMatches.map(({ plan, report, status, matchState }) => ({
       id: `plan-${plan.id}`,
       date: plan.date,
       time: plan.time ?? "09:00",
       title: plan.title,
       channel: plan.channel,
-      source: report ? ("תכנון + Flashy" as const) : ("תכנון" as const),
+      source: report
+        ? matchState === "suggested" ? ("התאמה מוצעת" as const) : ("תכנון + Flashy" as const)
+        : ("תכנון" as const),
       status,
       caption: report
         ? `${formatCurrency(report.revenueGenerated, account.currency)} · ${formatNumber(report.purchases)} רכישות`
@@ -2589,6 +2617,7 @@ function Planner({
       assetUrl: plan.assetUrl ?? "",
     });
     setSaveState("עורך פריט קיים.");
+    setManualCampaignKey("");
   }
 
   function startQuickPlan(title: string, channel: Channel = "email", date = `${month}-01`) {
@@ -2709,6 +2738,49 @@ function Planner({
     } catch (error) {
       setSaveState(error instanceof Error ? error.message : "המחיקה נכשלה.");
     }
+  }
+
+  async function updatePlanMatch(
+    matchAction: "match" | "confirm" | "unmatch" | "resume",
+    report?: PlannerCampaignReport,
+  ) {
+    if (!editingPlanId) return;
+    setMatchBusy(true);
+    setSaveState(matchAction === "unmatch" ? "מבטל התאמה..." : "שומר התאמה...");
+    try {
+      const response = await fetch("/api/newsletter-plans", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: editingPlanId,
+          matchAction,
+          campaignId: report?.campaignId,
+          campaignChannel: report?.channel,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "שמירת ההתאמה נכשלה");
+      onUpsertPlan(payload.data as NewsletterPlan);
+      setManualCampaignKey("");
+      setSaveState(
+        matchAction === "unmatch"
+          ? "ההתאמה בוטלה. התאמה אוטומטית הושהתה לפריט הזה."
+          : matchAction === "resume"
+            ? "ההתאמה האוטומטית הופעלה מחדש."
+            : "ההתאמה נשמרה ואושרה.",
+      );
+    } catch (error) {
+      setSaveState(error instanceof Error ? error.message : "שמירת ההתאמה נכשלה.");
+    } finally {
+      setMatchBusy(false);
+    }
+  }
+
+  function matchSelectedCampaign() {
+    const report = manualMatchCandidates.find((candidate) =>
+      `${candidate.channel}:${candidate.campaignId}` === manualCampaignKey,
+    );
+    if (report) void updatePlanMatch("match", report);
   }
 
   return (
@@ -2886,6 +2958,80 @@ function Planner({
                 סגור
               </button>
             </div>
+            {editingMatch && editingMatch.plan.kind === "campaign" && (
+              <section className="mt-4 rounded-lg border border-[#dfe7ee] bg-[#f8fafb] p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Link2 size={16} className="text-[#087f72]" />
+                      <h4 className="text-sm font-bold text-[#111318]">חיבור לביצוע ב־Flashy</h4>
+                    </div>
+                    {editingMatch.report ? (
+                      <>
+                        <p className="mt-2 text-sm font-semibold text-[#111318]">{editingMatch.report.campaignName}</p>
+                        <p className="mt-1 text-xs text-[#667085]">
+                          {new Date(editingMatch.report.sentAt).toLocaleDateString("he-IL", { timeZone: account.timezone })}
+                          {` · ${formatCurrency(editingMatch.report.revenueGenerated, account.currency)}`}
+                          {` · ${formatNumber(editingMatch.report.purchases)} רכישות`}
+                        </p>
+                      </>
+                    ) : editingMatch.matchState === "missing" ? (
+                      <p className="mt-2 text-sm text-[#8a5800]">הקמפיין השמור לא נמצא בדוחות הנוכחיים.</p>
+                    ) : (
+                      <p className="mt-2 text-sm text-[#667085]">עדיין לא נשמר חיבור לקמפיין שנשלח.</p>
+                    )}
+                  </div>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#344054] shadow-sm">
+                    {editingMatch.matchState === "confirmed"
+                      ? "מאושר"
+                      : editingMatch.matchState === "automatic"
+                        ? "אוטומטי"
+                        : editingMatch.matchState === "suggested"
+                          ? `הצעה · ${formatPercent(editingMatch.confidence)}`
+                          : editingMatch.plan.matchingDisabled
+                            ? "אוטומציה מושהית"
+                            : "לא מחובר"}
+                  </span>
+                </div>
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  {editingMatch.matchState === "suggested" && editingMatch.report && (
+                    <button disabled={matchBusy} type="button" onClick={() => updatePlanMatch("match", editingMatch.report)} className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#111318] px-3 text-xs font-bold text-white disabled:opacity-50">
+                      <CheckCircle2 size={15} /> אשר התאמה
+                    </button>
+                  )}
+                  {editingMatch.matchState === "automatic" && (
+                    <button disabled={matchBusy} type="button" onClick={() => updatePlanMatch("confirm")} className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#111318] px-3 text-xs font-bold text-white disabled:opacity-50">
+                      <CheckCircle2 size={15} /> אשר התאמה
+                    </button>
+                  )}
+                  {editingMatch.matchState !== "none" && (
+                    <button disabled={matchBusy} type="button" onClick={() => updatePlanMatch("unmatch")} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[#d0d5dd] bg-white px-3 text-xs font-bold text-[#344054] disabled:opacity-50">
+                      <Link2Off size={15} /> {editingMatch.matchState === "suggested" ? "דחה הצעה" : "בטל התאמה"}
+                    </button>
+                  )}
+                  {editingMatch.plan.matchingDisabled && editingMatch.matchState === "none" && (
+                    <button disabled={matchBusy} type="button" onClick={() => updatePlanMatch("resume")} className="inline-flex h-9 items-center justify-center rounded-md border border-[#d0d5dd] bg-white px-3 text-xs font-bold text-[#344054] disabled:opacity-50">
+                      הפעל התאמה אוטומטית
+                    </button>
+                  )}
+                </div>
+                {editingMatch.matchState !== "confirmed" && editingMatch.matchState !== "automatic" && manualMatchCandidates.length > 0 && (
+                  <div className="mt-3 flex flex-col gap-2 border-t border-[#e4e7ec] pt-3 sm:flex-row">
+                    <select value={manualCampaignKey} onChange={(event) => setManualCampaignKey(event.target.value)} className="h-9 min-w-0 flex-1 rounded-md border border-[#d0d5dd] bg-white px-2 text-xs">
+                      <option value="">בחר קמפיין שנשלח...</option>
+                      {manualMatchCandidates.map((report) => (
+                        <option key={`${report.channel}:${report.campaignId}`} value={`${report.channel}:${report.campaignId}`}>
+                          {new Date(report.sentAt).toLocaleDateString("he-IL", { timeZone: account.timezone })} · {report.campaignName}
+                        </option>
+                      ))}
+                    </select>
+                    <button disabled={matchBusy || !manualCampaignKey} type="button" onClick={matchSelectedCampaign} className="h-9 rounded-md border border-[#087f72] bg-white px-3 text-xs font-bold text-[#087f72] disabled:opacity-40">
+                      התאם ידנית
+                    </button>
+                  </div>
+                )}
+              </section>
+            )}
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="block text-sm font-medium text-[#263548]">
                 תאריך שליחה

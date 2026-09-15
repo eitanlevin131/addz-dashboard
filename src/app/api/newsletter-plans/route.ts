@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
+import { recordAudit } from "@/lib/audit";
 import { assertClientAccess, getAccessContext, isAdminRole } from "@/lib/auth/access";
 import { newsletterPlans as demoNewsletterPlans } from "@/lib/demo-data";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
-import { newsletterPlans } from "@/lib/schema";
-import type { CampaignKind, Channel, NewsletterPlan, PlanStatus } from "@/lib/types";
+import { mapNewsletterPlanRow } from "@/lib/newsletter-plan";
+import { emailCampaignReports, newsletterPlans, smsCampaignReports } from "@/lib/schema";
+
+const matchActions = new Set(["match", "confirm", "unmatch", "resume"]);
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -32,24 +35,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       success: true,
-      data: rows.map(
-        (plan): NewsletterPlan => ({
-          id: plan.id,
-          clientId: plan.clientId ?? "",
-          accountId: plan.flashyAccountId ?? "",
-          date: plan.plannedDate,
-          time: plan.plannedTime ?? undefined,
-          channel: plan.channel as Channel,
-          kind: plan.kind as CampaignKind,
-          status: plan.status as PlanStatus,
-          title: plan.title,
-          owner: plan.owner ?? "",
-          notes: plan.notes ?? "",
-          couponCode: plan.couponCode ?? undefined,
-          flashyUrl: plan.flashyUrl ?? undefined,
-          assetUrl: plan.assetUrl ?? undefined,
-        }),
-      ),
+      data: rows.map(mapNewsletterPlanRow),
     });
   }
 
@@ -98,22 +84,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         success: true,
-        data: {
-          id: created.id,
-          clientId: created.clientId,
-          accountId: created.flashyAccountId,
-          date: created.plannedDate,
-          time: created.plannedTime ?? undefined,
-          channel: created.channel,
-          kind: created.kind,
-          status: created.status,
-          title: created.title,
-          owner: created.owner,
-          notes: created.notes,
-          couponCode: created.couponCode ?? undefined,
-          flashyUrl: created.flashyUrl,
-          assetUrl: created.assetUrl,
-        },
+        data: mapNewsletterPlanRow(created),
       },
       { status: 201 },
     );
@@ -136,12 +107,125 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const body = await request.json().catch(() => ({}));
   const id = String(body.id ?? "").trim();
+  const matchAction = String(body.matchAction ?? "").trim();
 
   if (!id) {
     return NextResponse.json(
       { success: false, message: "חסר מזהה פריט לעדכון." },
       { status: 400 },
     );
+  }
+
+  if (!isDatabaseConfigured()) {
+    return NextResponse.json(
+      { success: false, message: "Neon לא מחובר, אי אפשר לשמור עדכון קבוע." },
+      { status: 409 },
+    );
+  }
+
+  const db = getDb();
+  const existing = await db
+    .select()
+    .from(newsletterPlans)
+    .where(eq(newsletterPlans.id, id))
+    .limit(1)
+    .then((rows) => rows[0]);
+
+  if (!existing?.clientId) {
+    return NextResponse.json(
+      { success: false, message: "לא נמצא פריט תכנון לעדכון." },
+      { status: 404 },
+    );
+  }
+
+  const accessContext = await getAccessContext();
+  if (!accessContext.ok) return accessContext.response;
+  const denied = assertClientAccess(accessContext.access, existing.clientId);
+  if (denied) return denied;
+
+  if (matchAction) {
+    if (!matchActions.has(matchAction)) {
+      return NextResponse.json({ success: false, message: "פעולת התאמה לא תקינה." }, { status: 400 });
+    }
+    if (existing.kind !== "campaign" || !existing.flashyAccountId) {
+      return NextResponse.json({ success: false, message: "אפשר להתאים רק קמפיין המחובר לחשבון Flashy." }, { status: 400 });
+    }
+
+    const now = new Date();
+    let update: Partial<typeof newsletterPlans.$inferInsert>;
+    if (matchAction === "match") {
+      const campaignId = Number(body.campaignId);
+      const channel = String(body.campaignChannel ?? existing.channel);
+      if (!Number.isInteger(campaignId) || campaignId <= 0 || !["email", "sms"].includes(channel)) {
+        return NextResponse.json({ success: false, message: "חסר קמפיין תקין להתאמה." }, { status: 400 });
+      }
+      if (channel !== existing.channel) {
+        return NextResponse.json({ success: false, message: "ערוץ הקמפיין אינו תואם לפריט התכנון." }, { status: 400 });
+      }
+
+      const report = channel === "email"
+        ? await db.select({ id: emailCampaignReports.id }).from(emailCampaignReports).where(and(
+            eq(emailCampaignReports.flashyAccountId, existing.flashyAccountId),
+            eq(emailCampaignReports.campaignId, campaignId),
+          )).limit(1).then((rows) => rows[0])
+        : await db.select({ id: smsCampaignReports.id }).from(smsCampaignReports).where(and(
+            eq(smsCampaignReports.flashyAccountId, existing.flashyAccountId),
+            eq(smsCampaignReports.campaignId, campaignId),
+          )).limit(1).then((rows) => rows[0]);
+      if (!report) {
+        return NextResponse.json({ success: false, message: "הקמפיין לא נמצא בדוחות החשבון." }, { status: 404 });
+      }
+
+      const duplicate = await db.select({ id: newsletterPlans.id }).from(newsletterPlans).where(and(
+        eq(newsletterPlans.flashyAccountId, existing.flashyAccountId),
+        eq(newsletterPlans.matchedCampaignChannel, channel),
+        eq(newsletterPlans.matchedCampaignId, campaignId),
+        ne(newsletterPlans.id, existing.id),
+      )).limit(1).then((rows) => rows[0]);
+      if (duplicate) {
+        return NextResponse.json({ success: false, message: "הקמפיין כבר מחובר לפריט תכנון אחר." }, { status: 409 });
+      }
+
+      update = {
+        matchedCampaignId: campaignId,
+        matchedCampaignChannel: channel,
+        matchMethod: "manual",
+        matchConfidence: "1.0000",
+        matchedAt: now,
+        matchConfirmedAt: now,
+        matchingDisabled: false,
+      };
+    } else if (matchAction === "confirm") {
+      if (existing.matchedCampaignId === null) {
+        return NextResponse.json({ success: false, message: "אין התאמה שמורה לאישור." }, { status: 409 });
+      }
+      update = { matchConfirmedAt: now };
+    } else if (matchAction === "unmatch") {
+      update = {
+        matchedCampaignId: null,
+        matchedCampaignChannel: null,
+        matchMethod: null,
+        matchConfidence: null,
+        matchedAt: null,
+        matchConfirmedAt: null,
+        matchingDisabled: true,
+      };
+    } else {
+      update = { matchingDisabled: false };
+    }
+
+    const [updatedMatch] = await db.update(newsletterPlans).set(update).where(eq(newsletterPlans.id, id)).returning();
+    await recordAudit({
+      actorUserId: accessContext.access.userId,
+      action: `planner.match.${matchAction}`,
+      entityType: "newsletter_plan",
+      entityId: id,
+      metadata: {
+        campaignId: matchAction === "match" ? Number(body.campaignId) : existing.matchedCampaignId,
+        channel: matchAction === "match" ? String(body.campaignChannel ?? existing.channel) : existing.matchedCampaignChannel,
+      },
+    });
+    return NextResponse.json({ success: true, data: mapNewsletterPlanRow(updatedMatch) });
   }
 
   const plan = {
@@ -165,36 +249,21 @@ export async function PATCH(request: Request) {
     );
   }
 
-  if (!isDatabaseConfigured()) {
-    return NextResponse.json(
-      { success: false, message: "Neon לא מחובר, אי אפשר לשמור עדכון קבוע." },
-      { status: 409 },
-    );
-  }
-
-  const db = getDb();
-  const existing = await db
-    .select({ clientId: newsletterPlans.clientId })
-    .from(newsletterPlans)
-    .where(eq(newsletterPlans.id, id))
-    .limit(1)
-    .then((rows) => rows[0]);
-
-  if (!existing?.clientId) {
-    return NextResponse.json(
-      { success: false, message: "לא נמצא פריט תכנון לעדכון." },
-      { status: 404 },
-    );
-  }
-
-  const accessContext = await getAccessContext();
-  if (!accessContext.ok) return accessContext.response;
-  const denied = assertClientAccess(accessContext.access, existing.clientId);
-  if (denied) return denied;
+  const matchReset = existing.channel !== plan.channel || existing.kind !== plan.kind
+    ? {
+        matchedCampaignId: null,
+        matchedCampaignChannel: null,
+        matchMethod: null,
+        matchConfidence: null,
+        matchedAt: null,
+        matchConfirmedAt: null,
+        matchingDisabled: false,
+      }
+    : {};
 
   const [updated] = await db
     .update(newsletterPlans)
-    .set(plan)
+    .set({ ...plan, ...matchReset })
     .where(eq(newsletterPlans.id, id))
     .returning();
 
@@ -207,22 +276,7 @@ export async function PATCH(request: Request) {
 
   return NextResponse.json({
     success: true,
-    data: {
-      id: updated.id,
-      clientId: updated.clientId,
-      accountId: updated.flashyAccountId,
-      date: updated.plannedDate,
-      time: updated.plannedTime ?? undefined,
-      channel: updated.channel,
-      kind: updated.kind,
-      status: updated.status,
-      title: updated.title,
-      owner: updated.owner,
-      notes: updated.notes,
-      couponCode: updated.couponCode ?? undefined,
-      flashyUrl: updated.flashyUrl,
-      assetUrl: updated.assetUrl,
-    },
+    data: mapNewsletterPlanRow(updated),
   });
 }
 
@@ -246,7 +300,7 @@ export async function DELETE(request: Request) {
 
   const db = getDb();
   const existing = await db
-    .select({ clientId: newsletterPlans.clientId, status: newsletterPlans.status })
+    .select({ clientId: newsletterPlans.clientId, status: newsletterPlans.status, matchedCampaignId: newsletterPlans.matchedCampaignId })
     .from(newsletterPlans)
     .where(eq(newsletterPlans.id, id))
     .limit(1)
@@ -264,7 +318,7 @@ export async function DELETE(request: Request) {
   const denied = assertClientAccess(accessContext.access, existing.clientId);
   if (denied) return denied;
 
-  if (existing.status === "sent") {
+  if (existing.status === "sent" || existing.matchedCampaignId !== null) {
     return NextResponse.json(
       { success: false, message: "אי אפשר למחוק דיוור שכבר נשלח." },
       { status: 409 },

@@ -3,6 +3,7 @@ import { asc, desc, like } from "drizzle-orm";
 import { getAccessContext, isAdminRole, isOwnerRole } from "@/lib/auth/access";
 import { isOwnerEmail } from "@/lib/auth/owner";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
+import { mapNewsletterPlanRow } from "@/lib/newsletter-plan";
 import { latestCampaignReports, latestAutomationReports } from "@/lib/report-identity";
 import {
   automationReports,
@@ -21,8 +22,6 @@ import type {
   Client,
   EmailCampaignReport,
   FlashyAccount,
-  NewsletterPlan,
-  PlanStatus,
   SmsCampaignReport,
   SyncHistoryEntry,
 } from "@/lib/types";
@@ -273,24 +272,7 @@ export async function GET() {
           revenueGenerated: toNumber(report.revenueGenerated),
         }),
       ),
-      newsletterPlans: visiblePlanRows.map(
-        (plan): NewsletterPlan => ({
-          id: plan.id,
-          clientId: plan.clientId ?? "",
-          accountId: plan.flashyAccountId ?? "",
-          date: plan.plannedDate,
-          time: plan.plannedTime ?? undefined,
-          channel: plan.channel as Channel,
-          kind: plan.kind as NewsletterPlan["kind"],
-          status: plan.status as PlanStatus,
-          title: plan.title,
-          owner: plan.owner ?? "",
-          notes: plan.notes ?? "",
-          couponCode: plan.couponCode ?? undefined,
-          flashyUrl: plan.flashyUrl ?? undefined,
-          assetUrl: plan.assetUrl ?? undefined,
-        }),
-      ),
+      newsletterPlans: visiblePlanRows.map(mapNewsletterPlanRow),
       syncHistory,
     },
   });

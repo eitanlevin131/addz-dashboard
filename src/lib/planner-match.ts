@@ -22,13 +22,17 @@ export type PlannerCampaignReport =
   | (SmsCampaignReport & { channel: "sms" });
 
 export type OperationalPlanStatus = "planned" | "sent" | "postponed" | "not_found";
+export type PlanMatchState = "none" | "suggested" | "automatic" | "confirmed" | "missing";
 
 export type PlanCampaignMatch = {
   plan: NewsletterPlan;
   report?: PlannerCampaignReport;
   confidence: number;
   status: OperationalPlanStatus;
+  matchState: PlanMatchState;
 };
+
+export const AUTO_PERSIST_MATCH_CONFIDENCE = 0.82;
 
 const GENERIC_TITLE_TOKENS = new Set([
   "addz",
@@ -105,6 +109,38 @@ export function matchNewsletterPlans(
     ...sms.map((report) => ({ ...report, channel: "sms" as const })),
   ];
   const today = accountDate(now, timezone);
+  const assignedPlans = new Set<number>();
+  const assignedReports = new Set<number>();
+  const reportByPlan = new Map<number, {
+    report?: PlannerCampaignReport;
+    confidence: number;
+    matchState: PlanMatchState;
+  }>();
+
+  plans.forEach((plan, planIndex) => {
+    if (plan.matchedCampaignId === undefined) return;
+    const channel = plan.matchedCampaignChannel ?? plan.channel;
+    const reportIndex = reports.findIndex((report) =>
+      report.accountId === plan.accountId &&
+      report.channel === channel &&
+      report.campaignId === plan.matchedCampaignId,
+    );
+    assignedPlans.add(planIndex);
+    if (reportIndex === -1) {
+      reportByPlan.set(planIndex, {
+        confidence: plan.matchConfidence ?? 1,
+        matchState: "missing",
+      });
+      return;
+    }
+
+    assignedReports.add(reportIndex);
+    reportByPlan.set(planIndex, {
+      report: reports[reportIndex],
+      confidence: plan.matchConfidence ?? 1,
+      matchState: plan.matchConfirmedAt || plan.matchMethod === "manual" ? "confirmed" : "automatic",
+    });
+  });
   const candidates: Array<{
     planIndex: number;
     reportIndex: number;
@@ -113,7 +149,7 @@ export function matchNewsletterPlans(
   }> = [];
 
   plans.forEach((plan, planIndex) => {
-    if (plan.kind !== "campaign") return;
+    if (plan.kind !== "campaign" || assignedPlans.has(planIndex) || plan.matchingDisabled) return;
     const linkedCampaignId = campaignIdFromUrl(plan.flashyUrl);
 
     reports.forEach((report, reportIndex) => {
@@ -137,9 +173,6 @@ export function matchNewsletterPlans(
     return right.confidence - left.confidence;
   });
 
-  const assignedPlans = new Set<number>();
-  const assignedReports = new Set<number>();
-  const reportByPlan = new Map<number, { report: PlannerCampaignReport; confidence: number }>();
   for (const candidate of candidates) {
     if (assignedPlans.has(candidate.planIndex) || assignedReports.has(candidate.reportIndex)) continue;
     assignedPlans.add(candidate.planIndex);
@@ -147,6 +180,7 @@ export function matchNewsletterPlans(
     reportByPlan.set(candidate.planIndex, {
       report: reports[candidate.reportIndex],
       confidence: candidate.confidence,
+      matchState: "suggested",
     });
   }
 
@@ -157,9 +191,16 @@ export function matchNewsletterPlans(
         plan,
         report: assigned?.report,
         confidence: assigned?.confidence ?? 0,
-        status: operationalStatus(plan, Boolean(assigned), today),
+        status: operationalStatus(plan, Boolean(assigned?.report), today),
+        matchState: assigned?.matchState ?? "none",
       };
     }),
     unmatchedReports: reports.filter((_, index) => !assignedReports.has(index)),
+    availableReports: reports.filter((report) => !plans.some((plan) =>
+      plan.matchedCampaignId !== undefined &&
+      plan.accountId === report.accountId &&
+      (plan.matchedCampaignChannel ?? plan.channel) === report.channel &&
+      plan.matchedCampaignId === report.campaignId,
+    )),
   };
 }
