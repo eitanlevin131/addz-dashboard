@@ -19,6 +19,7 @@ import {
   LineChart,
   Link2,
   Link2Off,
+  ListFilter,
   MessageSquareText,
   Minus,
   Plus,
@@ -326,7 +327,7 @@ const views: { key: ViewKey; label: string; icon: typeof Activity; module?: Modu
   { key: "sms", label: "SMS", icon: MessageSquareText, module: "reports" },
   { key: "automations", label: "אוטומציות", icon: RefreshCw, module: "reports" },
   { key: "campaigns", label: "קמפיינים", icon: Send, module: "reports" },
-  { key: "planner", label: "גאנט חודשי", icon: CalendarDays, module: "planner" },
+  { key: "planner", label: "גאנט דיוורים", icon: CalendarDays, module: "planner" },
   { key: "ai", label: "AI", icon: Bot, module: "ai" },
   { key: "settings", label: "הגדרות", icon: Settings },
   { key: "admin", label: "אדמין", icon: ShieldCheck },
@@ -567,6 +568,19 @@ function getMonthBounds(monthValue: string) {
   const start = new Date(year, month - 1, 1);
   const end = new Date(year, month, 0);
   return { start, end };
+}
+
+function getMonthDateRange(monthValue: string) {
+  const [year, month] = monthValue.split("-").map(Number);
+  const finalDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return {
+    start: `${monthValue}-01`,
+    end: `${monthValue}-${String(finalDay).padStart(2, "0")}`,
+  };
+}
+
+function isDateInRange(date: string, start: string, end: string) {
+  return (!start || date >= start) && (!end || date <= end);
 }
 
 function isSameMonth(dateValue: string, monthValue: string) {
@@ -2435,7 +2449,7 @@ function PlannerTableSection({
               );
             })}
             {!tableRows.length && (
-              <tr><td colSpan={15} className="px-4 py-8 text-center text-sm text-[#667085]">אין פריטים מתוכננים בחודש הזה.</td></tr>
+              <tr><td colSpan={15} className="px-4 py-8 text-center text-sm text-[#667085]">אין דיוורים בטווח התאריכים שנבחר.</td></tr>
             )}
           </tbody>
           {tableRows.length > 0 && (
@@ -2482,8 +2496,13 @@ function Planner({
   onUpsertPlan: (plan: NewsletterPlan) => void;
   onDeletePlan: (planId: string) => void;
 }) {
-  const [month, setMonth] = useState(toDateInputValue(new Date()).slice(0, 7));
+  const initialMonth = toDateInputValue(new Date()).slice(0, 7);
+  const initialTableRange = getMonthDateRange(initialMonth);
+  const [month, setMonth] = useState(initialMonth);
   const [layout, setLayout] = useState<"calendar" | "table">("calendar");
+  const [tableDateStart, setTableDateStart] = useState(initialTableRange.start);
+  const [tableDateEnd, setTableDateEnd] = useState(initialTableRange.end);
+  const [tableRangeCustomized, setTableRangeCustomized] = useState(false);
   const emptyDraft = {
     date: toDateInputValue(new Date()),
     time: "09:00",
@@ -2524,6 +2543,15 @@ function Planner({
   const monthUnmatchedReports = planMatching.unmatchedReports.filter((item) =>
     isSameMonth(accountDate(new Date(item.sentAt), account.timezone), month),
   );
+  const tableRangeInvalid = Boolean(tableDateStart && tableDateEnd && tableDateStart > tableDateEnd);
+  const tableMatches = tableRangeInvalid
+    ? []
+    : planMatching.matches.filter((item) => isDateInRange(item.plan.date, tableDateStart, tableDateEnd));
+  const tableUnmatchedReports = tableRangeInvalid
+    ? []
+    : planMatching.unmatchedReports.filter((item) =>
+        isDateInRange(accountDate(new Date(item.sentAt), account.timezone), tableDateStart, tableDateEnd),
+      );
   const liveEvents = [
     ...monthUnmatchedReports
       .map((item) => ({
@@ -2630,6 +2658,28 @@ function Planner({
     });
     setMonth(date.slice(0, 7));
     setSaveState("נפתח פריט חדש לתכנון.");
+  }
+
+  function selectMonth(value: string) {
+    setMonth(value);
+    if (!tableRangeCustomized) {
+      const range = getMonthDateRange(value);
+      setTableDateStart(range.start);
+      setTableDateEnd(range.end);
+    }
+  }
+
+  function resetTableRangeToMonth() {
+    const range = getMonthDateRange(month);
+    setTableDateStart(range.start);
+    setTableDateEnd(range.end);
+    setTableRangeCustomized(false);
+  }
+
+  function showAllTableDates() {
+    setTableDateStart("");
+    setTableDateEnd("");
+    setTableRangeCustomized(true);
   }
 
   async function savePlan() {
@@ -2788,14 +2838,22 @@ function Planner({
       <section className="rounded-xl border border-[#dfe7ee] bg-white p-5 shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <h2 className="text-xl font-bold text-[#080123]">גאנט דיוורים חודשי</h2>
+            <h2 className="text-xl font-bold text-[#080123]">גאנט דיוורים</h2>
             <p className="mt-1 text-sm leading-6 text-[#65738a]">
-              תכנון וביצוע באותו מקום. פריטים שנשלחו מתחברים אוטומטית לתוצאות שלהם ב־Flashy.
+              יומן חודשי וטבלת ביצועים לכל טווח. פריטים שנשלחו מתחברים אוטומטית לתוצאות שלהם ב־Flashy.
             </p>
           </div>
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
             <button
-              onClick={() => startQuickPlan("דיוור חדש", "email", toDateInputValue(new Date()).slice(0, 7) === month ? toDateInputValue(new Date()) : `${month}-01`)}
+              onClick={() => startQuickPlan(
+                "דיוור חדש",
+                "email",
+                layout === "table" && tableDateStart
+                  ? tableDateStart
+                  : toDateInputValue(new Date()).slice(0, 7) === month
+                    ? toDateInputValue(new Date())
+                    : `${month}-01`,
+              )}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#111318] px-4 text-sm font-bold text-white transition hover:bg-black"
             >
               <Plus size={17} />
@@ -2817,12 +2875,15 @@ function Planner({
                 טבלה
               </button>
             </div>
-            <input
-              type="month"
-              value={month}
-              onChange={(event) => setMonth(event.target.value)}
-              className="h-11 rounded-lg border border-[#cfd9e3] bg-white px-3 text-sm font-semibold text-[#080123] outline-none [color-scheme:light] focus:border-[#6fffe5] focus:ring-2 focus:ring-[#6fffe5]/30"
-            />
+            {layout === "calendar" && (
+              <input
+                aria-label="חודש ביומן"
+                type="month"
+                value={month}
+                onChange={(event) => selectMonth(event.target.value)}
+                className="h-11 rounded-lg border border-[#cfd9e3] bg-white px-3 text-sm font-semibold text-[#080123] outline-none [color-scheme:light] focus:border-[#6fffe5] focus:ring-2 focus:ring-[#6fffe5]/30"
+              />
+            )}
           </div>
         </div>
       </section>
@@ -2936,8 +2997,62 @@ function Planner({
         </section>
       ) : (
         <section className="overflow-hidden rounded-xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
-          <PlannerTableSection channel="email" matches={monthMatches} unmatchedReports={monthUnmatchedReports} account={account} onEdit={editPlan} />
-          <PlannerTableSection channel="sms" matches={monthMatches} unmatchedReports={monthUnmatchedReports} account={account} onEdit={editPlan} />
+          <div className="flex flex-col gap-3 border-b border-[#dfe7ee] bg-[#f8fafb] px-4 py-3 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex items-center gap-2 text-sm font-bold text-[#111318]">
+              <ListFilter size={17} className="text-[#087f72]" />
+              סינון טבלה לפי תאריך
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+              <label className="grid gap-1 text-xs font-semibold text-[#667085]">
+                מתאריך
+                <input
+                  type="date"
+                  value={tableDateStart}
+                  max={tableDateEnd || undefined}
+                  onChange={(event) => {
+                    setTableDateStart(event.target.value);
+                    setTableRangeCustomized(true);
+                  }}
+                  className="h-10 rounded-md border border-[#cfd9e3] bg-white px-3 text-sm font-semibold text-[#111318] outline-none [color-scheme:light] focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20"
+                />
+              </label>
+              <label className="grid gap-1 text-xs font-semibold text-[#667085]">
+                עד תאריך
+                <input
+                  type="date"
+                  value={tableDateEnd}
+                  min={tableDateStart || undefined}
+                  onChange={(event) => {
+                    setTableDateEnd(event.target.value);
+                    setTableRangeCustomized(true);
+                  }}
+                  className="h-10 rounded-md border border-[#cfd9e3] bg-white px-3 text-sm font-semibold text-[#111318] outline-none [color-scheme:light] focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={resetTableRangeToMonth}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#cfd9e3] bg-white px-3 text-xs font-bold text-[#344054] transition hover:border-[#98a2b3] hover:bg-[#f2f4f7]"
+              >
+                <CalendarDays size={15} />
+                טווח החודש
+              </button>
+              <button
+                type="button"
+                onClick={showAllTableDates}
+                disabled={!tableDateStart && !tableDateEnd}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-md px-3 text-xs font-bold text-[#087f72] transition hover:bg-[#eafaf6] disabled:cursor-default disabled:opacity-40"
+              >
+                <X size={15} />
+                כל התאריכים
+              </button>
+            </div>
+            {tableRangeInvalid && (
+              <p role="alert" className="text-xs font-semibold text-red-700">תאריך ההתחלה חייב להיות לפני תאריך הסיום.</p>
+            )}
+          </div>
+          <PlannerTableSection channel="email" matches={tableMatches} unmatchedReports={tableUnmatchedReports} account={account} onEdit={editPlan} />
+          <PlannerTableSection channel="sms" matches={tableMatches} unmatchedReports={tableUnmatchedReports} account={account} onEdit={editPlan} />
         </section>
       )}
 
@@ -3040,7 +3155,7 @@ function Planner({
                   value={draft.date}
                   onChange={(event) => {
                     setDraft((current) => ({ ...current, date: event.target.value }));
-                    setMonth(event.target.value.slice(0, 7));
+                    selectMonth(event.target.value.slice(0, 7));
                   }}
                   className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
                 />

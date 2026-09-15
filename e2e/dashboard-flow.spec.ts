@@ -22,6 +22,12 @@ const secondaryClientName = `E2E Beta ${suffix}`;
 const primaryAccountName = "E2E Alpha Account";
 const secondaryAccountName = "E2E Beta Account";
 
+function dateOffset(days: number) {
+  const value = new Date();
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
 async function cleanup() {
   await db`delete from audit_logs where actor_user_id = ${userId} or entity_id in (${primaryAccountId}, ${secondaryAccountId})`;
   await db`delete from clients where id in (${primaryClientId}, ${secondaryClientId})`;
@@ -93,10 +99,21 @@ test.describe("agency dashboard critical journey", () => {
     await navigation.getByRole("button", { name: "קמפיינים", exact: true }).click();
     await expect(page.getByText("הכנסות קמפיינים", { exact: true })).toBeVisible();
 
-    await navigation.getByRole("button", { name: "גאנט חודשי", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "גאנט דיוורים חודשי" })).toBeVisible();
+    await navigation.getByRole("button", { name: "גאנט דיוורים", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "גאנט דיוורים", exact: true })).toBeVisible();
     const plannedCampaign = page.locator("article").filter({ hasText: "E2E launch campaign" });
     await expect(plannedCampaign).toContainText("נשלח");
+
+    await page.getByRole("button", { name: "טבלה", exact: true }).click();
+    await expect(page.getByText("E2E launch campaign", { exact: true })).toBeVisible();
+    await page.getByLabel("מתאריך", { exact: true }).fill(dateOffset(0));
+    await page.getByLabel("עד תאריך", { exact: true }).fill(dateOffset(0));
+    await expect(page.getByText("E2E launch campaign", { exact: true })).toBeHidden();
+    await page.getByLabel("מתאריך", { exact: true }).fill(dateOffset(-10));
+    await expect(page.getByText("E2E launch campaign", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "כל התאריכים", exact: true }).click();
+    await expect(page.getByLabel("מתאריך", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("עד תאריך", { exact: true })).toHaveValue("");
 
     await page.getByRole("button", { name: "שאל את ה־AI", exact: true }).click();
     await page.getByPlaceholder("שאל שאלה על הנתונים...").fill("מה הנתון המרכזי בטווח?");
