@@ -69,7 +69,7 @@ test.describe("agency dashboard critical journey", () => {
     await expect(page.getByRole("heading", { name: "סקירת סוכנות" })).toBeVisible();
 
     const requestLoginCode = async (targetEmail: string) => page.evaluate(async (value) => {
-      const response = await fetch("/api/auth/code/request", {
+      const response = await fetch("/api/access-code/request", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ email: value }),
