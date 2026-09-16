@@ -2224,7 +2224,6 @@ function smsRowToDrilldown(row: SmsActivityRow): DrilldownItem {
     purchases: row.purchases,
     recipients: row.recipients,
     clicks: row.clicks,
-    content: row.messageText || undefined,
   };
 }
 
@@ -2351,13 +2350,13 @@ function SmsActivityTable({
   currency,
   showDeepAnalysis,
   onSelect,
-  onOpenWriter,
+  onOpenTexts,
 }: {
   rows: SmsActivityRow[];
   currency: string;
   showDeepAnalysis: boolean;
   onSelect: (row: SmsActivityRow) => void;
-  onOpenWriter?: () => void;
+  onOpenTexts: () => void;
 }) {
   const [filter, setFilter] = useState<"all" | SmsActivityKind>("all");
   const [sortBy, setSortBy] = useState<SmsActivitySort>("revenue");
@@ -2374,7 +2373,7 @@ function SmsActivityTable({
   const filtered = rows.filter((row) => {
     if (filter !== "all" && row.kind !== filter) return false;
     if (!normalizedQuery) return true;
-    return `${row.name} ${row.messageText}`.toLocaleLowerCase("he").includes(normalizedQuery);
+    return row.name.toLocaleLowerCase("he").includes(normalizedQuery);
   });
   const sorted = [...filtered].sort((a, b) => {
     const result = metricValue(a, sortBy) - metricValue(b, sortBy);
@@ -2410,11 +2409,11 @@ function SmsActivityTable({
     <header className="flex flex-col gap-3 border-b border-[#eef0f2] px-4 py-4 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
       <div><h2 className="text-base font-bold">פעילות SMS</h2><p className="mt-1 text-xs text-[#667085]">סינון ומיון של כל הקמפיינים והאוטומציות בטווח</p></div>
       <div className="flex min-w-0 flex-wrap items-center gap-2">
-        {onOpenWriter && <button type="button" onClick={onOpenWriter} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-[#111318] px-3 text-xs font-bold text-white transition hover:bg-[#25282f]"><Sparkles size={14} />יצירת SMS</button>}
+        <button type="button" onClick={onOpenTexts} className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-[#111318] px-3 text-xs font-bold text-white transition hover:bg-[#25282f]"><MessageSquareText size={14} />טקסטים מובילים</button>
         <label className="relative min-w-0 flex-1 sm:w-64 sm:flex-none">
           <Search size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[#98a2b3]" />
-          <span className="sr-only">חיפוש בשם או בטקסט ההודעה</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="חיפוש בשם או בטקסט" className="h-9 w-full rounded-md border border-[#d0d5dd] bg-white pr-8 pl-3 text-xs text-[#111318] outline-none transition placeholder:text-[#98a2b3] focus:border-[#20b9a8] focus:ring-2 focus:ring-[#20b9a8]/15" />
+          <span className="sr-only">חיפוש בשם הפעילות</span>
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="חיפוש פעילות" className="h-9 w-full rounded-md border border-[#d0d5dd] bg-white pr-8 pl-3 text-xs text-[#111318] outline-none transition placeholder:text-[#98a2b3] focus:border-[#20b9a8] focus:ring-2 focus:ring-[#20b9a8]/15" />
         </label>
         <div className="flex max-w-full gap-1 overflow-x-auto rounded-md bg-[#f1f4f5] p-0.5" role="group" aria-label="סינון פעילות SMS">
           {([
@@ -2431,13 +2430,53 @@ function SmsActivityTable({
       <div className="hidden overflow-x-auto xl:block">
         <table className="w-full min-w-[1040px] border-collapse text-right text-xs">
           <thead className="bg-[#f8fafb] text-[#667085]"><tr><th className="px-4 py-3 font-medium">פעילות</th>{headers.map((header) => <th key={header.key} className="px-3 py-3 font-medium"><button type="button" onClick={() => selectSort(header.key)} className={classNames("inline-flex items-center gap-1 hover:text-[#111318]", sortBy === header.key && "font-bold text-[#111318]")}>{header.label}{sortBy === header.key && <ArrowDownWideNarrow size={13} className={direction === "asc" ? "rotate-180" : ""} />}</button></th>)}</tr></thead>
-          <tbody className="divide-y divide-[#eef0f2]">{visible.map((row) => <tr key={row.id} tabIndex={0} role="button" onClick={() => onSelect(row)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelect(row); }} className="cursor-pointer transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"><td className="max-w-[330px] px-4 py-3"><b className="block truncate text-sm text-[#111318]">{row.name}</b>{row.messageText && <span className="mt-1 block truncate text-[11px] text-[#667085]">{row.messageText}</span>}<span className={classNames("mt-1 inline-block rounded-sm px-1.5 py-0.5 text-[10px] font-bold", row.kind === "campaign" ? "bg-[#e8fbf8] text-[#087f72]" : row.kind === "automation" ? "bg-[#eef3fd] text-[#4668ad]" : "bg-[#f2f4f7] text-[#667085]")}>{row.typeLabel}</span></td><td className="px-3 py-3 font-bold tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</td><td className="px-3 py-3 tabular-nums" dir="ltr">{formatCurrency(row.cost, currency)}</td><td className="px-3 py-3 font-bold tabular-nums" dir="ltr">{row.comparable ? formatRoas(row.cost > 0 ? row.revenue / row.cost : null) : "—"}</td><td className="px-3 py-3 tabular-nums">{formatNumber(row.recipients)}</td><td className="px-3 py-3 tabular-nums">{rate(row.clicks, row.delivered)}</td><td className="px-3 py-3 tabular-nums">{formatNumber(row.purchases)}</td><td className="px-3 py-3 tabular-nums">{row.comparable ? rate(row.purchases, row.clicks) : "—"}</td></tr>)}</tbody>
+          <tbody className="divide-y divide-[#eef0f2]">{visible.map((row) => <tr key={row.id} tabIndex={0} role="button" onClick={() => onSelect(row)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelect(row); }} className="cursor-pointer transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"><td className="max-w-[330px] px-4 py-3"><b className="block truncate text-sm text-[#111318]">{row.name}</b><span className={classNames("mt-1 inline-block rounded-sm px-1.5 py-0.5 text-[10px] font-bold", row.kind === "campaign" ? "bg-[#e8fbf8] text-[#087f72]" : row.kind === "automation" ? "bg-[#eef3fd] text-[#4668ad]" : "bg-[#f2f4f7] text-[#667085]")}>{row.typeLabel}</span></td><td className="px-3 py-3 font-bold tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</td><td className="px-3 py-3 tabular-nums" dir="ltr">{formatCurrency(row.cost, currency)}</td><td className="px-3 py-3 font-bold tabular-nums" dir="ltr">{row.comparable ? formatRoas(row.cost > 0 ? row.revenue / row.cost : null) : "—"}</td><td className="px-3 py-3 tabular-nums">{formatNumber(row.recipients)}</td><td className="px-3 py-3 tabular-nums">{rate(row.clicks, row.delivered)}</td><td className="px-3 py-3 tabular-nums">{formatNumber(row.purchases)}</td><td className="px-3 py-3 tabular-nums">{row.comparable ? rate(row.purchases, row.clicks) : "—"}</td></tr>)}</tbody>
         </table>
       </div>
-      <div className="divide-y divide-[#eef0f2] xl:hidden">{visible.map((row) => <button key={row.id} type="button" onClick={() => onSelect(row)} className="block w-full p-4 text-right transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><b className="block text-sm leading-5 text-[#111318] [overflow-wrap:anywhere]">{row.name}</b><span className="mt-1 block text-[10px] font-bold text-[#667085]">{row.typeLabel}</span></div><b className="shrink-0 text-sm tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</b></div>{row.messageText && <p className="mt-2 line-clamp-2 text-xs leading-5 text-[#667085]">{row.messageText}</p>}<div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-[#667085]"><span>עלות <b className="block text-[#111318]" dir="ltr">{formatCurrency(row.cost, currency)}</b></span><span>ROAS <b className="block text-[#111318]" dir="ltr">{row.comparable ? formatRoas(row.cost > 0 ? row.revenue / row.cost : null) : "מעורב"}</b></span><span>רכישות <b className="block text-[#111318]">{formatNumber(row.purchases)}</b></span><span>נמענים <b className="block text-[#111318]">{formatNumber(row.recipients)}</b></span><span>הקלקה <b className="block text-[#111318]">{rate(row.clicks, row.delivered)}</b></span><span>המרה <b className="block text-[#111318]">{row.comparable ? rate(row.purchases, row.clicks) : "—"}</b></span></div></button>)}</div>
+      <div className="divide-y divide-[#eef0f2] xl:hidden">{visible.map((row) => <button key={row.id} type="button" onClick={() => onSelect(row)} className="block w-full p-4 text-right transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><b className="block text-sm leading-5 text-[#111318] [overflow-wrap:anywhere]">{row.name}</b><span className="mt-1 block text-[10px] font-bold text-[#667085]">{row.typeLabel}</span></div><b className="shrink-0 text-sm tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</b></div><div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-[#667085]"><span>עלות <b className="block text-[#111318]" dir="ltr">{formatCurrency(row.cost, currency)}</b></span><span>ROAS <b className="block text-[#111318]" dir="ltr">{row.comparable ? formatRoas(row.cost > 0 ? row.revenue / row.cost : null) : "מעורב"}</b></span><span>רכישות <b className="block text-[#111318]">{formatNumber(row.purchases)}</b></span><span>נמענים <b className="block text-[#111318]">{formatNumber(row.recipients)}</b></span><span>הקלקה <b className="block text-[#111318]">{rate(row.clicks, row.delivered)}</b></span><span>המרה <b className="block text-[#111318]">{row.comparable ? rate(row.purchases, row.clicks) : "—"}</b></span></div></button>)}</div>
       {sorted.length > 8 && !showDeepAnalysis && <button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)} className="flex min-h-10 w-full items-center justify-center gap-1.5 border-t border-[#eef0f2] text-xs font-bold hover:bg-[#f5f8f7]">{expanded ? <ChevronDown size={14} className="rotate-180" /> : <ChevronDown size={14} />}{expanded ? "הצג פחות" : `כל הפעילויות (${sorted.length})`}</button>}
     </>}
   </section>;
+}
+
+function SmsTopTextsDrawer({ rows, currency, onClose }: { rows: SmsActivityRow[]; currency: string; onClose: () => void }) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const leading = rows
+    .filter((row) => row.kind === "campaign" && row.messageText.trim())
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 12);
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  async function copyText(row: SmsActivityRow) {
+    await navigator.clipboard.writeText(row.messageText);
+    setCopied(row.id);
+    window.setTimeout(() => setCopied((current) => current === row.id ? null : current), 1600);
+  }
+
+  return <div className="fixed inset-0 z-[75] flex justify-end bg-[#0b0c10]/35 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <aside role="dialog" aria-modal="true" aria-labelledby="sms-top-texts-title" className="flex h-full w-full max-w-[640px] flex-col bg-[#f7f9fa] shadow-[-24px_0_70px_rgba(11,12,16,0.18)]">
+      <header className="flex items-start justify-between gap-4 border-b border-[#e4e7ec] bg-white px-4 py-4 sm:px-6">
+        <div className="min-w-0"><p className="text-xs font-bold text-[#087f72]">מדורג לפי הכנסה</p><h2 id="sms-top-texts-title" className="mt-1 text-xl font-black text-[#111318]">טקסטים מובילים ב־SMS</h2><p className="mt-1 text-xs leading-5 text-[#667085]">הודעות הקמפיינים החזקות בטווח שנבחר. הטקסטים מוצגים רק כאן.</p></div>
+        <button type="button" onClick={onClose} aria-label="סגירת טקסטים מובילים" className="grid size-9 shrink-0 place-items-center rounded-md border border-[#d0d5dd] text-[#475467] transition hover:bg-[#f2f4f7]"><X size={17} /></button>
+      </header>
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">
+        {leading.length > 0 ? <div className="overflow-hidden rounded-lg border border-[#e4e7ec] bg-white">{leading.map((row, index) => {
+          const roas = row.cost > 0 ? row.revenue / row.cost : null;
+          return <article key={row.id} className="border-b border-[#eef0f2] p-4 last:border-b-0 sm:p-5">
+            <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-[10px] font-black text-[#087f72]">#{index + 1}</p><h3 className="mt-1 text-sm font-black leading-5 text-[#111318] [overflow-wrap:anywhere]">{row.name}</h3><p className="mt-1 text-[11px] text-[#667085]">{new Date(`${row.date}T12:00:00`).toLocaleDateString("he-IL")} · {formatCurrency(row.revenue, currency)} · {formatNumber(row.purchases)} רכישות · {formatRoas(roas)}</p></div><button type="button" onClick={() => void copyText(row)} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[#d0d5dd] px-2.5 text-xs font-bold text-[#344054] transition hover:bg-[#f8fafb]"><Copy size={13} />{copied === row.id ? "הועתק" : "העתקה"}</button></div>
+            <p className="mt-3 whitespace-pre-wrap rounded-md bg-[#f4fbfa] p-3 text-sm leading-6 text-[#111318]">{row.messageText}</p>
+          </article>;
+        })}</div> : <div className="grid min-h-56 place-content-center rounded-lg border border-dashed border-[#d0d5dd] bg-white p-6 text-center"><MessageSquareText size={28} className="mx-auto text-[#98a2b3]" /><p className="mt-3 text-sm font-bold text-[#344054]">אין טקסטים זמינים בטווח הזה</p><p className="mt-1 text-xs text-[#667085]">נסה להרחיב את טווח התאריכים או לסנכרן מחדש.</p></div>}
+      </div>
+    </aside>
+  </div>;
 }
 
 type SmsCopyResult = {
@@ -2454,7 +2493,7 @@ function smsLength(text: string) {
   return { characters: text.length, segments: text.length <= singleLimit ? 1 : Math.ceil(text.length / multipartLimit) };
 }
 
-function SmsCopyStudio({ account, onClose }: { account: FlashyAccount; onClose: () => void }) {
+function SmsCopyWorkspace({ account }: { account: FlashyAccount }) {
   const [objective, setObjective] = useState("");
   const [audience, setAudience] = useState("");
   const [offer, setOffer] = useState("");
@@ -2463,14 +2502,6 @@ function SmsCopyStudio({ account, onClose }: { account: FlashyAccount; onClose: 
   const [error, setError] = useState("");
   const [result, setResult] = useState<SmsCopyResult | null>(null);
   const [copied, setCopied] = useState<number | null>(null);
-
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", closeOnEscape);
-    return () => document.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
 
   async function generate() {
     setLoading(true);
@@ -2499,14 +2530,12 @@ function SmsCopyStudio({ account, onClose }: { account: FlashyAccount; onClose: 
 
   const evidenceById = new Map((result?.evidence ?? []).map((item) => [item.campaignId, item]));
 
-  return <div className="fixed inset-0 z-[75] flex justify-end bg-[#0b0c10]/35 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <aside role="dialog" aria-modal="true" aria-labelledby="sms-copy-title" className="flex h-full w-full max-w-[680px] flex-col bg-[#f7f9fa] shadow-[-24px_0_70px_rgba(11,12,16,0.18)]">
-      <header className="flex items-start justify-between gap-4 border-b border-[#e4e7ec] bg-white px-4 py-4 sm:px-6">
+  return <section aria-labelledby="sms-copy-title" className="overflow-hidden rounded-xl border border-[#dfe7ee] bg-white">
+      <header className="border-b border-[#e4e7ec] bg-[#fbfdfc] px-4 py-4 sm:px-6">
         <div className="min-w-0"><p className="text-xs font-bold text-[#087f72]">AI מבוסס ביצועים</p><h2 id="sms-copy-title" className="mt-1 text-xl font-black text-[#111318]">סטודיו כתיבת SMS</h2><p className="mt-1 text-xs leading-5 text-[#667085]">טיוטות לפי מסמכי {account.name} והודעות עבר עם ביצועים מוכחים</p></div>
-        <button type="button" onClick={onClose} aria-label="סגירת סטודיו SMS" className="grid size-9 shrink-0 place-items-center rounded-md border border-[#d0d5dd] text-[#475467] transition hover:bg-[#f2f4f7]"><X size={17} /></button>
       </header>
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="grid gap-4 border-b border-[#e4e7ec] bg-white p-4 sm:grid-cols-2 sm:p-6">
+      <div>
+        <div className="grid gap-4 border-b border-[#e4e7ec] p-4 sm:grid-cols-2 sm:p-6">
           <label className="block"><span className="mb-1.5 block text-xs font-bold text-[#344054]">מטרת השליחה</span><input value={objective} onChange={(event) => setObjective(event.target.value)} placeholder="למשל: החזרת לקוחות שלא רכשו 60 יום" className="h-10 w-full rounded-md border border-[#d0d5dd] px-3 text-sm outline-none focus:border-[#20b9a8] focus:ring-2 focus:ring-[#20b9a8]/15" /></label>
           <label className="block"><span className="mb-1.5 block text-xs font-bold text-[#344054]">קהל</span><input value={audience} onChange={(event) => setAudience(event.target.value)} placeholder="למשל: לקוחות חוזרים שלא רכשו לאחרונה" className="h-10 w-full rounded-md border border-[#d0d5dd] px-3 text-sm outline-none focus:border-[#20b9a8] focus:ring-2 focus:ring-[#20b9a8]/15" /></label>
           <label className="block sm:col-span-2"><span className="mb-1.5 block text-xs font-bold text-[#344054]">הצעה ופרטים מאושרים</span><textarea value={offer} onChange={(event) => setOffer(event.target.value)} placeholder="המבצע, הקוד, התוקף והקישור. ה-AI לא ימציא פרטים שלא יופיעו כאן." rows={3} className="w-full resize-y rounded-md border border-[#d0d5dd] px-3 py-2 text-sm leading-6 outline-none focus:border-[#20b9a8] focus:ring-2 focus:ring-[#20b9a8]/15" /></label>
@@ -2528,8 +2557,7 @@ function SmsCopyStudio({ account, onClose }: { account: FlashyAccount; onClose: 
           })}</div>
         </div> : <div className="grid min-h-56 place-content-center p-8 text-center"><MessageSquareText size={30} className="mx-auto text-[#20b9a8]" /><p className="mt-3 text-sm font-bold text-[#344054]">הזן בריף קצר כדי להתחיל</p><p className="mt-1 max-w-sm text-xs leading-5 text-[#667085]">המנוע ישווה להודעות עבר, יתחשב בביצועים ובמסמכי הלקוח ויחזיר טיוטות עם מקורות.</p></div>}
       </div>
-    </aside>
-  </div>;
+  </section>;
 }
 
 function SmsDashboard({ account, sms, automations, automationTimeline, previousSms, previousAutomations, rangeStart, rangeEnd, showDeepAnalysis }: {
@@ -2544,7 +2572,7 @@ function SmsDashboard({ account, sms, automations, automationTimeline, previousS
   showDeepAnalysis: boolean;
 }) {
   const [drilldown, setDrilldown] = useState<DrilldownState | null>(null);
-  const [copyStudioOpen, setCopyStudioOpen] = useState(false);
+  const [textsOpen, setTextsOpen] = useState(false);
   const rows = buildSmsActivityRows(account, sms, automations);
   const trendRows = buildSmsActivityRows(account, sms, automationTimeline);
   const previousRows = rangeStart && rangeEnd ? buildSmsActivityRows(account, previousSms, previousAutomations) : null;
@@ -2584,9 +2612,9 @@ function SmsDashboard({ account, sms, automations, automationTimeline, previousS
       context: kind === "mixed" ? "אוטומציות שמשלבות SMS ואימייל; ההכנסה אינה משמשת לחישוב ROAS" : "הפעילויות שמרכיבות את יחס ההכנסה לעלות",
       items: rows.filter((row) => row.kind === kind).map(smsRowToDrilldown),
     })} />
-    <SmsActivityTable rows={rows} currency={account.currency} showDeepAnalysis={showDeepAnalysis} onOpenWriter={showDeepAnalysis ? () => setCopyStudioOpen(true) : undefined} onSelect={(row) => setDrilldown({ title: row.name, context: "פירוט פעילות SMS", items: [smsRowToDrilldown(row)] })} />
+    <SmsActivityTable rows={rows} currency={account.currency} showDeepAnalysis={showDeepAnalysis} onOpenTexts={() => setTextsOpen(true)} onSelect={(row) => setDrilldown({ title: row.name, context: "פירוט פעילות SMS", items: [smsRowToDrilldown(row)] })} />
     <ChartDrilldown state={drilldown} currency={account.currency} onClose={() => setDrilldown(null)} />
-    {copyStudioOpen && <SmsCopyStudio account={account} onClose={() => setCopyStudioOpen(false)} />}
+    {textsOpen && <SmsTopTextsDrawer rows={rows} currency={account.currency} onClose={() => setTextsOpen(false)} />}
   </div>;
 }
 
@@ -4512,7 +4540,7 @@ function AiAssistant({
   automations: AutomationReport[];
   plans: NewsletterPlan[];
 }) {
-  const [workspaceTab, setWorkspaceTab] = useState<"brief" | "engine" | "memory">("brief");
+  const [workspaceTab, setWorkspaceTab] = useState<"brief" | "engine" | "sms" | "memory">("brief");
   const [memory, setMemory] = useState<AiAccountMemory>({});
   const [insights, setInsights] = useState<AiInsight[]>(
     buildAiInsights({ clientId, account, summary, emails, sms, automations, plans }),
@@ -4561,6 +4589,7 @@ function AiAssistant({
   const workspaceTabs = [
     { key: "brief", label: "תקציר פעולה", detail: "מה חשוב עכשיו" },
     { key: "engine", label: "מנוע הזדמנויות", detail: `${opportunities.length} הזדמנויות` },
+    { key: "sms", label: "כתיבת SMS", detail: "טיוטות מבוססות ביצועים" },
     { key: "memory", label: "זיכרון לקוח", detail: memoryLoaded ? `${memoryDocumentCount} מסמכים` : "טוען..." },
   ] as const;
   const memoryProfileCards = [
@@ -4755,7 +4784,7 @@ function AiAssistant({
               </div>
             </div>
           </div>
-          <div className="mt-5 grid gap-2 md:grid-cols-3">
+          <div className="mt-5 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             {workspaceTabs.map((tab) => (
               <button
                 key={tab.key}
@@ -4784,6 +4813,7 @@ function AiAssistant({
         <p className="mt-3 rounded-xl bg-[#f7faf9] px-3 py-2 text-xs font-bold text-[#65738a]">
           סטטוס: {aiState}
         </p>
+        {workspaceTab === "sms" && <div className="mt-4"><SmsCopyWorkspace account={account} /></div>}
         {workspaceTab === "brief" && (
           <>
         <section className="mt-4 grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
