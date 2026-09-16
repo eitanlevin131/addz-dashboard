@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 
 const port = Number(process.env.E2E_MOCK_PORT || 3061);
+const resendMessages = [];
 
 function dateOffset(days) {
   const value = new Date();
@@ -34,6 +35,23 @@ async function requestBody(request) {
 const server = createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://127.0.0.1:${port}`);
   if (url.pathname === "/health") return json(response, 200, { ok: true });
+
+  if (url.pathname === "/emails" && request.method === "POST") {
+    if (request.headers.authorization !== "Bearer e2e-resend-key") {
+      return json(response, 401, { message: "Invalid E2E Resend key" });
+    }
+    const body = await requestBody(request);
+    resendMessages.push({ ...body, id: `e2e-email-${resendMessages.length + 1}` });
+    return json(response, 200, { id: resendMessages.at(-1).id });
+  }
+
+  if (url.pathname === "/test/resend-latest") {
+    const to = url.searchParams.get("to");
+    const messages = to
+      ? resendMessages.filter((message) => Array.isArray(message.to) && message.to.includes(to))
+      : resendMessages;
+    return json(response, 200, { count: messages.length, data: messages.at(-1) ?? null });
+  }
 
   if (url.pathname === "/v1/responses" && request.method === "POST") {
     await requestBody(request);
@@ -74,7 +92,7 @@ const server = createServer(async (request, response) => {
   const campaignDate = dateOffset(-2);
   const earlierDate = dateOffset(-5);
   const smsDate = dateOffset(-1);
-  const automationDate = dateOffset(0);
+  const automationDate = dateOffset(-1);
   if (url.pathname === "/reports/emails") {
     const data = primary ? [
       {

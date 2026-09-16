@@ -55,11 +55,15 @@ OPENAI_MODEL
 OWNER_EMAIL
 ADMIN_PASSWORD
 CRON_SECRET
+RESEND_API_KEY
+EMAIL_FROM
 ```
 
 ב־Preview/Production, הערכים של `AUTH_URL` ו־`NEXTAUTH_URL` צריכים להיות הכתובת של Vercel, לא localhost.
 
 לא להגדיר `AUTH_DEV_BYPASS=true` ב־Vercel Production.
+
+`RESEND_API_KEY` ו־`EMAIL_FROM` משמשים לתשתית קודי הכניסה במייל. `EMAIL_FROM` חייב להשתמש בדומיין שאומת ב־Resend. כל עוד מסך ההתחברות עדיין במצב סיסמה, המשתנים יכולים להיות מוגדרים ולהיבדק ללא שינוי בכניסה הקיימת.
 
 `CRON_SECRET` מאבטח את הסנכרון היומי מול Flashy. אפשר ליצור אותו פעם אחת עם:
 

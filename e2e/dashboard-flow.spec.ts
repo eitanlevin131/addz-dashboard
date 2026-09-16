@@ -6,6 +6,7 @@ import { hashPassword } from "../src/lib/auth/password";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the E2E suite.");
+const mockBaseURL = `http://127.0.0.1:${Number(process.env.E2E_MOCK_PORT || 3061)}`;
 
 const db = neon(databaseUrl);
 const suffix = randomUUID().slice(0, 8);
@@ -66,6 +67,29 @@ test.describe("agency dashboard critical journey", () => {
     await page.getByLabel("סיסמה").fill(password);
     await page.getByRole("button", { name: "כניסה", exact: true }).click();
     await expect(page.getByRole("heading", { name: "סקירת סוכנות" })).toBeVisible();
+
+    const requestLoginCode = async (targetEmail: string) => page.evaluate(async (value) => {
+      const response = await fetch("/api/auth/code/request", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: value }),
+      });
+      return { status: response.status, payload: await response.json() };
+    }, targetEmail);
+    const knownCodeRequest = await requestLoginCode(email);
+    expect(knownCodeRequest.status).toBe(202);
+    const unknownCodeRequest = await requestLoginCode(`unknown-${suffix}@example.test`);
+    expect(unknownCodeRequest.status).toBe(202);
+    expect(unknownCodeRequest.payload.message).toBe(knownCodeRequest.payload.message);
+
+    const deliveredEmail = await fetch(`${mockBaseURL}/test/resend-latest?to=${encodeURIComponent(email)}`).then((response) => response.json());
+    expect(deliveredEmail.count).toBe(1);
+    const deliveredCode = String(deliveredEmail.data.text).match(/\b\d{6}\b/)?.[0];
+    expect(deliveredCode).toMatch(/^\d{6}$/);
+    const [storedCode] = await db`select code_hash, status, provider_message_id from login_codes where user_id = ${userId} order by requested_at desc limit 1`;
+    expect(storedCode.status).toBe("sent");
+    expect(storedCode.provider_message_id).toBe("e2e-email-1");
+    expect(storedCode.code_hash).not.toContain(deliveredCode);
 
     const clientSelector = page.locator("#client-select");
     await clientSelector.selectOption(secondaryClientId);

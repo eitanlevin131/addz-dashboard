@@ -69,6 +69,28 @@ export const verificationTokens = pgTable(
   (table) => [primaryKey({ columns: [table.identifier, table.token] })],
 );
 
+export const loginCodes = pgTable(
+  "login_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    emailHash: text("email_hash").notNull(),
+    requestIpHash: text("request_ip_hash").notNull(),
+    codeHash: text("code_hash"),
+    status: text("status").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    providerMessageId: text("provider_message_id"),
+  },
+  (table) => [
+    index("login_codes_email_requested_idx").on(table.emailHash, table.requestedAt),
+    index("login_codes_ip_requested_idx").on(table.requestIpHash, table.requestedAt),
+  ],
+);
+
 export const clients = pgTable("clients", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
