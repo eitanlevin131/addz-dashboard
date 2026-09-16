@@ -5,6 +5,7 @@ import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { clientUsers, users } from "@/lib/schema";
 import { authOptions } from "@/lib/auth/options";
 import { requireOwner } from "@/lib/auth/access";
+import { isOwnerEmail } from "@/lib/auth/owner";
 
 function hostFromUrl(value?: string) {
   if (!value) return null;
@@ -16,21 +17,11 @@ function hostFromUrl(value?: string) {
   }
 }
 
-function getAdminEmails() {
-  return new Set(
-    (process.env.ADMIN_EMAILS ?? "")
-      .split(",")
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean),
-  );
-}
-
 export async function GET(request: Request) {
   const context = await requireOwner();
   if (!context.ok) return context.response;
   const session = await getServerSession(authOptions);
   const email = session?.user?.email?.toLowerCase() ?? null;
-  const adminEmails = getAdminEmails();
   let dbUser: { id: string; role: string } | null = null;
   let clientAccessCount = 0;
 
@@ -61,15 +52,15 @@ export async function GET(request: Request) {
       sessionEmail: email,
       nextAuthUrlHost: hostFromUrl(process.env.NEXTAUTH_URL),
       authUrlHost: hostFromUrl(process.env.AUTH_URL),
-      adminEmailMatched: email ? adminEmails.has(email) : false,
-      adminEmailsConfigured: adminEmails.size,
+      ownerEmailMatched: email ? isOwnerEmail(email) : false,
+      ownerEmailConfigured: Boolean(process.env.OWNER_EMAIL || process.env.ADMIN_EMAILS?.split(",")[0]?.trim()),
       emailCodeDeliveryConfigured: Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM),
       passwordFallbackEnabled: process.env.AUTH_PASSWORD_FALLBACK === "true",
     },
     database: {
       configured: isDatabaseConfigured(),
       userFound: Boolean(dbUser),
-      userRole: email && adminEmails.has(email) ? "admin" : (dbUser?.role ?? null),
+      userRole: context.access.role,
       clientAccessCount,
     },
   });

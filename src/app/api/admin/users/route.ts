@@ -1,17 +1,26 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { recordAudit } from "@/lib/audit";
 import { requireOwner } from "@/lib/auth/access";
+import { parseManagedRole, resolveEffectiveRole } from "@/lib/auth/access-policy";
 import { isOwnerEmail } from "@/lib/auth/owner";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
-import { clientUsers, clients, users } from "@/lib/schema";
+import { clientUsers, clients, loginCodes, users } from "@/lib/schema";
 
 function normalizeEmail(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
 
-function normalizeRole(value: unknown): "admin" | "client" {
-  return value === "admin" ? "admin" : "client";
+async function revokeAuthentication(userId: string) {
+  const db = getDb();
+  const now = new Date();
+  await Promise.all([
+    db.update(users).set({ sessionVersion: sql`${users.sessionVersion} + 1` }).where(eq(users.id, userId)),
+    db.update(loginCodes).set({ status: "revoked", consumedAt: now }).where(and(
+      eq(loginCodes.userId, userId),
+      isNull(loginCodes.consumedAt),
+    )),
+  ]);
 }
 
 async function ownerAccess() {
@@ -37,10 +46,10 @@ export async function GET() {
       id: user.id,
       name: user.name ?? "",
       email: user.email,
-      role: isOwnerEmail(user.email) ? "owner" : user.role,
+      role: resolveEffectiveRole(user.role, isOwnerEmail(user.email)),
       status: user.status,
       lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
-      isOwner: isOwnerEmail(user.email) || user.role === "owner",
+      isOwner: isOwnerEmail(user.email),
       createdAt: user.createdAt.toISOString(),
       clients: linkRows.filter((link) => link.userId === user.id).map((link) => ({
         linkId: link.id,
@@ -58,9 +67,12 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const email = normalizeEmail(body.email);
   const name = String(body.name ?? "").trim();
-  const role = normalizeRole(body.role);
+  const role = parseManagedRole(body.role);
   const clientId = String(body.clientId ?? "").trim();
 
+  if (!role) {
+    return NextResponse.json({ success: false, message: "תפקיד המשתמש אינו תקין." }, { status: 400 });
+  }
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ success: false, message: "חסר אימייל משתמש תקין." }, { status: 400 });
   }
@@ -103,8 +115,10 @@ export async function PUT(request: Request) {
     db.select().from(clients).where(eq(clients.id, clientId)),
   ]);
   if (!user || !client) return NextResponse.json({ success: false, message: "המשתמש או הלקוח לא נמצאו." }, { status: 404 });
+  if (isOwnerEmail(user.email)) return NextResponse.json({ success: false, message: "לא ניתן לשנות את הרשאות בעל המערכת." }, { status: 400 });
   if (user.role !== "client") return NextResponse.json({ success: false, message: "שיוך לקוח זמין רק למשתמש מסוג לקוח." }, { status: 400 });
   await db.insert(clientUsers).values({ userId, clientId }).onConflictDoNothing();
+  await revokeAuthentication(userId);
   await recordAudit({ actorUserId: context.access.userId, action: "user.client_assigned", entityType: "user", entityId: userId, metadata: { clientId } });
   return NextResponse.json({ success: true });
 }
@@ -118,25 +132,47 @@ export async function PATCH(request: Request) {
   const db = getDb();
   const [target] = await db.select().from(users).where(eq(users.id, userId));
   if (!target) return NextResponse.json({ success: false, message: "המשתמש לא נמצא." }, { status: 404 });
-  const targetIsOwner = target.role === "owner" || isOwnerEmail(target.email);
+  const targetIsOwner = isOwnerEmail(target.email);
 
-  if (body.status !== undefined) {
-    if (targetIsOwner) return NextResponse.json({ success: false, message: "לא ניתן להשעות את בעל המערכת." }, { status: 400 });
-    const status = body.status === "suspended" ? "suspended" : "active";
-    await db.update(users).set({ status, sessionVersion: sql`${users.sessionVersion} + 1` }).where(eq(users.id, userId));
-    await recordAudit({ actorUserId: context.access.userId, action: `user.${status}`, entityType: "user", entityId: userId });
+  if (body.action === "revoke_sessions") {
+    if (targetIsOwner) return NextResponse.json({ success: false, message: "לא ניתן לנתק את בעל המערכת דרך המסך הזה." }, { status: 400 });
+    await revokeAuthentication(userId);
+    await recordAudit({ actorUserId: context.access.userId, action: "user.sessions_revoked", entityType: "user", entityId: userId });
     return NextResponse.json({ success: true });
   }
 
-  if (body.role !== "admin" && body.role !== "client") return NextResponse.json({ success: false, message: "תפקיד לא תקין." }, { status: 400 });
-  if (targetIsOwner) return NextResponse.json({ success: false, message: "לא ניתן לשנות את תפקיד בעל המערכת." }, { status: 400 });
-  const role = normalizeRole(body.role);
-  if (role === "client") {
-    const [link] = await db.select({ id: clientUsers.id }).from(clientUsers).where(eq(clientUsers.userId, userId)).limit(1);
-    if (!link) return NextResponse.json({ success: false, message: "לפני שינוי ללקוח צריך לשייך את המשתמש ללקוח." }, { status: 400 });
+  if (body.status !== undefined) {
+    if (targetIsOwner) return NextResponse.json({ success: false, message: "לא ניתן להשעות את בעל המערכת." }, { status: 400 });
+    if (body.status !== "active" && body.status !== "suspended") {
+      return NextResponse.json({ success: false, message: "סטטוס המשתמש אינו תקין." }, { status: 400 });
+    }
+    const status = body.status;
+    await db.update(users).set({ status }).where(eq(users.id, userId));
+    await revokeAuthentication(userId);
+    await recordAudit({ actorUserId: context.access.userId, action: `user.${status}`, entityType: "user", entityId: userId, metadata: { previousStatus: target.status, status } });
+    return NextResponse.json({ success: true });
   }
-  await db.update(users).set({ role, sessionVersion: sql`${users.sessionVersion} + 1` }).where(eq(users.id, userId));
-  await recordAudit({ actorUserId: context.access.userId, action: "user.role_changed", entityType: "user", entityId: userId, metadata: { role } });
+
+  const role = parseManagedRole(body.role);
+  if (!role) return NextResponse.json({ success: false, message: "תפקיד לא תקין." }, { status: 400 });
+  if (targetIsOwner) return NextResponse.json({ success: false, message: "לא ניתן לשנות את תפקיד בעל המערכת." }, { status: 400 });
+  if (role === "client") {
+    const clientId = String(body.clientId ?? "").trim();
+    if (!clientId) return NextResponse.json({ success: false, message: "צריך לבחור לקוח לפני שינוי התפקיד ללקוח." }, { status: 400 });
+    const [client] = await db.select({ id: clients.id }).from(clients).where(eq(clients.id, clientId));
+    if (!client) return NextResponse.json({ success: false, message: "הלקוח שנבחר לא נמצא." }, { status: 404 });
+    await db.batch([
+      db.insert(clientUsers).values({ userId, clientId }).onConflictDoNothing(),
+      db.update(users).set({ role }).where(eq(users.id, userId)),
+    ]);
+  } else {
+    await db.batch([
+      db.delete(clientUsers).where(eq(clientUsers.userId, userId)),
+      db.update(users).set({ role }).where(eq(users.id, userId)),
+    ]);
+  }
+  await revokeAuthentication(userId);
+  await recordAudit({ actorUserId: context.access.userId, action: "user.role_changed", entityType: "user", entityId: userId, metadata: { previousRole: target.role, role } });
   return NextResponse.json({ success: true });
 }
 
@@ -148,8 +184,9 @@ export async function DELETE(request: Request) {
   const clientId = String(body.clientId ?? "");
   if (!userId || !clientId) return NextResponse.json({ success: false, message: "חסרים משתמש או לקוח להסרת הרשאה." }, { status: 400 });
   const [target] = await getDb().select().from(users).where(eq(users.id, userId));
-  if (!target || target.role === "owner" || isOwnerEmail(target.email)) return NextResponse.json({ success: false, message: "לא ניתן לשנות את הרשאות בעל המערכת." }, { status: 400 });
+  if (!target || isOwnerEmail(target.email)) return NextResponse.json({ success: false, message: "לא ניתן לשנות את הרשאות בעל המערכת." }, { status: 400 });
   await getDb().delete(clientUsers).where(and(eq(clientUsers.userId, userId), eq(clientUsers.clientId, clientId)));
+  await revokeAuthentication(userId);
   await recordAudit({ actorUserId: context.access.userId, action: "user.client_unassigned", entityType: "user", entityId: userId, metadata: { clientId } });
   return NextResponse.json({ success: true });
 }

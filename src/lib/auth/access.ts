@@ -5,6 +5,7 @@ import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { clientUsers, users } from "@/lib/schema";
 import { authOptions } from "./options";
 import { isOwnerEmail } from "./owner";
+import { resolveEffectiveRole, roleCanAccessAllClients } from "./access-policy";
 
 export type AccessContext = {
   userId: string;
@@ -77,13 +78,12 @@ export async function getAccessContext(): Promise<
     };
   }
 
-  const ownerByEmail = isOwnerEmail(email);
-  if (ownerByEmail && user.role !== "owner") {
-    await db.update(users).set({ role: "owner" }).where(eq(users.id, user.id));
+  const role = resolveEffectiveRole(user.role, isOwnerEmail(email));
+  if (user.role !== role) {
+    await db.update(users).set({ role }).where(eq(users.id, user.id));
   }
-  const role = ownerByEmail ? "owner" : user.role;
 
-  if (isAdminRole(role)) {
+  if (roleCanAccessAllClients(role)) {
     return {
       ok: true,
       access: {
@@ -116,7 +116,7 @@ export async function requireAdmin() {
     return {
       ok: false as const,
       response: NextResponse.json(
-        { success: false, message: "רק אדמין יכול לבצע את הפעולה הזו." },
+        { success: false, message: "רק בעלים או מנהל יכולים לבצע את הפעולה הזו." },
         { status: 403 },
       ),
     };
@@ -128,7 +128,7 @@ export async function requireAdmin() {
 export async function requireOwner() {
   const context = await requireAdmin();
   if (!context.ok) return context;
-  if (!isOwnerRole(context.access.role) && !isOwnerEmail(context.access.email)) {
+  if (!isOwnerEmail(context.access.email)) {
     return { ok: false as const, response: NextResponse.json({ success: false, message: "ניהול משתמשים זמין לבעל המערכת בלבד." }, { status: 403 }) };
   }
   return context;

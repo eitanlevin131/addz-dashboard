@@ -11,6 +11,10 @@ const db = neon(databaseUrl);
 const suffix = randomUUID().slice(0, 8);
 const userId = `e2e-admin-${suffix}`;
 const email = `e2e-admin-${suffix}@example.test`;
+const ownerUserId = `e2e-owner-${suffix}`;
+const ownerEmail = "e2e-owner@example.test";
+const clientUserId = `e2e-client-${suffix}`;
+const clientEmail = `e2e-client-${suffix}@example.test`;
 const primaryClientId = randomUUID();
 const secondaryClientId = randomUUID();
 const primaryAccountId = randomUUID();
@@ -28,16 +32,32 @@ function dateOffset(days: number) {
 }
 
 async function cleanup() {
-  await db`delete from audit_logs where actor_user_id = ${userId} or entity_id in (${primaryAccountId}, ${secondaryAccountId})`;
+  await db`delete from audit_logs where actor_user_id in (${userId}, ${ownerUserId}, ${clientUserId}) or entity_id in (${primaryAccountId}, ${secondaryAccountId}, ${userId}, ${ownerUserId}, ${clientUserId})`;
   await db`delete from clients where id in (${primaryClientId}, ${secondaryClientId})`;
-  await db`delete from users where id = ${userId}`;
+  await db`delete from users where id in (${userId}, ${ownerUserId}, ${clientUserId}) or email in (${email}, ${ownerEmail}, ${clientEmail})`;
+}
+
+async function loginWithCode(page: import("@playwright/test").Page, targetEmail: string) {
+  await page.goto("/");
+  await page.getByLabel("אימייל").fill(targetEmail);
+  await page.getByRole("button", { name: "שלחו לי קוד כניסה", exact: true }).click();
+  await expect(page.getByLabel("קוד כניסה")).toBeVisible();
+  const deliveredEmail = await fetch(`${mockBaseURL}/test/resend-latest?to=${encodeURIComponent(targetEmail)}`).then((response) => response.json());
+  const deliveredCode = String(deliveredEmail.data?.text ?? "").match(/\b\d{6}\b/)?.[0];
+  expect(deliveredCode).toMatch(/^\d{6}$/);
+  if (!deliveredCode) throw new Error(`Resend mock did not capture a login code for ${targetEmail}.`);
+  await page.getByLabel("קוד כניסה").fill(deliveredCode);
+  await page.getByRole("button", { name: "כניסה", exact: true }).click();
 }
 
 test.describe("agency dashboard critical journey", () => {
   test.beforeAll(async () => {
     await cleanup();
     await db`insert into users (id, name, email, role, status, must_change_password)
-      values (${userId}, ${"E2E Agency Admin"}, ${email}, ${"admin"}, ${"active"}, false)`;
+      values
+        (${userId}, ${"E2E Agency Manager"}, ${email}, ${"admin"}, ${"active"}, false),
+        (${ownerUserId}, ${"E2E Owner"}, ${ownerEmail}, ${"owner"}, ${"active"}, false),
+        (${clientUserId}, ${"E2E Client"}, ${clientEmail}, ${"client"}, ${"active"}, false)`;
     await db`insert into clients (id, name, owner, industry, visible_modules)
       values
         (${primaryClientId}, ${primaryClientName}, ${"E2E"}, ${"QA"}, ${["reports", "planner", "ai"]}),
@@ -47,6 +67,7 @@ test.describe("agency dashboard critical journey", () => {
       values
         (${primaryAccountId}, ${primaryClientId}, 990001, ${primaryAccountName}, ${"https://example.test"}, ${"ILS"}, ${"Asia/Jerusalem"}, ${encryptSecret("e2e-flashy-primary")}, ${"3.7"}, ${"0.01"}, ${"100"}, ${"1500"}, true),
         (${secondaryAccountId}, ${secondaryClientId}, 990002, ${secondaryAccountName}, ${"https://example.test"}, ${"ILS"}, ${"Asia/Jerusalem"}, ${encryptSecret("e2e-flashy-secondary")}, ${"3.7"}, ${"0.01"}, ${"100"}, ${"1500"}, true)`;
+    await db`insert into client_users (client_id, user_id) values (${primaryClientId}, ${clientUserId})`;
     const plannedDate = new Date();
     plannedDate.setUTCDate(plannedDate.getUTCDate() - 2);
     await db`insert into newsletter_plans
@@ -109,6 +130,7 @@ test.describe("agency dashboard critical journey", () => {
     await expect(page.getByRole("button", { name: "30 ימים", exact: true })).toHaveClass(/bg-\[#111318\]/);
 
     const navigation = page.getByRole("navigation", { name: "ניווט ראשי" });
+    await expect(navigation.getByRole("button", { name: "ניהול", exact: true })).toHaveCount(0);
     await navigation.getByRole("button", { name: "הגדרות", exact: true }).click();
     const syncResponsePromise = page.waitForResponse((response) =>
       response.url().endsWith("/api/flashy/sync") && response.request().method() === "POST",
@@ -177,5 +199,78 @@ test.describe("agency dashboard critical journey", () => {
     await expect(page.getByText("בדיקת E2E הושלמה: הנתונים, החישוב והמקור זמינים.", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "נתונים", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "מקורות", exact: true })).toBeVisible();
+  });
+
+  test("owner controls access and a client sees only assigned data", async ({ page, browser }) => {
+    await loginWithCode(page, ownerEmail);
+    await expect(page.getByRole("heading", { name: "סקירת סוכנות" })).toBeVisible();
+    const ownerNavigation = page.getByRole("navigation", { name: "ניווט ראשי" });
+    await expect(ownerNavigation.getByRole("button", { name: "ניהול", exact: true })).toBeVisible();
+
+    const invalidRole = await page.evaluate(async (targetUserId) => {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: targetUserId, role: "owner" }),
+      });
+      return response.status;
+    }, userId);
+    expect(invalidRole).toBe(400);
+
+    const managerToClient = await page.evaluate(async ({ targetUserId, targetClientId }) => {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: targetUserId, role: "client", clientId: targetClientId }),
+      });
+      return response.status;
+    }, { targetUserId: userId, targetClientId: primaryClientId });
+    expect(managerToClient).toBe(200);
+    const [downgradedManager] = await db`select role, session_version from users where id = ${userId}`;
+    expect(downgradedManager.role).toBe("client");
+    expect(Number(downgradedManager.session_version)).toBeGreaterThan(0);
+
+    const managerRestored = await page.evaluate(async (targetUserId) => {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: targetUserId, role: "admin" }),
+      });
+      return response.status;
+    }, userId);
+    expect(managerRestored).toBe(200);
+    const managerLinks = await db`select id from client_users where user_id = ${userId}`;
+    expect(managerLinks).toHaveLength(0);
+
+    const clientContext = await browser.newContext({ locale: "he-IL", timezoneId: "Asia/Jerusalem" });
+    const clientPage = await clientContext.newPage();
+    await loginWithCode(clientPage, clientEmail);
+    await expect(clientPage.getByRole("heading", { name: primaryAccountName, exact: true })).toBeVisible();
+    const visibleClientIds = await clientPage.evaluate(async () => {
+      const response = await fetch("/api/dashboard-data", { cache: "no-store" });
+      const payload = await response.json();
+      return payload.data.clients.map((client: { id: string }) => client.id);
+    });
+    expect(visibleClientIds).toEqual([primaryClientId]);
+    const clientNavigation = clientPage.getByRole("navigation", { name: "ניווט ראשי" });
+    await expect(clientNavigation.getByRole("button", { name: "סוכנות", exact: true })).toHaveCount(0);
+    await expect(clientNavigation.getByRole("button", { name: "הגדרות", exact: true })).toHaveCount(0);
+    await expect(clientNavigation.getByRole("button", { name: "ניהול", exact: true })).toHaveCount(0);
+
+    const revokeStatus = await page.evaluate(async (targetUserId) => {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId: targetUserId, action: "revoke_sessions" }),
+      });
+      return response.status;
+    }, clientUserId);
+    expect(revokeStatus).toBe(200);
+    const revokedResponse = await clientPage.evaluate(async () => {
+      const response = await fetch("/api/dashboard-data", { cache: "no-store" });
+      return response.status;
+    });
+    expect(revokedResponse).toBe(401);
+    await clientContext.close();
   });
 });

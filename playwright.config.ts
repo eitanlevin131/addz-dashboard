@@ -55,6 +55,7 @@ export default defineConfig({
         RESEND_API_BASE_URL: mockBaseURL,
         RESEND_API_KEY: "e2e-resend-key",
         EMAIL_FROM: "addz Growth Desk <login@example.test>",
+        OWNER_EMAIL: "e2e-owner@example.test",
       },
     },
   ],

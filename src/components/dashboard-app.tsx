@@ -341,7 +341,7 @@ const views: { key: ViewKey; label: string; icon: typeof Activity; module?: Modu
   { key: "planner", label: "גאנט דיוורים", icon: CalendarDays, module: "planner" },
   { key: "ai", label: "AI", icon: Bot, module: "ai" },
   { key: "settings", label: "הגדרות", icon: Settings },
-  { key: "admin", label: "אדמין", icon: ShieldCheck },
+  { key: "admin", label: "ניהול", icon: ShieldCheck },
 ];
 
 const timeRanges: { key: TimeRangeKey; label: string; days: number | null }[] = [
@@ -4342,7 +4342,7 @@ function FloatingAiChat({
     planner: "גאנט",
     ai: "AI",
     settings: "הגדרות",
-    admin: "אדמין",
+    admin: "ניהול",
   };
   const quickQuestions = [
     view === "sms" ? "איזו שליחת SMS הייתי עוצר?" : "מה הדבר הכי חשוב לשפר עכשיו?",
@@ -4791,17 +4791,23 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
   }
 
   async function updateUserRole(userId: string, nextRole: "admin" | "client") {
+    const user = users.find((item) => item.id === userId);
+    const targetClientId = assignmentByUser[userId] || user?.clients[0]?.clientId || clients[0]?.id || "";
+    if (nextRole === "client" && !targetClientId) {
+      setState("צריך להקים לקוח לפני שינוי התפקיד ללקוח.");
+      return;
+    }
     setState("מעדכן תפקיד...");
     try {
       const response = await fetch("/api/admin/users", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ userId, role: nextRole }),
+        body: JSON.stringify({ userId, role: nextRole, clientId: nextRole === "client" ? targetClientId : undefined }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.message || "עדכון תפקיד נכשל");
       await loadUsers();
-      setState("התפקיד עודכן.");
+      setState("התפקיד עודכן והמשתמש נותק מכל הסשנים הקיימים.");
     } catch (error) {
       setState(error instanceof Error ? error.message : "עדכון תפקיד נכשל.");
     }
@@ -4820,6 +4826,22 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
     }
   }
 
+  async function revokeUserSessions(userId: string) {
+    setState("מנתק את המשתמש מכל המכשירים...");
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ userId, action: "revoke_sessions" }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "ניתוק הסשנים נכשל");
+      setState("המשתמש נותק מכל המכשירים וקודי הכניסה הקודמים בוטלו.");
+    } catch (error) {
+      setState(error instanceof Error ? error.message : "ניתוק הסשנים נכשל.");
+    }
+  }
+
   async function addClientAccess(userId: string) {
     const targetClientId = assignmentByUser[userId] || clients[0]?.id;
     if (!targetClientId) return;
@@ -4829,7 +4851,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.message || "הוספת השיוך נכשלה");
       await loadUsers();
-      setState("הלקוח שויך למשתמש.");
+      setState("הלקוח שויך והמשתמש יתבקש להתחבר מחדש.");
     } catch (error) {
       setState(error instanceof Error ? error.message : "הוספת השיוך נכשלה.");
     }
@@ -4847,7 +4869,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.message || "הסרת הרשאה נכשלה");
       await loadUsers();
-      setState("השיוך הוסר.");
+      setState("השיוך הוסר והמשתמש יתבקש להתחבר מחדש.");
     } catch (error) {
       setState(error instanceof Error ? error.message : "הסרת הרשאה נכשלה.");
     }
@@ -4901,7 +4923,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
           className="h-10 rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
         >
           <option value="client">לקוח</option>
-          <option value="admin">אדמין</option>
+          <option value="admin">מנהל</option>
         </select>
         <select
           value={clientId}
@@ -4931,12 +4953,12 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
           <article key={user.id} className="rounded-lg border border-[#dfe7ee] p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0"><p className="truncate font-bold text-[#111318]">{user.name || "ללא שם"}</p><p className="truncate text-left text-xs text-[#667085]" dir="ltr">{user.email}</p></div>
-              <button type="button" disabled={user.isOwner} onClick={() => updateUserStatus(user.id, user.status === "active" ? "suspended" : "active")} className={classNames("shrink-0 rounded-full px-3 py-1 text-xs font-bold", user.status === "active" ? "bg-[#e8fbf8] text-[#087f72]" : "bg-rose-50 text-rose-700")}>{user.status === "active" ? "פעיל" : "מושעה"}</button>
+              <div className="flex shrink-0 items-center gap-2"><button type="button" disabled={user.isOwner} onClick={() => revokeUserSessions(user.id)} title="נתק מכל המכשירים" aria-label={`נתק את ${user.email} מכל המכשירים`} className="grid size-8 place-items-center rounded-md border border-[#dfe7ee] text-[#667085] disabled:opacity-40"><KeyRound size={14} /></button><button type="button" disabled={user.isOwner} onClick={() => updateUserStatus(user.id, user.status === "active" ? "suspended" : "active")} className={classNames("rounded-full px-3 py-1 text-xs font-bold", user.status === "active" ? "bg-[#e8fbf8] text-[#087f72]" : "bg-rose-50 text-rose-700")}>{user.status === "active" ? "פעיל" : "מושעה"}</button></div>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3 border-y border-[#eaecf0] py-3 text-xs">
-              <label className="text-[#667085]">תפקיד<select value={user.role} aria-label={`תפקיד ${user.email}`} disabled={user.isOwner} onChange={(event) => updateUserRole(user.id, event.target.value as "admin" | "client")} className="mt-1 h-9 w-full rounded-md border border-[#dfe7ee] bg-white px-2 text-sm text-[#111318]"><option value="owner">בעלים</option><option value="client">לקוח</option><option value="admin">אדמין</option></select></label>
+              <label className="text-[#667085]">תפקיד<select value={user.role} aria-label={`תפקיד ${user.email}`} disabled={user.isOwner} onChange={(event) => updateUserRole(user.id, event.target.value as "admin" | "client")} className="mt-1 h-9 w-full rounded-md border border-[#dfe7ee] bg-white px-2 text-sm text-[#111318]"><option value="owner">בעלים</option><option value="client">לקוח</option><option value="admin">מנהל</option></select></label>
               <div><p className="text-[#667085]">התחברות</p><p className="mt-2 font-bold text-[#344054]">קוד חד־פעמי</p></div>
-              <div><p className="text-[#667085]">כניסה אחרונה</p><p className="mt-2 font-bold text-[#344054]">{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString("he-IL") : "טרם התחבר"}</p></div>
+              <div><p className="text-[#667085]">כניסה אחרונה</p><p className="mt-2 font-bold text-[#344054]">{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" }) : "טרם התחבר"}</p></div>
               <div><p className="text-[#667085]">נוצר</p><p className="mt-2 font-bold text-[#344054]">{new Date(user.createdAt).toLocaleDateString("he-IL")}</p></div>
             </div>
             <div className="mt-3">
@@ -4950,7 +4972,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
       </div>
 
       <div className="mx-5 mb-5 mt-4 hidden overflow-x-auto rounded-lg border border-[#dfe7ee] sm:mx-6 lg:block">
-        <table className="w-full min-w-[760px] border-collapse text-sm">
+        <table className="w-full min-w-[920px] border-collapse text-sm">
           <thead className="bg-[#f4f7f6] text-[#65738a]">
             <tr>
               <th className="p-3 text-right">משתמש</th>
@@ -4959,6 +4981,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
               <th className="p-3 text-right">סטטוס</th>
               <th className="p-3 text-right">לקוחות משויכים</th>
               <th className="p-3 text-right">נוצר</th>
+              <th className="p-3 text-right">אבטחה</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#eef3f7]">
@@ -4980,7 +5003,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
                   >
                     <option value="owner">בעלים</option>
                     <option value="client">לקוח</option>
-                    <option value="admin">אדמין</option>
+                    <option value="admin">מנהל</option>
                   </select>
                 </td>
                 <td className="p-3">
@@ -4998,7 +5021,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
                   >
                     {user.status === "active" ? "פעיל" : "מושעה"}
                   </button>
-                  <p className="mt-2 text-xs text-[#667085]">{user.lastLoginAt ? `כניסה: ${new Date(user.lastLoginAt).toLocaleDateString("he-IL")}` : "טרם התחבר"}</p>
+                  <p className="mt-2 text-xs text-[#667085]">{user.lastLoginAt ? `כניסה: ${new Date(user.lastLoginAt).toLocaleString("he-IL", { dateStyle: "short", timeStyle: "short" })}` : "טרם התחבר"}</p>
                 </td>
                 <td className="p-3">
                   {user.role === "admin" || user.role === "owner" ? (
@@ -5051,11 +5074,14 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
                 <td className="p-3 text-[#65738a]">
                   {new Date(user.createdAt).toLocaleDateString("he-IL")}
                 </td>
+                <td className="p-3">
+                  <button type="button" disabled={user.isOwner} onClick={() => revokeUserSessions(user.id)} className="inline-flex h-9 items-center gap-2 rounded-md border border-[#d0d5dd] px-3 text-xs font-bold text-[#475467] hover:bg-[#f8fafc] disabled:cursor-not-allowed disabled:opacity-40"><KeyRound size={14} />נתק מכשירים</button>
+                </td>
               </tr>
             ))}
             {!filteredUsers.length && (
               <tr>
-                <td colSpan={6} className="p-6 text-center text-[#65738a]">
+                <td colSpan={7} className="p-6 text-center text-[#65738a]">
                   {query ? "לא נמצאו משתמשים שמתאימים לחיפוש." : "אין משתמשים להצגה."}
                 </td>
               </tr>
@@ -5091,6 +5117,7 @@ function AdminActivityLog() {
     "client.created": "נוצר לקוח",
     "user.created": "נוצר משתמש",
     "user.role_changed": "שונה תפקיד",
+    "user.sessions_revoked": "נותק מכל המכשירים",
     "user.active": "הופעל משתמש",
     "user.suspended": "הושעה משתמש",
     "user.client_assigned": "שויך לקוח",
@@ -5259,7 +5286,7 @@ function AdminPanel({
 
     const details = [
       clientEmail.trim()
-        ? `אימייל לקוח: ${clientEmail.trim()} (צור עבורו סיסמה במסך אדמין)`
+        ? `אימייל לקוח: ${clientEmail.trim()} (הלקוח ייכנס באמצעות קוד חד־פעמי)`
         : "לא הוזן אימייל משתמש לקוח",
       "הדוחות במסכים כעת משתמשים בדאטה החי שנמשך מ-Flashy.",
     ];
