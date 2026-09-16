@@ -92,6 +92,18 @@ test.describe("agency dashboard critical journey", () => {
 
     await navigation.getByRole("button", { name: "כללי", exact: true }).click();
     await expect(page.getByText("הכנסה מיוחסת לפעילות", { exact: true })).toBeVisible();
+    await expect(page.getByText("הכנסות האתר", { exact: true })).toBeVisible();
+    await expect(page.getByText("אחוז הכנסות מ־Flashy", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "עדכון הכנסות האתר", exact: true }).click();
+    await page.getByLabel(/^סך הכנסות האתר/).fill("40000");
+    const siteRevenueResponsePromise = page.waitForResponse((response) =>
+      response.url().endsWith("/api/site-revenue") && response.request().method() === "PUT",
+    );
+    await page.getByRole("button", { name: "שמור", exact: true }).click();
+    const siteRevenueResponse = await siteRevenueResponsePromise;
+    expect(siteRevenueResponse.ok()).toBeTruthy();
+    await expect(page.getByText("‏40,000 ‏₪", { exact: true })).toBeVisible();
+    await expect(page.getByText("53%", { exact: true })).toBeVisible();
     const revenueChartFilter = page.getByRole("group", { name: "ערוץ בגרף ההכנסות" });
     await revenueChartFilter.getByRole("button", { name: "SMS", exact: true }).click();
     await expect(revenueChartFilter.getByRole("button", { name: "SMS", exact: true })).toHaveAttribute("aria-pressed", "true");

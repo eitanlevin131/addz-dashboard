@@ -22,6 +22,7 @@ import {
   ListFilter,
   MessageSquareText,
   Minus,
+  PencilLine,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -38,7 +39,7 @@ import {
   X,
 } from "lucide-react";
 import { signIn, signOut } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import {
   chartColors,
   CampaignJourneyChart,
@@ -979,14 +980,26 @@ function KPIGrid({
   account,
   summary,
   previousSummary,
+  siteRevenue,
+  siteRevenueLoading,
+  canEditSiteRevenue,
+  onEditSiteRevenue,
 }: {
   account: FlashyAccount;
   summary: MetricSummary;
   previousSummary: MetricSummary | null;
+  siteRevenue: number | null;
+  siteRevenueLoading: boolean;
+  canEditSiteRevenue: boolean;
+  onEditSiteRevenue: () => void;
 }) {
   const totalCost = summary.smsCost + summary.fixedCosts;
+  const flashyRevenueShare = siteRevenue !== null && siteRevenue > 0
+    ? summary.revenue / siteRevenue
+    : null;
   const metrics = [
     {
+      key: "flashyRevenue",
       label: "הכנסה מיוחסת לפעילות",
       value: formatCurrency(summary.revenue, account.currency),
       rawValue: summary.revenue,
@@ -996,6 +1009,27 @@ function KPIGrid({
       tone: "good" as const,
     },
     {
+      key: "siteRevenue",
+      label: "הכנסות האתר",
+      value: siteRevenueLoading ? "טוען..." : siteRevenue === null ? "—" : formatCurrency(siteRevenue, account.currency),
+      rawValue: siteRevenue,
+      previousValue: null,
+      formatPrevious: (value: number) => formatCurrency(value, account.currency),
+      detail: siteRevenue === null ? "טרם הוזן לטווח הנבחר" : "סך המכירות באתר בטווח",
+      tone: "neutral" as const,
+    },
+    {
+      key: "flashyShare",
+      label: "אחוז הכנסות מ־Flashy",
+      value: flashyRevenueShare === null ? "—" : formatPercent(flashyRevenueShare),
+      rawValue: flashyRevenueShare,
+      previousValue: null,
+      formatPrevious: (value: number) => formatPercent(value),
+      detail: "הכנסה מיוחסת מתוך מכירות האתר",
+      tone: flashyRevenueShare !== null && flashyRevenueShare > 1 ? "warn" as const : "good" as const,
+    },
+    {
+      key: "profit",
       label: "רווח",
       value: formatCurrency(summary.profit, account.currency),
       rawValue: summary.profit,
@@ -1005,6 +1039,7 @@ function KPIGrid({
       tone: summary.profit >= 0 ? "good" as const : "warn" as const,
     },
     {
+      key: "roas",
       label: "ROAS",
       value: formatRoas(summary.roas),
       rawValue: summary.roas,
@@ -1014,6 +1049,7 @@ function KPIGrid({
       tone: "good" as const,
     },
     {
+      key: "purchases",
       label: "רכישות",
       value: formatNumber(summary.purchases),
       rawValue: summary.purchases,
@@ -1025,7 +1061,7 @@ function KPIGrid({
   ];
 
   return (
-    <section className="grid grid-cols-2 overflow-hidden rounded-xl border border-[#e4e7ec] bg-white xl:grid-cols-4">
+    <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-[#e4e7ec] bg-[#e4e7ec] md:grid-cols-3 2xl:grid-cols-6">
       {metrics.map((metric) => {
         const comparison = comparisonChange(metric.rawValue, metric.previousValue);
         const ComparisonIcon = comparison?.direction === "up"
@@ -1036,10 +1072,22 @@ function KPIGrid({
 
         return (
           <article
-            key={metric.label}
-            className="min-w-0 border-b border-l border-[#e4e7ec] p-3.5 text-[#111318] even:border-l-0 xl:border-b-0 xl:p-4 xl:even:border-l xl:last:border-l-0"
+            key={metric.key}
+            className="min-w-0 bg-white p-3.5 text-[#111318] xl:p-4"
           >
-            <p className="text-xs font-medium text-[#667085]">{metric.label}</p>
+            <div className="flex min-h-6 items-start justify-between gap-2">
+              <p className="text-xs font-medium text-[#667085]">{metric.label}</p>
+              {metric.key === "siteRevenue" && canEditSiteRevenue && (
+                <button
+                  type="button"
+                  onClick={onEditSiteRevenue}
+                  title="עדכון הכנסות האתר"
+                  className="grid size-6 shrink-0 place-items-center rounded-md text-[#667085] transition hover:bg-[#f2f4f7] hover:text-[#111318]"
+                >
+                  <PencilLine size={14} />
+                </button>
+              )}
+            </div>
             <p
               className={classNames(
                 "mt-2 text-2xl font-bold leading-none tabular-nums tracking-normal sm:text-3xl",
@@ -1615,6 +1663,79 @@ function Overview({
   rangeEnd: string;
 }) {
   const [drilldown, setDrilldown] = useState<DrilldownState | null>(null);
+  const [siteRevenueRecord, setSiteRevenueRecord] = useState<{ key: string; revenue: number | null } | null>(null);
+  const [siteRevenueEditorOpen, setSiteRevenueEditorOpen] = useState(false);
+  const [siteRevenueInput, setSiteRevenueInput] = useState("");
+  const [siteRevenueMessage, setSiteRevenueMessage] = useState("");
+  const [siteRevenueSaving, setSiteRevenueSaving] = useState(false);
+  const siteRevenueStart = rangeStart ? accountDate(new Date(rangeStart), account.timezone) : "";
+  const siteRevenueEnd = rangeEnd ? accountDate(new Date(rangeEnd), account.timezone) : "";
+  const siteRevenueKey = siteRevenueStart && siteRevenueEnd
+    ? `${account.id}:${siteRevenueStart}:${siteRevenueEnd}`
+    : "";
+  const siteRevenue = siteRevenueRecord?.key === siteRevenueKey ? siteRevenueRecord.revenue : null;
+  const siteRevenueLoading = Boolean(siteRevenueKey) && siteRevenueRecord?.key !== siteRevenueKey;
+
+  useEffect(() => {
+    if (!siteRevenueStart || !siteRevenueEnd) return;
+
+    const controller = new AbortController();
+    fetch(
+      `/api/site-revenue?accountId=${encodeURIComponent(account.id)}&start=${siteRevenueStart}&end=${siteRevenueEnd}`,
+      { cache: "no-store", signal: controller.signal },
+    )
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.message || "טעינת הכנסות האתר נכשלה.");
+        setSiteRevenueRecord({ key: siteRevenueKey, revenue: payload.data ? Number(payload.data.revenue) : null });
+      })
+      .catch((error) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setSiteRevenueRecord({ key: siteRevenueKey, revenue: null });
+        setSiteRevenueMessage(error instanceof Error ? error.message : "טעינת הכנסות האתר נכשלה.");
+      });
+
+    return () => controller.abort();
+  }, [account.id, siteRevenueEnd, siteRevenueKey, siteRevenueStart]);
+
+  function openSiteRevenueEditor() {
+    setSiteRevenueInput(siteRevenue === null ? "" : String(siteRevenue));
+    setSiteRevenueMessage("");
+    setSiteRevenueEditorOpen(true);
+  }
+
+  async function saveSiteRevenue(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const revenue = Number(siteRevenueInput);
+    if (!Number.isFinite(revenue) || revenue < 0) {
+      setSiteRevenueMessage("יש להזין סכום תקין.");
+      return;
+    }
+
+    setSiteRevenueSaving(true);
+    setSiteRevenueMessage("");
+    try {
+      const response = await fetch("/api/site-revenue", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          accountId: account.id,
+          start: siteRevenueStart,
+          end: siteRevenueEnd,
+          revenue,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "שמירת הכנסות האתר נכשלה.");
+      setSiteRevenueRecord({ key: siteRevenueKey, revenue: Number(payload.data.revenue) });
+      setSiteRevenueEditorOpen(false);
+      setSiteRevenueMessage("הכנסות האתר עודכנו לטווח הנבחר.");
+    } catch (error) {
+      setSiteRevenueMessage(error instanceof Error ? error.message : "שמירת הכנסות האתר נכשלה.");
+    } finally {
+      setSiteRevenueSaving(false);
+    }
+  }
   const performanceItems: PerformanceItem[] = [
     ...emails.map((item) => ({
       id: `email-${item.id}`,
@@ -1707,7 +1828,57 @@ function Overview({
   return (
     <section className="grid grid-cols-12 gap-3">
       <div className="col-span-12">
-        <KPIGrid account={account} summary={summary} previousSummary={previousSummary} />
+        <KPIGrid
+          account={account}
+          summary={summary}
+          previousSummary={previousSummary}
+          siteRevenue={siteRevenue}
+          siteRevenueLoading={siteRevenueLoading}
+          canEditSiteRevenue={canAudit && Boolean(siteRevenueStart && siteRevenueEnd)}
+          onEditSiteRevenue={openSiteRevenueEditor}
+        />
+        {siteRevenueEditorOpen && (
+          <form
+            onSubmit={saveSiteRevenue}
+            className="flex flex-col gap-3 border-x border-b border-[#e4e7ec] bg-white px-4 py-3 sm:flex-row sm:items-end"
+          >
+            <label className="min-w-0 flex-1 text-xs font-medium text-[#475467]">
+              <span className="mb-1 block">סך הכנסות האתר · {siteRevenueStart} עד {siteRevenueEnd}</span>
+              <input
+                type="number"
+                min="0"
+                max="10000000000"
+                step="0.01"
+                value={siteRevenueInput}
+                onChange={(event) => setSiteRevenueInput(event.target.value)}
+                autoFocus
+                required
+                dir="ltr"
+                className="h-9 w-full rounded-md border border-[#d0d5dd] px-3 text-left text-sm tabular-nums outline-none focus:border-[#087f72]"
+                placeholder="0.00"
+              />
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={siteRevenueSaving}
+                className="h-9 rounded-md bg-[#111318] px-4 text-sm font-medium text-white disabled:opacity-50"
+              >
+                {siteRevenueSaving ? "שומר..." : "שמור"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSiteRevenueEditorOpen(false)}
+                className="h-9 rounded-md border border-[#d0d5dd] px-4 text-sm text-[#475467]"
+              >
+                ביטול
+              </button>
+            </div>
+          </form>
+        )}
+        {siteRevenueMessage && (
+          <p aria-live="polite" className="mt-1.5 px-1 text-xs text-[#667085]">{siteRevenueMessage}</p>
+        )}
       </div>
 
       {comparisonPoints.length > 0 && (

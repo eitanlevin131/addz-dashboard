@@ -183,6 +183,24 @@ export const accountMetricSnapshots = pgTable(
   ],
 );
 
+export const siteRevenueBenchmarks = pgTable(
+  "site_revenue_benchmarks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    flashyAccountId: uuid("flashy_account_id")
+      .notNull()
+      .references(() => flashyAccounts.id, { onDelete: "cascade" }),
+    rangeStart: date("range_start").notNull(),
+    rangeEnd: date("range_end").notNull(),
+    revenue: numeric("revenue", { precision: 16, scale: 2 }).notNull(),
+    source: text("source").notNull().default("manual"),
+    updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [unique().on(table.flashyAccountId, table.rangeStart, table.rangeEnd)],
+);
+
 export const emailCampaignReports = pgTable(
   "email_campaign_reports",
   {
