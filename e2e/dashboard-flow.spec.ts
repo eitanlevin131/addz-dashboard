@@ -185,9 +185,11 @@ test.describe("agency dashboard critical journey", () => {
     const automationMetric = page.getByRole("group", { name: "מדד בגרף אוטומציות" });
     await automationMetric.getByRole("button", { name: "נכנסו והשלימו", exact: true }).click();
     await expect(automationMetric.getByRole("button", { name: "נכנסו והשלימו", exact: true })).toHaveAttribute("aria-pressed", "true");
-    const automationFilter = page.getByRole("group", { name: "סינון אוטומציות" });
-    await automationFilter.getByRole("button", { name: "אימייל", exact: true }).click();
-    await expect(automationFilter.getByRole("button", { name: "אימייל", exact: true })).toHaveAttribute("aria-pressed", "true");
+    const automationFilter = page.getByRole("group", { name: "סינון לפי סוג אוטומציה" });
+    await automationFilter.getByRole("button", { name: "אימייל בלבד", exact: true }).click();
+    await expect(automationFilter.getByRole("button", { name: "אימייל בלבד", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText(/כל 1 האוטומציות עם פעילות בטווח/)).toBeVisible();
+    await expect(page.getByRole("button", { name: /כל האוטומציות/ })).toHaveCount(0);
     const automationRow = page.getByRole("button", { name: /E2E welcome automation/ }).first();
     await expect(automationRow).toBeVisible();
     await automationRow.click();

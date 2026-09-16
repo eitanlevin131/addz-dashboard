@@ -382,9 +382,9 @@ const channelLabels: Record<Channel, string> = {
 
 const automationFilterLabels: Record<AutomationFilterKey, string> = {
   all: "הכל",
-  mixed: "מעורב",
-  sms: "SMS",
-  email: "אימייל",
+  mixed: "מעורבת",
+  sms: "SMS בלבד",
+  email: "אימייל בלבד",
 };
 
 const costViewKeys: ViewKey[] = ["overview", "sms", "automations", "campaigns"];
@@ -2520,8 +2520,8 @@ function buildAutomationActivityRows(
       continue;
     }
     current.date = date > current.date ? date : current.date;
-    current.entered = Math.max(current.entered, entered);
-    current.completed = Math.max(current.completed, completed);
+    current.entered += entered;
+    current.completed += completed;
     current.emailMessages += emailMessages;
     current.smsMessages += smsMessages;
     current.opens += report.openedEmails ?? report.totalOpens;
@@ -2644,17 +2644,14 @@ type AutomationSort = "revenue" | "purchases" | "entered" | "completion" | "open
 function AutomationActivityTable({
   rows,
   currency,
-  showDeepAnalysis,
   onSelect,
 }: {
   rows: AutomationActivityRow[];
   currency: string;
-  showDeepAnalysis: boolean;
   onSelect: (row: AutomationActivityRow) => void;
 }) {
   const [sortBy, setSortBy] = useState<AutomationSort>("revenue");
   const [direction, setDirection] = useState<"asc" | "desc">("desc");
-  const [expanded, setExpanded] = useState(false);
   const value = (row: AutomationActivityRow, metric: AutomationSort) => {
     if (metric === "completion") return row.entered > 0 ? row.completed / row.entered : 0;
     if (metric === "openRate") return row.emailMessages > 0 ? row.opens / row.emailMessages : Number.NEGATIVE_INFINITY;
@@ -2666,7 +2663,7 @@ function AutomationActivityTable({
     const result = value(a, sortBy) - value(b, sortBy);
     return direction === "desc" ? -result : result;
   });
-  const visible = showDeepAnalysis || expanded ? sorted : sorted.slice(0, 8);
+  const visible = sorted;
   const selectSort = (metric: AutomationSort) => {
     if (metric === sortBy) setDirection((current) => current === "desc" ? "asc" : "desc");
     else {
@@ -2688,8 +2685,8 @@ function AutomationActivityTable({
 
   return <section className="overflow-hidden rounded-lg border border-[#e4e7ec] bg-white" aria-label="טבלת אוטומציות">
     <header className="flex items-center justify-between gap-3 border-b border-[#eef0f2] px-4 py-4 sm:px-5">
-      <div><h2 className="text-base font-bold">ביצועים לפי אוטומציה</h2><p className="mt-1 text-xs text-[#667085]">לחיצה על שורה פותחת משפך, השוואה ומגמה</p></div>
-      <button type="button" onClick={() => { setSortBy("revenue"); setDirection("desc"); setExpanded(false); }} title="איפוס מיון" aria-label="איפוס מיון אוטומציות" className="grid size-8 shrink-0 place-items-center rounded-md border border-[#d0d5dd] text-[#667085] hover:bg-[#f8fafb] hover:text-[#111318]"><RotateCcw size={14} /></button>
+      <div><h2 className="text-base font-bold">ביצועים לפי אוטומציה</h2><p className="mt-1 text-xs text-[#667085]">כל {formatNumber(rows.length)} האוטומציות עם פעילות בטווח · ללא פעילות אינן מוחזרות בדוח Flashy</p></div>
+      <button type="button" onClick={() => { setSortBy("revenue"); setDirection("desc"); }} title="איפוס מיון" aria-label="איפוס מיון אוטומציות" className="grid size-8 shrink-0 place-items-center rounded-md border border-[#d0d5dd] text-[#667085] hover:bg-[#f8fafb] hover:text-[#111318]"><RotateCcw size={14} /></button>
     </header>
     {visible.length === 0 ? <div className="grid min-h-40 place-content-center text-sm text-[#667085]">אין אוטומציות להצגה בסינון הזה</div> : <>
       <div className="hidden overflow-x-auto xl:block">
@@ -2699,7 +2696,6 @@ function AutomationActivityTable({
         </table>
       </div>
       <div className="divide-y divide-[#eef0f2] xl:hidden">{visible.map((row) => <button key={row.id} type="button" onClick={() => onSelect(row)} className="block w-full p-4 text-right transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><b className="block text-sm leading-5 text-[#111318] [overflow-wrap:anywhere]">{row.name}</b><span className="mt-1 block text-[10px] font-bold text-[#667085]">{automationFilterLabels[row.type]} · {formatNumber(row.messages)} הודעות</span></div><b className="shrink-0 text-sm tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</b></div><div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-[#667085]"><span>נכנסו <b className="block text-[#111318]">{formatNumber(row.entered)}</b></span><span>השלמה <b className="block text-[#111318]">{rate(row.completed, row.entered)}</b></span><span>פתיחה <b className="block text-[#111318]">{rate(row.opens, row.emailMessages)}</b></span><span>הקלקה <b className="block text-[#111318]">{rate(row.clicks, row.messages)}</b></span><span>רכישות <b className="block text-[#111318]">{formatNumber(row.purchases)}</b></span><span>המרה <b className="block text-[#111318]">{rate(row.purchases, row.entered)}</b></span></div></button>)}</div>
-      {sorted.length > 8 && !showDeepAnalysis && <button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)} className="flex min-h-10 w-full items-center justify-center gap-1.5 border-t border-[#eef0f2] text-xs font-bold hover:bg-[#f5f8f7]">{expanded ? <ChevronDown size={14} className="rotate-180" /> : <ChevronDown size={14} />}{expanded ? "הצג פחות" : `כל האוטומציות (${sorted.length})`}</button>}
     </>}
   </section>;
 }
@@ -2773,7 +2769,6 @@ function AutomationDashboard({
   previousRangeStart,
   previousRangeEnd,
   previousRangeLabel,
-  showDeepAnalysis,
 }: {
   account: FlashyAccount;
   automations: AutomationReport[];
@@ -2785,7 +2780,6 @@ function AutomationDashboard({
   previousRangeStart: string;
   previousRangeEnd: string;
   previousRangeLabel: string;
-  showDeepAnalysis: boolean;
 }) {
   const [filter, setFilter] = useState<AutomationFilterKey>("all");
   const [drilldown, setDrilldown] = useState<DrilldownState | null>(null);
@@ -2824,8 +2818,11 @@ function AutomationDashboard({
   });
 
   return <div className="space-y-4">
-    <div className="flex max-w-full gap-1 overflow-x-auto rounded-md bg-[#eef1f3] p-0.5 sm:w-fit" role="group" aria-label="סינון אוטומציות">
-      {(["all", "email", "sms", "mixed"] as const).map((type) => <button key={type} type="button" onClick={() => setFilter(type)} aria-pressed={filter === type} className={classNames("min-h-9 shrink-0 rounded px-3 text-sm transition", filter === type ? "bg-[#24282f] font-bold text-white" : "text-[#667085] hover:bg-white hover:text-[#111318]")}>{automationFilterLabels[type]}</button>)}
+    <div className="space-y-2">
+      <div className="flex max-w-full gap-1 overflow-x-auto rounded-md bg-[#eef1f3] p-0.5 sm:w-fit" role="group" aria-label="סינון לפי סוג אוטומציה">
+        {(["all", "email", "sms", "mixed"] as const).map((type) => <button key={type} type="button" onClick={() => setFilter(type)} aria-pressed={filter === type} className={classNames("min-h-9 shrink-0 rounded px-3 text-sm transition", filter === type ? "bg-[#24282f] font-bold text-white" : "text-[#667085] hover:bg-white hover:text-[#111318]")}>{automationFilterLabels[type]}</button>)}
+      </div>
+      <p className="text-xs leading-5 text-[#667085]">הכנסה של אוטומציה מעורבת אינה ניתנת לפיצול אמין בין אימייל ל־SMS בדוח Flashy.</p>
     </div>
     <AutomationKpiStrip account={account} rows={filtered} previousRows={filteredPrevious} />
     <AutomationPerformanceTrendChart points={trendPoints} currency={account.currency} previousRangeLabel={previousRangeLabel} onSelect={(point, metric) => setDrilldown({
@@ -2833,7 +2830,7 @@ function AutomationDashboard({
       context: metric === "revenue" ? "האוטומציות שמרכיבות את ההכנסה ביום הזה" : metric === "purchases" ? "האוטומציות שיצרו רכישות ביום הזה" : "האוטומציות שקיבלו כניסות ביום הזה",
       items: filteredTimeline.filter((row) => row.date === point.date).map(automationRowToDrilldown),
     })} />
-    <AutomationActivityTable rows={filtered} currency={account.currency} showDeepAnalysis={showDeepAnalysis} onSelect={setSelectedAutomation} />
+    <AutomationActivityTable rows={filtered} currency={account.currency} onSelect={setSelectedAutomation} />
     <AutomationDetailDrawer row={selectedAutomation} account={account} reports={automationTimeline} previousReports={previousAutomationTimeline} onClose={() => setSelectedAutomation(null)} />
     <ChartDrilldown state={drilldown} currency={account.currency} onClose={() => setDrilldown(null)} />
   </div>;
@@ -7257,7 +7254,7 @@ export function DashboardApp() {
                     ))}
                 </div>
                 <div className="flex items-center gap-2">
-                  {costViewKeys.includes(activeView) && (
+                  {costViewKeys.includes(activeView) && activeView !== "automations" && (
                     <button
                       onClick={() => setShowDeepAnalysis((current) => !current)}
                       className={classNames(
@@ -7347,7 +7344,6 @@ export function DashboardApp() {
                 previousRangeStart={previousRangeBounds?.start ?? ""}
                 previousRangeEnd={previousRangeBounds?.end ?? ""}
                 previousRangeLabel={previousRangeLabel}
-                showDeepAnalysis={effectiveShowDeepAnalysis}
               />
           )}
           {activeView === "campaigns" && (
