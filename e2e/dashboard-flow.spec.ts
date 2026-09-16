@@ -144,25 +144,23 @@ test.describe("agency dashboard critical journey", () => {
 
     await navigation.getByRole("button", { name: "כללי", exact: true }).click();
     await expect(page.getByText("הכנסה מיוחסת לפעילות", { exact: true })).toBeVisible();
-    await expect(page.getByText("הכנסות האתר", { exact: true })).toBeVisible();
+    await expect(page.getByText("הכנסה ממוצעת לרכישה", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "הכנסות לאורך התקופה", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "פירוק הכנסות", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "הקמפיינים המובילים", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "האוטומציות המובילות", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "השעות החזקות", exact: true })).toBeVisible();
+    const revenueBreakdownView = page.getByRole("group", { name: "סוג תצוגת פירוק הכנסות" });
+    await revenueBreakdownView.getByRole("button", { name: "טבעת", exact: true }).click();
+    await expect(revenueBreakdownView.getByRole("button", { name: "טבעת", exact: true })).toHaveAttribute("aria-pressed", "true");
+    const topCampaignFilter = page.getByRole("group", { name: "סינון קמפיינים מובילים" });
+    await topCampaignFilter.getByRole("button", { name: "SMS", exact: true }).click();
+    await expect(topCampaignFilter.getByRole("button", { name: "SMS", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await topCampaignFilter.getByRole("button", { name: "הכל", exact: true }).click();
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(page.getByText("הכנסה מיוחסת לפעילות", { exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.getByRole("button", { name: "עדכון הכנסות האתר", exact: true }).click();
-    await page.getByLabel(/^סך הכנסות האתר/).fill("40000");
-    const siteRevenueResponsePromise = page.waitForResponse((response) =>
-      response.url().endsWith("/api/site-revenue") && response.request().method() === "PUT",
-    );
-    await page.getByRole("button", { name: "שמור", exact: true }).click();
-    const siteRevenueResponse = await siteRevenueResponsePromise;
-    expect(siteRevenueResponse.ok()).toBeTruthy();
-    await expect(page.getByText("‏40,000 ‏₪", { exact: true })).toBeVisible();
-    await expect(page.getByText("53% מיוחס ל־Flashy", { exact: true })).toBeVisible();
     const revenueChartFilter = page.getByRole("group", { name: "ערוץ בגרף ההכנסות" });
     await revenueChartFilter.getByRole("button", { name: "SMS", exact: true }).click();
     await expect(revenueChartFilter.getByRole("button", { name: "SMS", exact: true })).toHaveAttribute("aria-pressed", "true");

@@ -8,6 +8,8 @@ import {
   ArrowUpRight,
   Bot,
   CalendarDays,
+  ChartNoAxesColumnIncreasing,
+  ChartPie,
   CheckCircle2,
   ChevronDown,
   Calculator,
@@ -22,10 +24,10 @@ import {
   ListFilter,
   MessageSquareText,
   Minus,
-  PencilLine,
   Plus,
   RefreshCw,
   RotateCcw,
+  Rows3,
   Send,
   Search,
   Settings,
@@ -39,7 +41,7 @@ import {
   X,
 } from "lucide-react";
 import { signIn, signOut } from "next-auth/react";
-import { type FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   chartColors,
   CampaignJourneyChart,
@@ -985,55 +987,67 @@ function KPIGrid({
   account,
   summary,
   previousSummary,
-  siteRevenue,
-  siteRevenueLoading,
-  canEditSiteRevenue,
-  onEditSiteRevenue,
+  campaignRevenue,
+  automationRevenue,
 }: {
   account: FlashyAccount;
   summary: MetricSummary;
   previousSummary: MetricSummary | null;
-  siteRevenue: number | null;
-  siteRevenueLoading: boolean;
-  canEditSiteRevenue: boolean;
-  onEditSiteRevenue: () => void;
+  campaignRevenue: number;
+  automationRevenue: number;
 }) {
   const totalCost = summary.smsCost + summary.fixedCosts;
-  const flashyRevenueShare = siteRevenue !== null && siteRevenue > 0
-    ? summary.revenue / siteRevenue
-    : null;
   const revenueComparison = comparisonChange(summary.revenue, previousSummary?.revenue ?? null);
   const RevenueComparisonIcon = revenueComparison?.direction === "up"
     ? ArrowUpRight
     : revenueComparison?.direction === "down"
       ? ArrowDownRight
       : Minus;
+  const averageRevenuePerPurchase = summary.purchases > 0 ? summary.revenue / summary.purchases : null;
+  const previousAverageRevenuePerPurchase = previousSummary && previousSummary.purchases > 0
+    ? previousSummary.revenue / previousSummary.purchases
+    : null;
+  const campaignShare = summary.revenue > 0 ? campaignRevenue / summary.revenue : 0;
+  const automationShare = summary.revenue > 0 ? automationRevenue / summary.revenue : 0;
   const compactMetrics = [
     {
-      key: "siteRevenue",
-      label: "הכנסות האתר",
-      value: siteRevenueLoading ? "טוען..." : siteRevenue === null ? "—" : formatCurrency(siteRevenue, account.currency),
-      detail: flashyRevenueShare === null ? "לא הוזן לטווח" : `${formatPercent(flashyRevenueShare)} מיוחס ל־Flashy`,
+      key: "averagePurchase",
+      label: "הכנסה ממוצעת לרכישה",
+      value: averageRevenuePerPurchase === null ? "—" : formatCurrency(averageRevenuePerPurchase, account.currency),
+      rawValue: averageRevenuePerPurchase,
+      previousValue: previousAverageRevenuePerPurchase,
+      detail: "הכנסה מיוחסת חלקי רכישות",
+      icon: Calculator,
+      accent: "#6389d9",
     },
     {
       key: "purchases",
       label: "רכישות מיוחסות",
       value: formatNumber(summary.purchases),
-      detail: previousSummary ? comparisonChange(summary.purchases, previousSummary.purchases)?.label ?? "ללא שינוי" : `המרה ${formatPercent(summary.conversionRate)}`,
+      rawValue: summary.purchases,
+      previousValue: previousSummary?.purchases ?? null,
+      detail: `המרה ${formatPercent(summary.conversionRate)}`,
+      icon: CheckCircle2,
+      accent: "#20b9a8",
     },
     {
       key: "profit",
       label: "רווח אחרי עלויות",
       value: formatCurrency(summary.profit, account.currency),
+      rawValue: summary.profit,
+      previousValue: previousSummary?.profit ?? null,
       detail: `${formatCurrency(totalCost, account.currency)} עלויות · ${formatRoas(summary.roas)} ROAS`,
+      icon: TrendingUp,
+      accent: summary.profit >= 0 ? "#111318" : "#b45309",
     },
   ];
 
   return (
-    <section className="grid overflow-hidden rounded-xl border border-[#e4e7ec] bg-[#e4e7ec] sm:grid-cols-3 lg:grid-cols-[minmax(280px,1.35fr)_repeat(3,minmax(0,1fr))]">
-      <article className="min-w-0 bg-[#111318] p-5 text-white sm:col-span-3 lg:col-span-1 lg:p-6">
+    <section dir="rtl" className="grid overflow-hidden rounded-xl border border-[#dfe3e7] bg-[#dfe3e7] sm:grid-cols-3 lg:grid-cols-[minmax(310px,1.4fr)_repeat(3,minmax(0,1fr))]">
+      <article className="relative min-w-0 overflow-hidden bg-[#111318] p-5 text-white sm:col-span-3 lg:col-span-1 lg:p-6">
+        <div className="absolute inset-y-0 right-0 w-1 bg-[#42dfcf]" />
         <p className="text-xs font-medium text-white/60">הכנסה מיוחסת לפעילות</p>
-        <p className="mt-3 text-4xl font-bold leading-none tabular-nums sm:text-5xl" dir="ltr">
+        <p className="mt-3 text-right text-4xl font-bold leading-none tabular-nums sm:text-5xl">
           {formatCurrency(summary.revenue, account.currency)}
         </p>
         <div className="mt-4 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 text-xs tabular-nums">
@@ -1052,26 +1066,37 @@ function KPIGrid({
             <span className="text-white/50">קמפיינים ואוטומציות בטווח הנבחר</span>
           )}
         </div>
+        <div className="mt-5">
+          <div className="flex h-2 overflow-hidden rounded-sm bg-white/10" dir="ltr" aria-label={`קמפיינים ${formatPercent(campaignShare)}, אוטומציות ${formatPercent(automationShare)}`}>
+            <i className="h-full bg-[#42dfcf]" style={{ width: `${Math.max(0, campaignShare) * 100}%` }} />
+            <i className="h-full bg-[#6389d9]" style={{ width: `${Math.max(0, automationShare) * 100}%` }} />
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-4 text-[11px] text-white/60">
+            <span><i className="ml-1.5 inline-block size-2 rounded-sm bg-[#42dfcf]" />קמפיינים {formatPercent(campaignShare)}</span>
+            <span><i className="ml-1.5 inline-block size-2 rounded-sm bg-[#6389d9]" />אוטומציות {formatPercent(automationShare)}</span>
+          </div>
+        </div>
       </article>
-      {compactMetrics.map((metric) => (
-        <article key={metric.key} className="min-w-0 bg-white p-4 text-[#111318] lg:p-5">
+      {compactMetrics.map((metric) => {
+        const comparison = comparisonChange(metric.rawValue, metric.previousValue);
+        const ComparisonIcon = comparison?.direction === "up" ? ArrowUpRight : comparison?.direction === "down" ? ArrowDownRight : Minus;
+        const Icon = metric.icon;
+        return <article key={metric.key} className="relative min-w-0 overflow-hidden bg-white p-4 text-[#111318] lg:p-5">
+          <i className="absolute inset-x-0 top-0 h-0.5" style={{ background: metric.accent }} />
           <div className="flex min-h-6 items-start justify-between gap-2">
             <p className="text-xs font-medium text-[#667085]">{metric.label}</p>
-            {metric.key === "siteRevenue" && canEditSiteRevenue && (
-              <button
-                type="button"
-                onClick={onEditSiteRevenue}
-                title="עדכון הכנסות האתר"
-                className="grid size-6 shrink-0 place-items-center rounded-md text-[#667085] transition hover:bg-[#f2f4f7] hover:text-[#111318]"
-              >
-                <PencilLine size={14} />
-              </button>
-            )}
+            <span className="grid size-8 shrink-0 place-items-center rounded-md bg-[#f2f4f7]" style={{ color: metric.accent }}><Icon size={16} /></span>
           </div>
-          <p className="mt-3 text-2xl font-bold leading-none tabular-nums sm:text-3xl" dir="ltr">{metric.value}</p>
+          <p className="mt-3 text-right text-2xl font-bold leading-none tabular-nums sm:text-3xl">{metric.value}</p>
+          {comparison && (
+            <span className={classNames(
+              "mt-2 inline-flex items-center gap-1 text-[11px] font-bold",
+              comparison.direction === "up" ? "text-[#087f72]" : comparison.direction === "down" ? "text-[#b45309]" : "text-[#667085]",
+            )}><ComparisonIcon size={13} />{comparison.label}</span>
+          )}
           <p className="mt-3 text-xs leading-5 text-[#667085]">{metric.detail}</p>
-        </article>
-      ))}
+        </article>;
+      })}
     </section>
   );
 }
@@ -1476,8 +1501,51 @@ function OverviewRevenueBreakdown({
   channels: OverviewRevenueDimension[];
   onSelect: (dimension: OverviewRevenueDimension) => void;
 }) {
+  const [viewMode, setViewMode] = useState<"bars" | "donut" | "list">("bars");
+
   const renderGroup = (title: string, detail: string, rows: OverviewRevenueDimension[]) => {
     const positiveTotal = rows.reduce((sum, row) => sum + Math.max(0, row.revenue), 0);
+    const maxRevenue = Math.max(...rows.map((row) => Math.max(0, row.revenue)), 1);
+    let donutOffset = 0;
+    const donutStops = rows.map((row) => {
+      const start = donutOffset;
+      donutOffset += positiveTotal > 0 ? Math.max(0, row.revenue) / positiveTotal * 100 : 0;
+      return `${row.color} ${start}% ${donutOffset}%`;
+    }).join(", ");
+
+    const rowButton = (row: OverviewRevenueDimension, visual: "bar" | "list") => {
+      const share = total > 0 ? row.revenue / total : 0;
+      return (
+        <button
+          type="button"
+          key={row.key}
+          onClick={() => onSelect(row)}
+          className="group w-full py-3 text-right transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"
+        >
+          <span className="flex items-start justify-between gap-4">
+            <span className="min-w-0">
+              <span className="flex items-center gap-2 text-sm font-bold text-[#111318]">
+                <i className="h-4 w-1 shrink-0 rounded-sm" style={{ background: row.color }} />
+                {row.label}
+              </span>
+              <span className="mt-1 block truncate pr-3 text-[11px] text-[#667085]">{row.detail}</span>
+            </span>
+            <span className="shrink-0 text-left">
+              <b className="block text-base tabular-nums text-[#111318]" dir="ltr">{formatCurrency(row.revenue, currency)}</b>
+              <span className="text-xs tabular-nums text-[#667085]">{formatPercent(share)}</span>
+            </span>
+          </span>
+          {visual === "bar" && (
+            <span className="mt-2 block h-1.5 overflow-hidden rounded-sm bg-[#eef0f2]" aria-hidden="true" dir="ltr">
+              <i
+                className="block h-full rounded-sm transition-[width] duration-300"
+                style={{ width: `${Math.max(0, row.revenue) / maxRevenue * 100}%`, background: row.color }}
+              />
+            </span>
+          )}
+        </button>
+      );
+    };
 
     return (
       <div className="min-w-0 p-4 sm:p-5">
@@ -1485,53 +1553,173 @@ function OverviewRevenueBreakdown({
           <h3 className="text-sm font-bold text-[#111318]">{title}</h3>
           <p className="mt-1 text-xs text-[#667085]">{detail}</p>
         </div>
-        <div className="mt-4 flex h-2 overflow-hidden rounded-sm bg-[#eef0f2]" aria-hidden="true" dir="ltr">
-          {rows.map((row) => (
-            <i
-              key={row.key}
-              className="h-full transition-[width] duration-300"
-              style={{ width: `${positiveTotal > 0 ? Math.max(0, row.revenue) / positiveTotal * 100 : 0}%`, background: row.color }}
-            />
-          ))}
-        </div>
-        <div className="mt-2 divide-y divide-[#eef0f2]">
-          {rows.map((row) => {
-            const share = total > 0 ? row.revenue / total : 0;
-            return (
-              <button
-                type="button"
-                key={row.key}
-                onClick={() => onSelect(row)}
-                className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 py-3 text-right transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"
-              >
-                <span className="min-w-0">
-                  <span className="flex items-center gap-2 text-sm font-bold">
-                    <i className="h-4 w-1 shrink-0 rounded-sm" style={{ background: row.color }} />
-                    {row.label}
-                  </span>
-                  <span className="mt-1 block truncate pr-3 text-[11px] text-[#667085]">{row.detail}</span>
+        {viewMode === "donut" ? (
+          <div className="mt-4 grid items-center gap-5 sm:grid-cols-[150px_minmax(0,1fr)]">
+            <div
+              className="relative mx-auto aspect-square w-[140px] rounded-full"
+              style={{ background: positiveTotal > 0 ? `conic-gradient(${donutStops})` : "#eef0f2" }}
+              aria-label={`${title}: ${formatCurrency(positiveTotal, currency)}`}
+            >
+              <span className="absolute inset-[18px] grid place-items-center rounded-full bg-white text-center">
+                <span>
+                  <b className="block text-base tabular-nums text-[#111318]" dir="ltr">{formatCurrency(positiveTotal, currency)}</b>
+                  <small className="text-[10px] text-[#667085]">סה״כ</small>
                 </span>
-                <span className="text-left">
-                  <b className="block text-lg tabular-nums text-[#111318]" dir="ltr">{formatCurrency(row.revenue, currency)}</b>
-                  <span className="text-xs tabular-nums text-[#667085]">{formatPercent(share)}</span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
+              </span>
+            </div>
+            <div className="divide-y divide-[#eef0f2]">{rows.map((row) => rowButton(row, "list"))}</div>
+          </div>
+        ) : (
+          <div className="mt-3 divide-y divide-[#eef0f2]">
+            {rows.map((row) => rowButton(row, viewMode === "bars" ? "bar" : "list"))}
+          </div>
+        )}
       </div>
     );
   };
 
   return (
-    <section className="col-span-12 min-w-0 overflow-hidden rounded-lg border border-[#e4e7ec] bg-white">
-      <header className="border-b border-[#eef0f2] px-4 py-4 sm:px-5">
-        <h2 className="text-base font-bold text-[#111318]">פירוק הכנסות</h2>
-        <p className="mt-1 text-xs text-[#667085]">אותו סכום כולל, בשתי זוויות שונות</p>
+    <section dir="rtl" className="col-span-12 min-w-0 overflow-hidden rounded-lg border border-[#e4e7ec] bg-white">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#eef0f2] px-4 py-4 sm:px-5">
+        <div>
+          <h2 className="text-base font-bold text-[#111318]">פירוק הכנסות</h2>
+          <p className="mt-1 text-xs text-[#667085]">אותו סכום כולל, בשתי זוויות שונות</p>
+        </div>
+        <div role="group" aria-label="סוג תצוגת פירוק הכנסות" className="flex rounded-md border border-[#d0d5dd] bg-[#f8fafb] p-0.5">
+          {([
+            { key: "bars" as const, label: "עמודות", icon: ChartNoAxesColumnIncreasing },
+            { key: "donut" as const, label: "טבעת", icon: ChartPie },
+            { key: "list" as const, label: "רשימה", icon: Rows3 },
+          ]).map((option) => {
+            const Icon = option.icon;
+            return (
+              <button
+                key={option.key}
+                type="button"
+                title={option.label}
+                aria-label={option.label}
+                aria-pressed={viewMode === option.key}
+                onClick={() => setViewMode(option.key)}
+                className={classNames(
+                  "grid size-8 place-items-center rounded-sm transition",
+                  viewMode === option.key ? "bg-[#111318] text-white shadow-sm" : "text-[#667085] hover:bg-white hover:text-[#111318]",
+                )}
+              >
+                <Icon size={16} />
+              </button>
+            );
+          })}
+        </div>
       </header>
       <div className="grid divide-y divide-[#e4e7ec] lg:grid-cols-2 lg:divide-x lg:divide-y-0 lg:divide-x-reverse">
         {renderGroup("לפי מקור", "קמפיינים מול אוטומציות", sources)}
         {renderGroup("לפי ערוץ", "אימייל, SMS ואוטומציות מעורבות", channels)}
+      </div>
+    </section>
+  );
+}
+
+type TopCampaignRow = {
+  id: string;
+  name: string;
+  medium: "email" | "sms";
+  revenue: number;
+  recipients: number;
+  openRate: number | null;
+  clickRate: number | null;
+  purchases: number;
+  conversionRate: number | null;
+  item: PerformanceItem;
+};
+
+function TopCampaignsPanel({
+  rows,
+  currency,
+  onSelect,
+}: {
+  rows: TopCampaignRow[];
+  currency: string;
+  onSelect: (row: TopCampaignRow) => void;
+}) {
+  const [filter, setFilter] = useState<"all" | "email" | "sms">("all");
+  const filteredRows = rows
+    .filter((row) => filter === "all" || row.medium === filter)
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 6);
+  const maxRevenue = Math.max(...filteredRows.map((row) => row.revenue), 1);
+  const rate = (value: number | null) => value === null ? "—" : formatPercent(value);
+
+  return (
+    <section dir="rtl" className="col-span-12 min-w-0 overflow-hidden rounded-lg border border-[#e4e7ec] bg-white">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#eef0f2] px-4 py-4 sm:px-5">
+        <div>
+          <h2 className="text-base font-bold text-[#111318]">הקמפיינים המובילים</h2>
+          <p className="mt-1 text-xs text-[#667085]">ביצועים מלאים, מדורגים לפי הכנסה מיוחסת</p>
+        </div>
+        <div role="group" aria-label="סינון קמפיינים מובילים" className="flex rounded-md border border-[#d0d5dd] bg-[#f8fafb] p-0.5 text-xs font-bold">
+          {([
+            { key: "all" as const, label: "הכל" },
+            { key: "email" as const, label: "אימייל" },
+            { key: "sms" as const, label: "SMS" },
+          ]).map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              aria-pressed={filter === option.key}
+              onClick={() => setFilter(option.key)}
+              className={classNames(
+                "min-h-8 rounded-sm px-3 transition",
+                filter === option.key ? "bg-[#111318] text-white shadow-sm" : "text-[#667085] hover:bg-white hover:text-[#111318]",
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </header>
+      <div className="hidden grid-cols-[minmax(220px,1.6fr)_repeat(6,minmax(70px,0.65fr))] gap-3 border-b border-[#eef0f2] bg-[#fafbfc] px-5 py-2 text-[11px] font-bold text-[#667085] lg:grid">
+        <span>קמפיין</span>
+        <span>הכנסה</span>
+        <span>נמענים</span>
+        <span>פתיחה</span>
+        <span>הקלקה</span>
+        <span>רכישות</span>
+        <span>המרה מקליק</span>
+      </div>
+      <div className="divide-y divide-[#eef0f2]">
+        {filteredRows.map((row) => (
+          <button
+            key={row.id}
+            type="button"
+            onClick={() => onSelect(row)}
+            className="grid w-full gap-3 px-4 py-4 text-right transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8] lg:grid-cols-[minmax(220px,1.6fr)_repeat(6,minmax(70px,0.65fr))] lg:items-center lg:px-5"
+          >
+            <span className="min-w-0">
+              <span className="flex items-center gap-2">
+                <i className="size-2 shrink-0 rounded-sm" style={{ background: row.medium === "sms" ? chartColors.sms : chartColors.email }} />
+                <b className="truncate text-sm text-[#111318]">{row.name}</b>
+              </span>
+              <span className="mt-2 block h-1 overflow-hidden rounded-sm bg-[#eef0f2]" dir="ltr" aria-hidden="true">
+                <i className="block h-full rounded-sm" style={{ width: `${Math.max(0, row.revenue) / maxRevenue * 100}%`, background: row.medium === "sms" ? chartColors.sms : chartColors.email }} />
+              </span>
+              <small className="mt-1 block text-[10px] font-medium text-[#667085]">{row.medium === "sms" ? "SMS" : "אימייל"}</small>
+            </span>
+            {[
+              ["הכנסה", formatCurrency(row.revenue, currency)],
+              ["נמענים", formatNumber(row.recipients)],
+              ["פתיחה", rate(row.openRate)],
+              ["הקלקה", rate(row.clickRate)],
+              ["רכישות", formatNumber(row.purchases)],
+              ["המרה מקליק", rate(row.conversionRate)],
+            ].map(([label, value]) => (
+              <span key={label} className="grid grid-cols-[1fr_auto] items-center gap-3 text-xs lg:block">
+                <span className="text-[#667085] lg:hidden">{label}</span>
+                <b className="tabular-nums text-[#111318]" dir="ltr">{value}</b>
+              </span>
+            ))}
+          </button>
+        ))}
+        {filteredRows.length === 0 && <p className="px-5 py-8 text-center text-sm text-[#667085]">אין קמפיינים בערוץ הזה בטווח שנבחר.</p>}
       </div>
     </section>
   );
@@ -1656,79 +1844,6 @@ function Overview({
   rangeEnd: string;
 }) {
   const [drilldown, setDrilldown] = useState<DrilldownState | null>(null);
-  const [siteRevenueRecord, setSiteRevenueRecord] = useState<{ key: string; revenue: number | null } | null>(null);
-  const [siteRevenueEditorOpen, setSiteRevenueEditorOpen] = useState(false);
-  const [siteRevenueInput, setSiteRevenueInput] = useState("");
-  const [siteRevenueMessage, setSiteRevenueMessage] = useState("");
-  const [siteRevenueSaving, setSiteRevenueSaving] = useState(false);
-  const siteRevenueStart = rangeStart ? accountDate(new Date(rangeStart), account.timezone) : "";
-  const siteRevenueEnd = rangeEnd ? accountDate(new Date(rangeEnd), account.timezone) : "";
-  const siteRevenueKey = siteRevenueStart && siteRevenueEnd
-    ? `${account.id}:${siteRevenueStart}:${siteRevenueEnd}`
-    : "";
-  const siteRevenue = siteRevenueRecord?.key === siteRevenueKey ? siteRevenueRecord.revenue : null;
-  const siteRevenueLoading = Boolean(siteRevenueKey) && siteRevenueRecord?.key !== siteRevenueKey;
-
-  useEffect(() => {
-    if (!siteRevenueStart || !siteRevenueEnd) return;
-
-    const controller = new AbortController();
-    fetch(
-      `/api/site-revenue?accountId=${encodeURIComponent(account.id)}&start=${siteRevenueStart}&end=${siteRevenueEnd}`,
-      { cache: "no-store", signal: controller.signal },
-    )
-      .then(async (response) => {
-        const payload = await response.json();
-        if (!response.ok || !payload.success) throw new Error(payload.message || "טעינת הכנסות האתר נכשלה.");
-        setSiteRevenueRecord({ key: siteRevenueKey, revenue: payload.data ? Number(payload.data.revenue) : null });
-      })
-      .catch((error) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setSiteRevenueRecord({ key: siteRevenueKey, revenue: null });
-        setSiteRevenueMessage(error instanceof Error ? error.message : "טעינת הכנסות האתר נכשלה.");
-      });
-
-    return () => controller.abort();
-  }, [account.id, siteRevenueEnd, siteRevenueKey, siteRevenueStart]);
-
-  function openSiteRevenueEditor() {
-    setSiteRevenueInput(siteRevenue === null ? "" : String(siteRevenue));
-    setSiteRevenueMessage("");
-    setSiteRevenueEditorOpen(true);
-  }
-
-  async function saveSiteRevenue(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const revenue = Number(siteRevenueInput);
-    if (!Number.isFinite(revenue) || revenue < 0) {
-      setSiteRevenueMessage("יש להזין סכום תקין.");
-      return;
-    }
-
-    setSiteRevenueSaving(true);
-    setSiteRevenueMessage("");
-    try {
-      const response = await fetch("/api/site-revenue", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          accountId: account.id,
-          start: siteRevenueStart,
-          end: siteRevenueEnd,
-          revenue,
-        }),
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.message || "שמירת הכנסות האתר נכשלה.");
-      setSiteRevenueRecord({ key: siteRevenueKey, revenue: Number(payload.data.revenue) });
-      setSiteRevenueEditorOpen(false);
-      setSiteRevenueMessage("הכנסות האתר עודכנו לטווח הנבחר.");
-    } catch (error) {
-      setSiteRevenueMessage(error instanceof Error ? error.message : "שמירת הכנסות האתר נכשלה.");
-    } finally {
-      setSiteRevenueSaving(false);
-    }
-  }
   const performanceItems: PerformanceItem[] = [
     ...emails.map((item) => ({
       id: `email-${item.id}`,
@@ -1789,6 +1904,38 @@ function Overview({
   ];
   const campaignItems = performanceItems.filter((item) => item.kind === "campaign");
   const automationItems = performanceItems.filter((item) => item.kind === "automation");
+  const campaignLeaderRows: TopCampaignRow[] = [
+    ...emails.map((report) => {
+      const item = campaignItems.find((candidate) => candidate.id === `email-${report.id}`)!;
+      return {
+        id: item.id,
+        name: report.campaignName,
+        medium: "email" as const,
+        revenue: report.revenueGenerated,
+        recipients: report.totalRecipients,
+        openRate: report.totalDelivered > 0 ? report.totalOpens / report.totalDelivered : null,
+        clickRate: report.totalDelivered > 0 ? report.uniqueClicks / report.totalDelivered : null,
+        purchases: report.purchases,
+        conversionRate: report.uniqueClicks > 0 ? report.purchases / report.uniqueClicks : null,
+        item,
+      };
+    }),
+    ...sms.map((report) => {
+      const item = campaignItems.find((candidate) => candidate.id === `sms-${report.id}`)!;
+      return {
+        id: item.id,
+        name: report.campaignName,
+        medium: "sms" as const,
+        revenue: report.revenueGenerated,
+        recipients: report.totalRecipients,
+        openRate: null,
+        clickRate: report.totalDelivered > 0 ? report.uniqueClicks / report.totalDelivered : null,
+        purchases: report.purchases,
+        conversionRate: report.uniqueClicks > 0 ? report.purchases / report.uniqueClicks : null,
+        item,
+      };
+    }),
+  ];
   const emailAutomationIds = new Set(
     automations.filter((item) => getAutomationType(item) === "email").map((item) => `automation-${item.id}`),
   );
@@ -1870,60 +2017,35 @@ function Overview({
     return campaignItems.filter((item) => ids.has(item.id));
   };
   return (
-    <section className="grid grid-cols-12 gap-3">
+    <section dir="rtl" className="grid grid-cols-12 gap-3">
       <div className="col-span-12">
         <KPIGrid
           account={account}
           summary={summary}
           previousSummary={previousSummary}
-          siteRevenue={siteRevenue}
-          siteRevenueLoading={siteRevenueLoading}
-          canEditSiteRevenue={canAudit && Boolean(siteRevenueStart && siteRevenueEnd)}
-          onEditSiteRevenue={openSiteRevenueEditor}
+          campaignRevenue={sourceDimensions[0]?.revenue ?? 0}
+          automationRevenue={sourceDimensions[1]?.revenue ?? 0}
         />
-        {siteRevenueEditorOpen && (
-          <form
-            onSubmit={saveSiteRevenue}
-            className="flex flex-col gap-3 border-x border-b border-[#e4e7ec] bg-white px-4 py-3 sm:flex-row sm:items-end"
-          >
-            <label className="min-w-0 flex-1 text-xs font-medium text-[#475467]">
-              <span className="mb-1 block">סך הכנסות האתר · {siteRevenueStart} עד {siteRevenueEnd}</span>
-              <input
-                type="number"
-                min="0"
-                max="10000000000"
-                step="0.01"
-                value={siteRevenueInput}
-                onChange={(event) => setSiteRevenueInput(event.target.value)}
-                autoFocus
-                required
-                dir="ltr"
-                className="h-9 w-full rounded-md border border-[#d0d5dd] px-3 text-left text-sm tabular-nums outline-none focus:border-[#087f72]"
-                placeholder="0.00"
-              />
-            </label>
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                disabled={siteRevenueSaving}
-                className="h-9 rounded-md bg-[#111318] px-4 text-sm font-medium text-white disabled:opacity-50"
-              >
-                {siteRevenueSaving ? "שומר..." : "שמור"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setSiteRevenueEditorOpen(false)}
-                className="h-9 rounded-md border border-[#d0d5dd] px-4 text-sm text-[#475467]"
-              >
-                ביטול
-              </button>
-            </div>
-          </form>
-        )}
-        {siteRevenueMessage && (
-          <p aria-live="polite" className="mt-1.5 px-1 text-xs text-[#667085]">{siteRevenueMessage}</p>
-        )}
       </div>
+
+      {comparisonPoints.length > 0 && (
+        <div className="col-span-12 min-w-0">
+          <PeriodComparisonChart
+            points={comparisonPoints}
+            currency={account.currency}
+            previousRangeLabel={previousRangeLabel}
+            onSelect={(point, series) => {
+              const channel = series === "email" ? "אימייל" : series === "sms" ? "SMS" : "אוטומציות";
+              const items = performanceItems.filter((item) => item.date === point.date && item.channel === channel);
+              setDrilldown({
+                title: `${channel} · ${point.label}`,
+                context: "הפעילויות שמרכיבות את הנקודה שנבחרה",
+                items: items.map(performanceToDrilldown),
+              });
+            }}
+          />
+        </div>
+      )}
 
       <OverviewRevenueBreakdown
         currency={account.currency}
@@ -1937,24 +2059,17 @@ function Overview({
         })}
       />
 
-      <div className="col-span-12 grid min-w-0 gap-3 xl:grid-cols-2">
-        <RankedBars
-          title="הקמפיינים המובילים"
-          detail="מדורג לפי הכנסה מיוחסת"
-          currency={account.currency}
-          limit={5}
-          rows={campaignItems.map((item) => ({
-            id: item.id,
-            label: item.name,
-            value: item.revenue,
-            color: item.medium === "sms" ? chartColors.sms : chartColors.email,
-            meta: `${item.channel} · ${formatNumber(item.purchases)} רכישות`,
-          }))}
-          onSelect={(selected) => {
-            const item = campaignItems.find((candidate) => candidate.id === selected.id);
-            if (item) setDrilldown({ title: item.name, context: "פירוט הקמפיין", items: [performanceToDrilldown(item)] });
-          }}
-        />
+      <TopCampaignsPanel
+        rows={campaignLeaderRows}
+        currency={account.currency}
+        onSelect={(selected) => setDrilldown({
+          title: selected.name,
+          context: "פירוט הקמפיין",
+          items: [performanceToDrilldown(selected.item)],
+        })}
+      />
+
+      <div className="col-span-12 min-w-0">
         <RankedBars
           title="האוטומציות המובילות"
           detail="מדורג לפי הכנסה מיוחסת"
@@ -2007,25 +2122,6 @@ function Overview({
           })}
         />
       </div>
-
-      {comparisonPoints.length > 0 && (
-        <div className="col-span-12 min-w-0">
-          <PeriodComparisonChart
-            points={comparisonPoints}
-            currency={account.currency}
-            previousRangeLabel={previousRangeLabel}
-            onSelect={(point, series) => {
-              const channel = series === "email" ? "אימייל" : series === "sms" ? "SMS" : "אוטומציות";
-              const items = performanceItems.filter((item) => item.date === point.date && item.channel === channel);
-              setDrilldown({
-                title: `${channel} · ${point.label}`,
-                context: "הפעילויות שמרכיבות את הנקודה שנבחרה",
-                items: items.map(performanceToDrilldown),
-              });
-            }}
-          />
-        </div>
-      )}
 
       {showDeepAnalysis && canAudit && (
         <div className="col-span-12">
