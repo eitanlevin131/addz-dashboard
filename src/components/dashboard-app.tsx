@@ -4595,7 +4595,7 @@ function FloatingAiChat({
   const confidenceLabels = { high: "ביטחון גבוה", medium: "ביטחון בינוני", low: "ביטחון נמוך" } as const;
 
   return (
-    <div className="fixed bottom-4 left-4 z-50 w-[calc(100vw-2rem)] max-w-[420px] text-right text-[#080123] md:bottom-6 md:left-6">
+    <div className="fixed bottom-4 right-4 z-50 w-[calc(100vw-2rem)] max-w-[420px] text-right text-[#080123] md:bottom-6 md:right-6 lg:right-[220px]">
       {open && (
         <section className="mb-3 overflow-hidden rounded-2xl border border-[#dfe7ee] bg-white shadow-[0_22px_60px_rgba(8,1,35,0.26)]">
           <div className="flex items-start justify-between gap-3 border-b border-[#edf2f6] bg-[#080123] p-4 text-white">
@@ -4720,7 +4720,7 @@ function FloatingAiChat({
       )}
       <button
         onClick={() => setOpen((current) => !current)}
-        className="mr-auto flex min-h-12 items-center gap-2 rounded-2xl bg-[oklch(82%_0.135_185)] px-4 text-sm font-black text-[#080123] shadow-[0_18px_44px_rgba(8,1,35,0.28)] transition hover:translate-y-[-1px]"
+        className="ml-auto flex min-h-12 items-center gap-2 rounded-2xl bg-[oklch(82%_0.135_185)] px-4 text-sm font-black text-[#080123] shadow-[0_18px_44px_rgba(8,1,35,0.28)] transition hover:translate-y-[-1px]"
       >
         <Sparkles size={18} />
         שאל את ה־AI
