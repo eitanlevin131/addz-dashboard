@@ -10,6 +10,7 @@ import {
   Line,
   Pie,
   PieChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -55,6 +56,95 @@ export type PeriodComparisonPoint = {
   automations: number;
   previousTotal: number;
 };
+
+export type SmsTrendPoint = {
+  date: string;
+  label: string;
+  revenue: number;
+  cost: number;
+  purchases: number;
+  roas: number | null;
+};
+
+export function SmsPerformanceTrendChart({
+  points,
+  currency,
+  onSelect,
+}: {
+  points: SmsTrendPoint[];
+  currency: string;
+  onSelect?: (point: SmsTrendPoint, metric: "revenue" | "cost" | "purchases" | "roas") => void;
+}) {
+  const [metric, setMetric] = useState<"revenue" | "purchases" | "roas">("revenue");
+  const hasData = points.some((point) => point.revenue || point.cost || point.purchases || point.roas);
+  const selectPoint = (selectedMetric: "revenue" | "cost" | "purchases" | "roas") => (entry: unknown) => {
+    const point = (entry as { payload?: SmsTrendPoint }).payload;
+    if (point) onSelect?.(point, selectedMetric);
+  };
+  const tooltipFormatter = (value: unknown, name: unknown) => {
+    const numericValue = Number(value);
+    if (name === "הכנסה" || name === "עלות SMS") return [formatCurrency(numericValue, currency), String(name)];
+    if (name === "ROAS") return [`${numericValue.toFixed(1)}x`, String(name)];
+    return [formatNumber(numericValue), String(name)];
+  };
+
+  return (
+    <ChartFrame
+      title="פעילות SMS לאורך התקופה"
+      detail={metric === "revenue" ? "הכנסה מיוחסת מול עלות ההודעות" : metric === "purchases" ? "רכישות מיוחסות לפי יום" : "הכנסה ברת־השוואה חלקי עלות SMS"}
+      controls={(
+        <div className="flex rounded-md bg-[#f1f4f5] p-0.5" role="group" aria-label="מדד בגרף פעילות SMS">
+          {([
+            { value: "revenue", label: "הכנסה ועלות" },
+            { value: "purchases", label: "רכישות" },
+            { value: "roas", label: "ROAS" },
+          ] as const).map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={metric === option.value}
+              onClick={() => setMetric(option.value)}
+              className={`min-h-8 rounded px-2.5 text-xs transition ${metric === option.value ? "bg-white font-bold text-[#111318] shadow-sm" : "text-[#667085] hover:text-[#344054]"}`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      )}
+    >
+      {!hasData ? <EmptyChart /> : <div className="min-w-0">
+        <div className="px-4 pb-1 sm:px-5">
+          <Legend items={metric === "revenue"
+            ? [{ label: "הכנסה", color: chartColors.sms }, { label: "עלות SMS", color: chartColors.cost }]
+            : [{ label: metric === "purchases" ? "רכישות" : "ROAS", color: chartColors.sms }]}
+          />
+        </div>
+        <div className="h-[280px] min-w-0 px-2 pb-3 pl-0 sm:h-[320px] sm:px-4 sm:pb-4" dir="ltr" role="img" aria-label="מגמת ביצועי SMS לאורך התקופה">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 900, height: 300 }}>
+            <ComposedChart data={points} margin={{ top: 12, right: 4, bottom: 0, left: 0 }}>
+              <CartesianGrid vertical={false} stroke="#eef0f2" />
+              <XAxis dataKey="label" axisLine={{ stroke: "#dfe3e7" }} tickLine={false} interval="preserveStartEnd" minTickGap={28} tick={{ fill: "#667085", fontSize: 10 }} />
+              {metric === "revenue" ? <>
+                <YAxis yAxisId="revenue" width={54} axisLine={false} tickLine={false} tickFormatter={compact} tick={{ fill: "#667085", fontSize: 10 }} />
+                <YAxis yAxisId="cost" orientation="right" width={48} axisLine={false} tickLine={false} tickFormatter={compact} tick={{ fill: chartColors.cost, fontSize: 10 }} />
+              </> : <YAxis width={54} axisLine={false} tickLine={false} tickFormatter={metric === "roas" ? (value) => `${Number(value).toFixed(0)}x` : compact} tick={{ fill: "#667085", fontSize: 10 }} />}
+              <Tooltip formatter={tooltipFormatter} contentStyle={{ direction: "rtl", borderRadius: 8, borderColor: "#e4e7ec", fontSize: 12 }} />
+              {metric === "revenue" && <>
+                <Area yAxisId="revenue" type="monotone" dataKey="revenue" name="הכנסה" stroke={chartColors.sms} fill={chartColors.sms} fillOpacity={0.17} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("revenue")} />
+                <Line yAxisId="cost" type="monotone" dataKey="cost" name="עלות SMS" stroke={chartColors.cost} strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("cost")} />
+              </>}
+              {metric === "purchases" && <Area type="monotone" dataKey="purchases" name="רכישות" stroke={chartColors.sms} fill={chartColors.sms} fillOpacity={0.18} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("purchases")} />}
+              {metric === "roas" && <>
+                <ReferenceLine y={1} stroke="#7b8491" strokeDasharray="5 4" />
+                <Area type="monotone" dataKey="roas" name="ROAS" connectNulls stroke={chartColors.sms} fill={chartColors.sms} fillOpacity={0.13} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("roas")} />
+              </>}
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>}
+    </ChartFrame>
+  );
+}
 
 export function PeriodComparisonChart({
   points,

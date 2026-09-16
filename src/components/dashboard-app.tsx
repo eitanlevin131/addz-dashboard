@@ -48,10 +48,11 @@ import {
   EngagementPlot,
   PeriodComparisonChart,
   RankedBars,
-  SmsReturnChart,
+  SmsPerformanceTrendChart,
   RevenueShareChart,
   WeekdayBars,
   type PeriodComparisonPoint,
+  type SmsTrendPoint,
 } from "@/components/reporting-charts";
 import { ClientOnboardingWizard } from "@/components/client-onboarding-wizard";
 import { AgencyPortfolio, type AgencyPortfolioRow } from "@/components/agency-portfolio";
@@ -79,7 +80,6 @@ import {
   combineMetricSummaries,
   getAutomationSmsRecipients,
   summarizeAccount,
-  summarizeSms,
 } from "@/lib/metrics";
 import {
   buildAccountHealth,
@@ -2142,83 +2142,327 @@ function Overview({
 }
 
 
-function SmsDashboard({ account, sms, automations, showDeepAnalysis }: {
-  account: FlashyAccount; sms: SmsCampaignReport[]; automations: AutomationReport[]; showDeepAnalysis: boolean;
-}) {
-  const [sortBy, setSortBy] = useState<"revenue" | "roas">("revenue");
-  const [drilldown, setDrilldown] = useState<DrilldownState | null>(null);
-  const smsAutomations = automations.filter(item => getAutomationSmsRecipients(item) > 0);
-  const summary = summarizeSms(account, sms, smsAutomations);
-  const rows = [
-    ...sms.map(item => ({
-      id: item.id, date: item.sentAt.slice(0, 10), name: item.campaignName, type: "קמפיינים", revenue: item.revenueGenerated, comparable: true,
+type SmsActivityKind = "campaign" | "automation" | "mixed";
+type SmsActivityRow = {
+  id: string;
+  date: string;
+  name: string;
+  kind: SmsActivityKind;
+  typeLabel: string;
+  revenue: number;
+  comparable: boolean;
+  cost: number;
+  recipients: number;
+  delivered: number;
+  clicks: number;
+  purchases: number;
+};
+
+function buildSmsActivityRows(
+  account: FlashyAccount,
+  sms: SmsCampaignReport[],
+  automations: AutomationReport[],
+): SmsActivityRow[] {
+  const smsAutomations = automations.filter((item) => getAutomationSmsRecipients(item) > 0);
+  return [
+    ...sms.map((item) => ({
+      id: `campaign-${item.id}`,
+      date: item.sentAt.slice(0, 10),
+      name: item.campaignName,
+      kind: "campaign" as const,
+      typeLabel: "קמפיין SMS",
+      revenue: item.revenueGenerated,
+      comparable: true,
       cost: item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate,
-      recipients: item.totalRecipients, clicks: item.totalClicks, purchases: item.purchases,
+      recipients: item.totalRecipients,
+      delivered: item.totalDelivered,
+      clicks: item.uniqueClicks,
+      purchases: item.purchases,
     })),
-    ...smsAutomations.map(item => ({
-      id: item.id, date: item.date, name: item.automationName, type: "אוטומציות עם SMS", revenue: item.revenueGenerated, comparable: getAutomationType(item) === "sms",
-      cost: getAutomationSmsRecipients(item) * account.smsCreditPriceUsd * account.usdIlsRate,
-      recipients: getAutomationSmsRecipients(item), clicks: item.clickedSms ?? item.totalClicks, purchases: item.purchases,
-    })),
+    ...smsAutomations.map((item) => {
+      const isPureSms = getAutomationType(item) === "sms";
+      const recipients = getAutomationSmsRecipients(item);
+      return {
+        id: `automation-${item.id}`,
+        date: item.date.slice(0, 10),
+        name: item.automationName,
+        kind: isPureSms ? "automation" as const : "mixed" as const,
+        typeLabel: isPureSms ? "אוטומציית SMS" : "אוטומציה מעורבת",
+        revenue: item.revenueGenerated,
+        comparable: isPureSms,
+        cost: recipients * account.smsCreditPriceUsd * account.usdIlsRate,
+        recipients,
+        delivered: recipients,
+        clicks: item.clickedSms ?? item.totalClicks,
+        purchases: item.purchases,
+      };
+    }),
   ];
-  const rowsForGroup = (label: string) => rows.filter(row => label === "קמפיינים" ? row.type === label : row.type !== "קמפיינים" && row.comparable === (label === "אוטומציות SMS"));
-  const toDrilldownItem = (row: (typeof rows)[number]): DrilldownItem => ({
+}
+
+function smsRowToDrilldown(row: SmsActivityRow): DrilldownItem {
+  return {
     id: row.id,
     title: row.name,
-    subtitle: row.type,
+    subtitle: row.typeLabel,
     date: row.date,
     revenue: row.revenue,
     cost: row.cost,
     purchases: row.purchases,
     recipients: row.recipients,
     clicks: row.clicks,
+  };
+}
+
+function SmsKpiStrip({
+  account,
+  rows,
+  previousRows,
+}: {
+  account: FlashyAccount;
+  rows: SmsActivityRow[];
+  previousRows: SmsActivityRow[] | null;
+}) {
+  const totals = (items: SmsActivityRow[]) => {
+    const comparable = items.filter((item) => item.comparable);
+    const comparableRevenue = comparable.reduce((sum, item) => sum + item.revenue, 0);
+    const comparableCost = comparable.reduce((sum, item) => sum + item.cost, 0);
+    return {
+      revenue: items.reduce((sum, item) => sum + item.revenue, 0),
+      cost: items.reduce((sum, item) => sum + item.cost, 0),
+      purchases: items.reduce((sum, item) => sum + item.purchases, 0),
+      recipients: items.reduce((sum, item) => sum + item.recipients, 0),
+      roas: comparableCost > 0 ? comparableRevenue / comparableCost : null,
+    };
+  };
+  const current = totals(rows);
+  const previous = previousRows ? totals(previousRows) : null;
+  const metrics = [
+    { key: "cost", label: "עלות SMS", value: formatCurrency(current.cost, account.currency), raw: current.cost, previous: previous?.cost ?? null, detail: `${formatNumber(current.recipients)} הודעות`, icon: MessageSquareText, increaseIsGood: false },
+    { key: "roas", label: "ROAS בר־השוואה", value: formatRoas(current.roas), raw: current.roas, previous: previous?.roas ?? null, detail: "קמפיינים ואוטומציות SMS בלבד", icon: LineChart, increaseIsGood: true },
+    { key: "purchases", label: "רכישות", value: formatNumber(current.purchases), raw: current.purchases, previous: previous?.purchases ?? null, detail: "מכל פעילות ה־SMS", icon: CheckCircle2, increaseIsGood: true },
+  ];
+  const revenueComparison = comparisonChange(current.revenue, previous?.revenue ?? null);
+  const RevenueIcon = revenueComparison?.direction === "up" ? ArrowUpRight : revenueComparison?.direction === "down" ? ArrowDownRight : Minus;
+
+  return <section dir="rtl" className="grid overflow-hidden rounded-xl border border-[#dfe3e7] bg-[#dfe3e7] sm:grid-cols-3 lg:grid-cols-[minmax(310px,1.4fr)_repeat(3,minmax(0,1fr))]">
+    <article className="relative min-w-0 overflow-hidden bg-[#111318] p-5 text-white sm:col-span-3 lg:col-span-1 lg:p-6">
+      <div className="absolute inset-y-0 right-0 w-1 bg-[#42dfcf]" />
+      <p className="text-xs font-medium text-white/60">הכנסות פעילות SMS</p>
+      <p className="mt-3 text-right text-4xl font-bold leading-none tabular-nums sm:text-5xl">{formatCurrency(current.revenue, account.currency)}</p>
+      <div className="mt-4 flex min-h-5 flex-wrap items-center gap-2 text-xs tabular-nums">
+        {revenueComparison ? <span className={classNames("inline-flex items-center gap-1 font-bold", revenueComparison.direction === "up" ? "text-[#42dfcf]" : revenueComparison.direction === "down" ? "text-[#fbbf72]" : "text-white/65")}><RevenueIcon size={14} />{revenueComparison.label}</span> : <span className="text-white/50">קמפיינים ואוטומציות עם SMS</span>}
+        {previous && <span className="text-white/45">קודם {formatCurrency(previous.revenue, account.currency)}</span>}
+      </div>
+    </article>
+    {metrics.map((metric) => {
+      const comparison = comparisonChange(metric.raw, metric.previous);
+      const ComparisonIcon = comparison?.direction === "up" ? ArrowUpRight : comparison?.direction === "down" ? ArrowDownRight : Minus;
+      const positive = comparison?.direction === "same" || (comparison?.direction === "up") === metric.increaseIsGood;
+      const Icon = metric.icon;
+      return <article key={metric.key} className="relative min-w-0 bg-white p-4 text-[#111318] lg:p-5">
+        <div className="flex min-h-6 items-start justify-between gap-2">
+          <p className="text-xs font-medium text-[#667085]">{metric.label}</p>
+          <span className="grid size-8 shrink-0 place-items-center rounded-md bg-[#f2f4f7] text-[#087f72]"><Icon size={16} /></span>
+        </div>
+        <p className="mt-3 text-right text-2xl font-bold leading-none tabular-nums sm:text-3xl">{metric.value}</p>
+        {comparison && <span className={classNames("mt-2 inline-flex items-center gap-1 text-[11px] font-bold", comparison.direction === "same" ? "text-[#667085]" : positive ? "text-[#087f72]" : "text-[#b45309]")}><ComparisonIcon size={13} />{comparison.label}</span>}
+        <p className="mt-3 text-xs leading-5 text-[#667085]">{metric.detail}</p>
+      </article>;
+    })}
+  </section>;
+}
+
+function SmsEfficiencyOverview({
+  rows,
+  campaignStages,
+  currency,
+  onSelectGroup,
+}: {
+  rows: SmsActivityRow[];
+  campaignStages: Array<{ label: string; value: number }>;
+  currency: string;
+  onSelectGroup: (kind: SmsActivityKind, label: string) => void;
+}) {
+  const base = campaignStages[0]?.value ?? 0;
+  const groups: Array<{ kind: SmsActivityKind; label: string; color: string }> = [
+    { kind: "campaign", label: "קמפיינים", color: chartColors.sms },
+    { kind: "automation", label: "אוטומציות SMS", color: chartColors.automation },
+    { kind: "mixed", label: "אוטומציות מעורבות", color: "#7b8491" },
+  ];
+
+  return <section className="overflow-hidden rounded-lg border border-[#e4e7ec] bg-white">
+    <header className="border-b border-[#eef0f2] px-4 py-4 sm:px-5">
+      <h2 className="text-base font-bold">יעילות פעילות SMS</h2>
+      <p className="mt-1 text-xs text-[#667085]">מסלול הקמפיינים והחזר לפי סוג פעילות, בתמונה אחת</p>
+    </header>
+    <div className="grid min-w-0 lg:grid-cols-2 lg:divide-x lg:divide-x-reverse lg:divide-[#eef0f2]">
+      <div className="p-4 sm:p-5">
+        <h3 className="text-sm font-bold text-[#344054]">מהמסירה עד לרכישה</h3>
+        {base > 0 ? <ol className="mt-4 space-y-3">
+          {campaignStages.map((stage, index) => {
+            const previous = campaignStages[index - 1]?.value ?? stage.value;
+            const share = Math.max(0, Math.min(1, stage.value / base));
+            return <li key={stage.label}>
+              <div className="mb-1.5 flex items-baseline justify-between gap-3 text-xs"><span className="font-semibold text-[#475467]">{stage.label}</span><span className="flex items-baseline gap-2"><span className="text-[11px] text-[#667085]">{index === 0 ? "בסיס" : `${formatPercent(previous > 0 ? stage.value / previous : 0)} מהשלב הקודם`}</span><b className="text-sm tabular-nums text-[#111318]">{formatNumber(stage.value)}</b></span></div>
+              <div className="h-3 overflow-hidden rounded-sm bg-[#f1f4f5]"><div className="h-full rounded-sm bg-[#20b9a8]" style={{ width: `${Math.max(stage.value > 0 ? 2 : 0, share * 100)}%`, opacity: Math.max(0.5, 1 - index * 0.16) }} /></div>
+            </li>;
+          })}
+        </ol> : <p className="mt-8 text-sm text-[#667085]">אין קמפייני SMS בטווח שנבחר</p>}
+      </div>
+      <div className="border-t border-[#eef0f2] p-4 sm:p-5 lg:border-t-0">
+        <h3 className="text-sm font-bold text-[#344054]">החזר לפי סוג פעילות</h3>
+        <div className="mt-2 divide-y divide-[#eef0f2]">
+          {groups.map((group) => {
+            const items = rows.filter((row) => row.kind === group.kind);
+            const revenue = items.reduce((sum, row) => sum + row.revenue, 0);
+            const cost = items.reduce((sum, row) => sum + row.cost, 0);
+            const ratio = group.kind !== "mixed" && cost > 0 ? revenue / cost : null;
+            return <button key={group.kind} type="button" onClick={() => onSelectGroup(group.kind, group.label)} disabled={items.length === 0} className="block w-full py-3 text-right transition first:pt-1 enabled:hover:bg-[#f8fbfa] enabled:focus-visible:outline-2 enabled:focus-visible:outline-[#20b9a8] disabled:cursor-default disabled:opacity-50">
+              <div className="flex items-center justify-between gap-3"><span className="inline-flex items-center gap-2 text-sm font-bold"><i className="h-4 w-1 rounded-sm" style={{ background: group.color }} />{group.label}</span>{group.kind === "mixed" ? <span className="rounded-sm bg-[#f2f4f7] px-2 py-1 text-[10px] font-bold text-[#667085]">לא בר־השוואה</span> : <b className="text-lg tabular-nums" dir="ltr">{formatRoas(ratio)}</b>}</div>
+              <div className="mt-1 flex flex-wrap justify-between gap-2 pr-3 text-xs text-[#667085]"><span>{formatNumber(items.length)} פעילויות · {formatCurrency(revenue, currency)}</span><span>עלות {formatCurrency(cost, currency)}</span></div>
+            </button>;
+          })}
+        </div>
+        <p className="mt-3 border-t border-[#eef0f2] pt-3 text-[11px] leading-5 text-[#667085]">ROAS מוצג רק כשגם ההכנסה וגם העלות שייכות ל־SMS. באוטומציה מעורבת ההכנסה כוללת אימייל ולכן היא מוצגת בנפרד.</p>
+      </div>
+    </div>
+  </section>;
+}
+
+type SmsActivitySort = "revenue" | "cost" | "roas" | "recipients" | "clickRate" | "purchases" | "conversion";
+
+function SmsActivityTable({
+  rows,
+  currency,
+  showDeepAnalysis,
+  onSelect,
+}: {
+  rows: SmsActivityRow[];
+  currency: string;
+  showDeepAnalysis: boolean;
+  onSelect: (row: SmsActivityRow) => void;
+}) {
+  const [filter, setFilter] = useState<"all" | SmsActivityKind>("all");
+  const [sortBy, setSortBy] = useState<SmsActivitySort>("revenue");
+  const [direction, setDirection] = useState<"asc" | "desc">("desc");
+  const [expanded, setExpanded] = useState(false);
+  const metricValue = (row: SmsActivityRow, metric: SmsActivitySort) => {
+    if (metric === "roas") return row.comparable && row.cost > 0 ? row.revenue / row.cost : Number.NEGATIVE_INFINITY;
+    if (metric === "clickRate") return row.delivered > 0 ? row.clicks / row.delivered : 0;
+    if (metric === "conversion") return row.comparable && row.clicks > 0 ? row.purchases / row.clicks : Number.NEGATIVE_INFINITY;
+    return row[metric];
+  };
+  const filtered = rows.filter((row) => filter === "all" || row.kind === filter);
+  const sorted = [...filtered].sort((a, b) => {
+    const result = metricValue(a, sortBy) - metricValue(b, sortBy);
+    return direction === "desc" ? -result : result;
   });
-  const groups = ["קמפיינים", "אוטומציות SMS", "אוטומציות מעורבות"].map(label => {
-    const items = rowsForGroup(label);
-    return { label, comparable: label !== "אוטומציות מעורבות", revenue: items.reduce((s,r) => s+r.revenue,0), cost: items.reduce((s,r) => s+r.cost,0), count: items.length };
+  const visible = showDeepAnalysis || expanded ? sorted : sorted.slice(0, 8);
+  const selectSort = (metric: SmsActivitySort) => {
+    if (sortBy === metric) setDirection((current) => current === "desc" ? "asc" : "desc");
+    else {
+      setSortBy(metric);
+      setDirection("desc");
+    }
+  };
+  const reset = () => {
+    setFilter("all");
+    setSortBy("revenue");
+    setDirection("desc");
+    setExpanded(false);
+  };
+  const headers: Array<{ key: SmsActivitySort; label: string }> = [
+    { key: "revenue", label: "הכנסה" },
+    { key: "cost", label: "עלות" },
+    { key: "roas", label: "ROAS" },
+    { key: "recipients", label: "נמענים" },
+    { key: "clickRate", label: "הקלקה" },
+    { key: "purchases", label: "רכישות" },
+    { key: "conversion", label: "המרה" },
+  ];
+  const rate = (value: number, base: number) => base > 0 ? formatPercent(value / base) : "—";
+
+  return <section className="overflow-hidden rounded-lg border border-[#e4e7ec] bg-white" aria-label="טבלת פעילות SMS">
+    <header className="flex flex-col gap-3 border-b border-[#eef0f2] px-4 py-4 sm:px-5 xl:flex-row xl:items-center xl:justify-between">
+      <div><h2 className="text-base font-bold">פעילות SMS</h2><p className="mt-1 text-xs text-[#667085]">סינון ומיון של כל הקמפיינים והאוטומציות בטווח</p></div>
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="flex max-w-full gap-1 overflow-x-auto rounded-md bg-[#f1f4f5] p-0.5" role="group" aria-label="סינון פעילות SMS">
+          {([
+            { value: "all", label: "הכל" },
+            { value: "campaign", label: "קמפיינים" },
+            { value: "automation", label: "אוטומציות SMS" },
+            { value: "mixed", label: "מעורבות" },
+          ] as const).map((option) => <button key={option.value} type="button" aria-pressed={filter === option.value} onClick={() => setFilter(option.value)} className={classNames("min-h-8 shrink-0 rounded px-2.5 text-xs transition", filter === option.value ? "bg-white font-bold text-[#111318] shadow-sm" : "text-[#667085] hover:text-[#344054]")}>{option.label}</button>)}
+        </div>
+        <button type="button" onClick={reset} title="איפוס סינון ומיון" aria-label="איפוס סינון ומיון" className="grid size-8 shrink-0 place-items-center rounded-md border border-[#d0d5dd] text-[#667085] hover:bg-[#f8fafb] hover:text-[#111318]"><RotateCcw size={14} /></button>
+      </div>
+    </header>
+    {visible.length === 0 ? <div className="grid min-h-40 place-content-center text-sm text-[#667085]">אין פעילות להצגה בסינון הזה</div> : <>
+      <div className="hidden overflow-x-auto xl:block">
+        <table className="w-full min-w-[1040px] border-collapse text-right text-xs">
+          <thead className="bg-[#f8fafb] text-[#667085]"><tr><th className="px-4 py-3 font-medium">פעילות</th>{headers.map((header) => <th key={header.key} className="px-3 py-3 font-medium"><button type="button" onClick={() => selectSort(header.key)} className={classNames("inline-flex items-center gap-1 hover:text-[#111318]", sortBy === header.key && "font-bold text-[#111318]")}>{header.label}{sortBy === header.key && <ArrowDownWideNarrow size={13} className={direction === "asc" ? "rotate-180" : ""} />}</button></th>)}</tr></thead>
+          <tbody className="divide-y divide-[#eef0f2]">{visible.map((row) => <tr key={row.id} tabIndex={0} role="button" onClick={() => onSelect(row)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelect(row); }} className="cursor-pointer transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"><td className="max-w-[290px] px-4 py-3"><b className="block truncate text-sm text-[#111318]">{row.name}</b><span className={classNames("mt-1 inline-block rounded-sm px-1.5 py-0.5 text-[10px] font-bold", row.kind === "campaign" ? "bg-[#e8fbf8] text-[#087f72]" : row.kind === "automation" ? "bg-[#eef3fd] text-[#4668ad]" : "bg-[#f2f4f7] text-[#667085]")}>{row.typeLabel}</span></td><td className="px-3 py-3 font-bold tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</td><td className="px-3 py-3 tabular-nums" dir="ltr">{formatCurrency(row.cost, currency)}</td><td className="px-3 py-3 font-bold tabular-nums" dir="ltr">{row.comparable ? formatRoas(row.cost > 0 ? row.revenue / row.cost : null) : "—"}</td><td className="px-3 py-3 tabular-nums">{formatNumber(row.recipients)}</td><td className="px-3 py-3 tabular-nums">{rate(row.clicks, row.delivered)}</td><td className="px-3 py-3 tabular-nums">{formatNumber(row.purchases)}</td><td className="px-3 py-3 tabular-nums">{row.comparable ? rate(row.purchases, row.clicks) : "—"}</td></tr>)}</tbody>
+        </table>
+      </div>
+      <div className="divide-y divide-[#eef0f2] xl:hidden">{visible.map((row) => <button key={row.id} type="button" onClick={() => onSelect(row)} className="block w-full p-4 text-right transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><b className="block text-sm leading-5 text-[#111318] [overflow-wrap:anywhere]">{row.name}</b><span className="mt-1 block text-[10px] font-bold text-[#667085]">{row.typeLabel}</span></div><b className="shrink-0 text-sm tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</b></div><div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-[#667085]"><span>עלות <b className="block text-[#111318]" dir="ltr">{formatCurrency(row.cost, currency)}</b></span><span>ROAS <b className="block text-[#111318]" dir="ltr">{row.comparable ? formatRoas(row.cost > 0 ? row.revenue / row.cost : null) : "מעורב"}</b></span><span>רכישות <b className="block text-[#111318]">{formatNumber(row.purchases)}</b></span><span>נמענים <b className="block text-[#111318]">{formatNumber(row.recipients)}</b></span><span>הקלקה <b className="block text-[#111318]">{rate(row.clicks, row.delivered)}</b></span><span>המרה <b className="block text-[#111318]">{row.comparable ? rate(row.purchases, row.clicks) : "—"}</b></span></div></button>)}</div>
+      {sorted.length > 8 && !showDeepAnalysis && <button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)} className="flex min-h-10 w-full items-center justify-center gap-1.5 border-t border-[#eef0f2] text-xs font-bold hover:bg-[#f5f8f7]">{expanded ? <ChevronDown size={14} className="rotate-180" /> : <ChevronDown size={14} />}{expanded ? "הצג פחות" : `כל הפעילויות (${sorted.length})`}</button>}
+    </>}
+  </section>;
+}
+
+function SmsDashboard({ account, sms, automations, automationTimeline, previousSms, previousAutomations, rangeStart, rangeEnd, showDeepAnalysis }: {
+  account: FlashyAccount;
+  sms: SmsCampaignReport[];
+  automations: AutomationReport[];
+  automationTimeline: AutomationReport[];
+  previousSms: SmsCampaignReport[];
+  previousAutomations: AutomationReport[];
+  rangeStart: string;
+  rangeEnd: string;
+  showDeepAnalysis: boolean;
+}) {
+  const [drilldown, setDrilldown] = useState<DrilldownState | null>(null);
+  const rows = buildSmsActivityRows(account, sms, automations);
+  const trendRows = buildSmsActivityRows(account, sms, automationTimeline);
+  const previousRows = rangeStart && rangeEnd ? buildSmsActivityRows(account, previousSms, previousAutomations) : null;
+  const dates = rangeStart && rangeEnd
+    ? enumerateCalendarDates({ start: rangeStart, end: rangeEnd }, account.timezone)
+    : [...new Set(trendRows.map((row) => row.date))].sort();
+  const dateFormatter = new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric" });
+  const trendPoints: SmsTrendPoint[] = dates.map((date) => {
+    const items = trendRows.filter((row) => row.date === date);
+    const comparable = items.filter((row) => row.comparable);
+    const comparableRevenue = comparable.reduce((sum, row) => sum + row.revenue, 0);
+    const comparableCost = comparable.reduce((sum, row) => sum + row.cost, 0);
+    return {
+      date,
+      label: dateFormatter.format(new Date(`${date}T12:00:00Z`)),
+      revenue: items.reduce((sum, row) => sum + row.revenue, 0),
+      cost: items.reduce((sum, row) => sum + row.cost, 0),
+      purchases: items.reduce((sum, row) => sum + row.purchases, 0),
+      roas: comparableCost > 0 ? comparableRevenue / comparableCost : null,
+    };
   });
-  const smsCampaignDelivered = sms.reduce((total, item) => total + item.totalDelivered, 0);
-  const smsCampaignClicks = sms.reduce((total, item) => total + item.uniqueClicks, 0);
-  const smsCampaignPurchases = sms.reduce((total, item) => total + item.purchases, 0);
+  const campaignStages = [
+    { label: "נמסרו", value: sms.reduce((total, item) => total + item.totalDelivered, 0) },
+    { label: "הקלקות ייחודיות", value: sms.reduce((total, item) => total + item.uniqueClicks, 0) },
+    { label: "רכישות", value: sms.reduce((total, item) => total + item.purchases, 0) },
+  ];
+
   return <div className="space-y-4">
-    <div className="grid grid-cols-2 gap-2 md:gap-3 xl:grid-cols-4">
-      <MetricCard title="הכנסות פעילות SMS" value={formatCurrency(summary.revenue, account.currency)} caption="קמפיינים ואוטומציות עם SMS" icon={TrendingUp} tone="good" />
-      <MetricCard title="עלות SMS" value={formatCurrency(summary.smsCost, account.currency)} caption={`${formatNumber(summary.recipients)} הודעות`} icon={MessageSquareText} />
-      <MetricCard title="הכנסה / עלות SMS" value={formatRoas(summary.roas)} caption="כולל הכנסות אוטומציות מעורבות" icon={LineChart} />
-      <MetricCard title="רכישות" value={formatNumber(summary.purchases)} caption="מהפעילות שנבחרה" icon={CheckCircle2} />
-    </div>
-    <div className="grid min-w-0 gap-4 2xl:grid-cols-2">
-      <CampaignJourneyChart
-        title="מסלול קמפיין SMS"
-        detail="מהודעות שנמסרו ועד רכישה"
-        series={[{
-          id: "sms-campaigns",
-          label: "קמפייני SMS",
-          color: chartColors.sms,
-          stages: [
-            { label: "נמסרו", value: smsCampaignDelivered },
-            { label: "הקלקות ייחודיות", value: smsCampaignClicks },
-            { label: "רכישות", value: smsCampaignPurchases },
-          ],
-        }]}
-      />
-      <SmsReturnChart groups={groups} currency={account.currency} onSelect={(label) => setDrilldown({
-        title: label,
-        context: "הפעילויות שמרכיבות את יחס ההכנסה לעלות",
-        items: rowsForGroup(label).map(toDrilldownItem),
-      })} />
-    </div>
-    <RankedBars key={sortBy} title="ביצועי פעילות SMS" currency={sortBy === "revenue" ? account.currency : undefined} unit={sortBy === "revenue" ? "הכנסה" : "הכנסה / עלות SMS"}
-        controls={<select aria-label="מדד דירוג SMS" value={sortBy} onChange={e=>setSortBy(e.target.value as "revenue" | "roas")} className="h-8 rounded-md border border-[#e4e7ec] bg-white px-2 text-xs"><option value="revenue">הכנסה</option><option value="roas">הכנסה / עלות SMS</option></select>}
-        rows={rows.filter(row => sortBy === "revenue" || (row.cost > 0 && row.comparable)).map(row => ({
-          id: row.id, label: row.name, value: sortBy === "revenue" ? row.revenue : row.revenue / row.cost,
-          color: row.type === "קמפיינים" ? chartColors.sms : chartColors.automation,
-          meta: `${row.type} · ${formatNumber(row.purchases)} רכישות · עלות ${formatCurrency(row.cost,account.currency)} · ${row.comparable ? formatRoas(row.cost > 0 ? row.revenue/row.cost : null) : "כולל הכנסות אימייל"}`,
-        }))} onSelect={(selected) => {
-          const row = rows.find((candidate) => candidate.id === selected.id);
-          if (row) setDrilldown({ title: row.name, context: "פירוט פעילות SMS", items: [toDrilldownItem(row)] });
-        }} />
-    {showDeepAnalysis && <DataTable title="פירוט פעילות SMS" columns={["פעילות","סוג","נמענים","קליקים","עלות SMS","הכנסה","רכישות"]} rows={rows.map(row=>[row.name,row.type,formatNumber(row.recipients),formatNumber(row.clicks),formatCurrency(row.cost,account.currency),formatCurrency(row.revenue,account.currency),formatNumber(row.purchases)])} />}
+    <SmsKpiStrip account={account} rows={rows} previousRows={previousRows} />
+    <SmsPerformanceTrendChart points={trendPoints} currency={account.currency} onSelect={(point, metric) => setDrilldown({
+      title: `פעילות SMS ב־${point.label}`,
+      context: metric === "cost" ? "הפעילויות שמרכיבות את עלות ה־SMS ביום הזה" : metric === "purchases" ? "הפעילויות שיצרו רכישות ביום הזה" : metric === "roas" ? "הפעילויות שנכללות בחישוב ה־ROAS ביום הזה" : "הפעילויות שמרכיבות את ההכנסה ביום הזה",
+      items: trendRows.filter((row) => row.date === point.date && (metric !== "roas" || row.comparable)).map(smsRowToDrilldown),
+    })} />
+    <SmsEfficiencyOverview rows={rows} campaignStages={campaignStages} currency={account.currency} onSelectGroup={(kind, label) => setDrilldown({
+      title: label,
+      context: kind === "mixed" ? "אוטומציות שמשלבות SMS ואימייל; ההכנסה אינה משמשת לחישוב ROAS" : "הפעילויות שמרכיבות את יחס ההכנסה לעלות",
+      items: rows.filter((row) => row.kind === kind).map(smsRowToDrilldown),
+    })} />
+    <SmsActivityTable rows={rows} currency={account.currency} showDeepAnalysis={showDeepAnalysis} onSelect={(row) => setDrilldown({ title: row.name, context: "פירוט פעילות SMS", items: [smsRowToDrilldown(row)] })} />
     <ChartDrilldown state={drilldown} currency={account.currency} onClose={() => setDrilldown(null)} />
   </div>;
 }
@@ -6784,6 +7028,11 @@ export function DashboardApp() {
                 account={account}
                 sms={accountSms}
                 automations={accountAutomations}
+                automationTimeline={accountAutomationRows}
+                previousSms={previousSms}
+                previousAutomations={previousAutomations}
+                rangeStart={activeRangeBounds.start}
+                rangeEnd={activeRangeBounds.end}
                 showDeepAnalysis={effectiveShowDeepAnalysis}
               />
           )}
