@@ -91,7 +91,7 @@ export function SmsPerformanceTrendChart({
   return (
     <ChartFrame
       title="פעילות SMS לאורך התקופה"
-      detail={metric === "revenue" ? "הכנסה מיוחסת מול עלות ההודעות" : metric === "purchases" ? "רכישות מיוחסות לפי יום" : "הכנסה ברת־השוואה חלקי עלות SMS"}
+      detail={metric === "revenue" ? "הכנסה מיוחסת מול עלות ההודעות · אותו ציר כספי" : metric === "purchases" ? "רכישות מיוחסות לפי יום" : "הכנסה ברת־השוואה חלקי עלות SMS"}
       controls={(
         <div className="flex rounded-md bg-[#f1f4f5] p-0.5" role="group" aria-label="מדד בגרף פעילות SMS">
           {([
@@ -124,14 +124,11 @@ export function SmsPerformanceTrendChart({
             <ComposedChart data={points} margin={{ top: 12, right: 4, bottom: 0, left: 0 }}>
               <CartesianGrid vertical={false} stroke="#eef0f2" />
               <XAxis dataKey="label" axisLine={{ stroke: "#dfe3e7" }} tickLine={false} interval="preserveStartEnd" minTickGap={28} tick={{ fill: "#667085", fontSize: 10 }} />
-              {metric === "revenue" ? <>
-                <YAxis yAxisId="revenue" width={54} axisLine={false} tickLine={false} tickFormatter={compact} tick={{ fill: "#667085", fontSize: 10 }} />
-                <YAxis yAxisId="cost" orientation="right" width={48} axisLine={false} tickLine={false} tickFormatter={compact} tick={{ fill: chartColors.cost, fontSize: 10 }} />
-              </> : <YAxis width={54} axisLine={false} tickLine={false} tickFormatter={metric === "roas" ? (value) => `${Number(value).toFixed(0)}x` : compact} tick={{ fill: "#667085", fontSize: 10 }} />}
+              <YAxis width={54} axisLine={false} tickLine={false} tickFormatter={metric === "roas" ? (value) => `${Number(value).toFixed(0)}x` : compact} tick={{ fill: "#667085", fontSize: 10 }} />
               <Tooltip formatter={tooltipFormatter} contentStyle={{ direction: "rtl", borderRadius: 8, borderColor: "#e4e7ec", fontSize: 12 }} />
               {metric === "revenue" && <>
-                <Area yAxisId="revenue" type="monotone" dataKey="revenue" name="הכנסה" stroke={chartColors.sms} fill={chartColors.sms} fillOpacity={0.17} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("revenue")} />
-                <Line yAxisId="cost" type="monotone" dataKey="cost" name="עלות SMS" stroke={chartColors.cost} strokeWidth={2} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("cost")} />
+                <Area type="monotone" dataKey="revenue" name="הכנסה" stroke={chartColors.sms} fill={chartColors.sms} fillOpacity={0.17} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("revenue")} />
+                <Line type="monotone" dataKey="cost" name="עלות SMS" stroke={chartColors.cost} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("cost")} />
               </>}
               {metric === "purchases" && <Area type="monotone" dataKey="purchases" name="רכישות" stroke={chartColors.sms} fill={chartColors.sms} fillOpacity={0.18} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("purchases")} />}
               {metric === "roas" && <>
