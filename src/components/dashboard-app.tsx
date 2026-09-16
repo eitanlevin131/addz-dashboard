@@ -129,8 +129,6 @@ type ViewKey =
   | "admin";
 type TimeRangeKey = "7d" | "14d" | "30d" | "custom" | "all";
 type AutomationFilterKey = "all" | "email" | "sms" | "mixed";
-type ActivityKindFilter = "all" | "campaign" | "automation";
-type ActivityMediumFilter = "all" | "email" | "sms";
 type HolidayRegion = "IL" | "US";
 type SyncedHoliday = {
   date: string;
@@ -1004,127 +1002,76 @@ function KPIGrid({
   const flashyRevenueShare = siteRevenue !== null && siteRevenue > 0
     ? summary.revenue / siteRevenue
     : null;
-  const metrics = [
-    {
-      key: "flashyRevenue",
-      label: "הכנסה מיוחסת לפעילות",
-      value: formatCurrency(summary.revenue, account.currency),
-      rawValue: summary.revenue,
-      previousValue: previousSummary?.revenue ?? null,
-      formatPrevious: (value: number) => formatCurrency(value, account.currency),
-      detail: "לפי מועד שליחת הקמפיין או פעילות האוטומציה",
-      tone: "good" as const,
-    },
+  const revenueComparison = comparisonChange(summary.revenue, previousSummary?.revenue ?? null);
+  const RevenueComparisonIcon = revenueComparison?.direction === "up"
+    ? ArrowUpRight
+    : revenueComparison?.direction === "down"
+      ? ArrowDownRight
+      : Minus;
+  const compactMetrics = [
     {
       key: "siteRevenue",
       label: "הכנסות האתר",
       value: siteRevenueLoading ? "טוען..." : siteRevenue === null ? "—" : formatCurrency(siteRevenue, account.currency),
-      rawValue: siteRevenue,
-      previousValue: null,
-      formatPrevious: (value: number) => formatCurrency(value, account.currency),
-      detail: siteRevenue === null ? "טרם הוזן לטווח הנבחר" : "סך המכירות באתר בטווח",
-      tone: "neutral" as const,
-    },
-    {
-      key: "flashyShare",
-      label: "אחוז הכנסות מ־Flashy",
-      value: flashyRevenueShare === null ? "—" : formatPercent(flashyRevenueShare),
-      rawValue: flashyRevenueShare,
-      previousValue: null,
-      formatPrevious: (value: number) => formatPercent(value),
-      detail: "הכנסה מיוחסת מתוך מכירות האתר",
-      tone: flashyRevenueShare !== null && flashyRevenueShare > 1 ? "warn" as const : "good" as const,
-    },
-    {
-      key: "profit",
-      label: "רווח",
-      value: formatCurrency(summary.profit, account.currency),
-      rawValue: summary.profit,
-      previousValue: previousSummary?.profit ?? null,
-      formatPrevious: (value: number) => formatCurrency(value, account.currency),
-      detail: `אחרי ${formatCurrency(totalCost, account.currency)} עלות`,
-      tone: summary.profit >= 0 ? "good" as const : "warn" as const,
-    },
-    {
-      key: "roas",
-      label: "ROAS",
-      value: formatRoas(summary.roas),
-      rawValue: summary.roas,
-      previousValue: previousSummary?.roas ?? null,
-      formatPrevious: (value: number) => formatRoas(value),
-      detail: "כולל SMS ועלויות קבועות",
-      tone: "good" as const,
+      detail: flashyRevenueShare === null ? "לא הוזן לטווח" : `${formatPercent(flashyRevenueShare)} מיוחס ל־Flashy`,
     },
     {
       key: "purchases",
-      label: "רכישות",
+      label: "רכישות מיוחסות",
       value: formatNumber(summary.purchases),
-      rawValue: summary.purchases,
-      previousValue: previousSummary?.purchases ?? null,
-      formatPrevious: (value: number) => formatNumber(value),
-      detail: `Conversion ${formatPercent(summary.conversionRate)}`,
-      tone: "neutral" as const,
+      detail: previousSummary ? comparisonChange(summary.purchases, previousSummary.purchases)?.label ?? "ללא שינוי" : `המרה ${formatPercent(summary.conversionRate)}`,
+    },
+    {
+      key: "profit",
+      label: "רווח אחרי עלויות",
+      value: formatCurrency(summary.profit, account.currency),
+      detail: `${formatCurrency(totalCost, account.currency)} עלויות · ${formatRoas(summary.roas)} ROAS`,
     },
   ];
 
   return (
-    <section className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-[#e4e7ec] bg-[#e4e7ec] md:grid-cols-3 2xl:grid-cols-6">
-      {metrics.map((metric) => {
-        const comparison = comparisonChange(metric.rawValue, metric.previousValue);
-        const ComparisonIcon = comparison?.direction === "up"
-          ? ArrowUpRight
-          : comparison?.direction === "down"
-            ? ArrowDownRight
-            : Minus;
-
-        return (
-          <article
-            key={metric.key}
-            className="min-w-0 bg-white p-3.5 text-[#111318] xl:p-4"
-          >
-            <div className="flex min-h-6 items-start justify-between gap-2">
-              <p className="text-xs font-medium text-[#667085]">{metric.label}</p>
-              {metric.key === "siteRevenue" && canEditSiteRevenue && (
-                <button
-                  type="button"
-                  onClick={onEditSiteRevenue}
-                  title="עדכון הכנסות האתר"
-                  className="grid size-6 shrink-0 place-items-center rounded-md text-[#667085] transition hover:bg-[#f2f4f7] hover:text-[#111318]"
-                >
-                  <PencilLine size={14} />
-                </button>
-              )}
-            </div>
-            <p
-              className={classNames(
-                "mt-2 text-2xl font-bold leading-none tabular-nums tracking-normal sm:text-3xl",
-                metric.tone === "good" && "text-[#111318]",
-                metric.tone === "warn" && "text-[#9a3412]",
-                metric.tone === "neutral" && "text-[#111318]",
-              )}
-            >
-              {metric.value}
-            </p>
-            {comparison && metric.previousValue !== null && (
-              <div className="mt-2 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] tabular-nums">
-                <span
-                  className={classNames(
-                    "inline-flex items-center gap-0.5 font-bold",
-                    comparison.direction === "up" && "text-[#087f72]",
-                    comparison.direction === "down" && "text-[#b45309]",
-                    comparison.direction === "same" && "text-[#667085]",
-                  )}
-                >
-                  <ComparisonIcon size={13} strokeWidth={2} />
-                  {comparison.label}
-                </span>
-                <span className="text-[#98a2b3]">קודם {metric.formatPrevious(metric.previousValue)}</span>
-              </div>
+    <section className="grid overflow-hidden rounded-xl border border-[#e4e7ec] bg-[#e4e7ec] sm:grid-cols-3 lg:grid-cols-[minmax(280px,1.35fr)_repeat(3,minmax(0,1fr))]">
+      <article className="min-w-0 bg-[#111318] p-5 text-white sm:col-span-3 lg:col-span-1 lg:p-6">
+        <p className="text-xs font-medium text-white/60">הכנסה מיוחסת לפעילות</p>
+        <p className="mt-3 text-4xl font-bold leading-none tabular-nums sm:text-5xl" dir="ltr">
+          {formatCurrency(summary.revenue, account.currency)}
+        </p>
+        <div className="mt-4 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 text-xs tabular-nums">
+          {revenueComparison && previousSummary ? (
+            <>
+              <span className={classNames(
+                "inline-flex items-center gap-1 font-bold",
+                revenueComparison.direction === "up" ? "text-[#42dfcf]" : revenueComparison.direction === "down" ? "text-[#fbbf72]" : "text-white/65",
+              )}>
+                <RevenueComparisonIcon size={14} />
+                {revenueComparison.label}
+              </span>
+              <span className="text-white/45">קודם {formatCurrency(previousSummary.revenue, account.currency)}</span>
+            </>
+          ) : (
+            <span className="text-white/50">קמפיינים ואוטומציות בטווח הנבחר</span>
+          )}
+        </div>
+      </article>
+      {compactMetrics.map((metric) => (
+        <article key={metric.key} className="min-w-0 bg-white p-4 text-[#111318] lg:p-5">
+          <div className="flex min-h-6 items-start justify-between gap-2">
+            <p className="text-xs font-medium text-[#667085]">{metric.label}</p>
+            {metric.key === "siteRevenue" && canEditSiteRevenue && (
+              <button
+                type="button"
+                onClick={onEditSiteRevenue}
+                title="עדכון הכנסות האתר"
+                className="grid size-6 shrink-0 place-items-center rounded-md text-[#667085] transition hover:bg-[#f2f4f7] hover:text-[#111318]"
+              >
+                <PencilLine size={14} />
+              </button>
             )}
-            <p className="mt-2 truncate text-xs leading-5 text-[#667085]">{metric.detail}</p>
-          </article>
-        );
-      })}
+          </div>
+          <p className="mt-3 text-2xl font-bold leading-none tabular-nums sm:text-3xl" dir="ltr">{metric.value}</p>
+          <p className="mt-3 text-xs leading-5 text-[#667085]">{metric.detail}</p>
+        </article>
+      ))}
     </section>
   );
 }
@@ -1505,50 +1452,89 @@ function DataReconciliationPanel({
   );
 }
 
-function RevenueCostChart({ account, items, onSelect }: { account: FlashyAccount; items: PerformanceItem[]; onSelect: (item: PerformanceItem) => void }) {
-  const [kindFilter, setKindFilter] = useState<ActivityKindFilter>("all");
-  const [mediumFilter, setMediumFilter] = useState<ActivityMediumFilter>("all");
-  const filteredItems = items.filter(item => (kindFilter === "all" || item.kind === kindFilter) && (mediumFilter === "all" || item.medium === mediumFilter));
-  return <div className="col-span-12 min-w-0">
-    <RankedBars
-      key={`${kindFilter}-${mediumFilter}`}
-      title="הפעילויות שמייצרות הכנסה"
-      currency={account.currency}
-      controls={<div className="flex flex-wrap gap-2">
-        <div className="flex rounded-md bg-[#f1f4f5] p-0.5" role="group" aria-label="סוג פעילות">
-          {([{ key: "all", label: "הכל" }, { key: "campaign", label: "קמפיינים" }, { key: "automation", label: "אוטומציות" }] as const).map(option =>
-            <button key={option.key} aria-pressed={kindFilter === option.key} onClick={() => setKindFilter(option.key)} className={`min-h-8 rounded px-2.5 text-xs ${kindFilter === option.key ? "bg-white font-bold shadow-sm" : "text-[#667085]"}`}>{option.label}</button>
-          )}
-        </div>
-        <div className="flex rounded-md bg-[#f1f4f5] p-0.5" role="group" aria-label="ערוץ פעילות">
-          {([{ key: "all", label: "הכל" }, { key: "email", label: "Email" }, { key: "sms", label: "SMS" }] as const).map(option =>
-            <button key={option.key} aria-pressed={mediumFilter === option.key} onClick={() => setMediumFilter(option.key)} className={`min-h-8 rounded px-2.5 text-xs ${mediumFilter === option.key ? "bg-white font-bold shadow-sm" : "text-[#667085]"}`}>{option.label}</button>
-          )}
-        </div>
-      </div>}
-      rows={filteredItems.map(item => ({
-        id: item.id, label: item.name, value: item.revenue,
-        color: item.kind === "automation" ? chartColors.automation : item.medium === "sms" ? chartColors.sms : chartColors.email,
-        meta: `${item.channel} · ${formatNumber(item.purchases)} רכישות · ${formatNumber(item.recipients)} נמענים`,
-      }))}
-      onSelect={(row) => {
-        const item = filteredItems.find((candidate) => candidate.id === row.id);
-        if (item) onSelect(item);
-      }}
-    />
-  </div>;
-}
+type OverviewRevenueDimension = {
+  key: string;
+  label: string;
+  revenue: number;
+  count: number;
+  purchases: number;
+  color: string;
+  detail: string;
+  items: PerformanceItem[];
+};
 
-function ChannelBreakdown({ account, channelData, showCosts = true, onSelect }: {
-  account: FlashyAccount;
-  channelData: { channel: string; revenue: number; cost: number; count: number; purchases: number }[];
-  showCosts?: boolean;
-  onSelect: (channel: string) => void;
+function OverviewRevenueBreakdown({
+  currency,
+  total,
+  sources,
+  channels,
+  onSelect,
+}: {
+  currency: string;
+  total: number;
+  sources: OverviewRevenueDimension[];
+  channels: OverviewRevenueDimension[];
+  onSelect: (dimension: OverviewRevenueDimension) => void;
 }) {
-  return <div className="col-span-12 min-w-0"><RevenueShareChart currency={account.currency} showCosts={showCosts} segments={channelData.map(row => ({
-    label: row.channel, revenue: row.revenue, count: row.count, purchases: row.purchases, cost: row.cost,
-    color: row.channel === "אימייל" ? chartColors.email : row.channel === "SMS" ? chartColors.sms : chartColors.automation,
-  }))} onSelect={(segment) => onSelect(segment.label)} /></div>;
+  const renderGroup = (title: string, detail: string, rows: OverviewRevenueDimension[]) => {
+    const positiveTotal = rows.reduce((sum, row) => sum + Math.max(0, row.revenue), 0);
+
+    return (
+      <div className="min-w-0 p-4 sm:p-5">
+        <div>
+          <h3 className="text-sm font-bold text-[#111318]">{title}</h3>
+          <p className="mt-1 text-xs text-[#667085]">{detail}</p>
+        </div>
+        <div className="mt-4 flex h-2 overflow-hidden rounded-sm bg-[#eef0f2]" aria-hidden="true" dir="ltr">
+          {rows.map((row) => (
+            <i
+              key={row.key}
+              className="h-full transition-[width] duration-300"
+              style={{ width: `${positiveTotal > 0 ? Math.max(0, row.revenue) / positiveTotal * 100 : 0}%`, background: row.color }}
+            />
+          ))}
+        </div>
+        <div className="mt-2 divide-y divide-[#eef0f2]">
+          {rows.map((row) => {
+            const share = total > 0 ? row.revenue / total : 0;
+            return (
+              <button
+                type="button"
+                key={row.key}
+                onClick={() => onSelect(row)}
+                className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 py-3 text-right transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"
+              >
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2 text-sm font-bold">
+                    <i className="h-4 w-1 shrink-0 rounded-sm" style={{ background: row.color }} />
+                    {row.label}
+                  </span>
+                  <span className="mt-1 block truncate pr-3 text-[11px] text-[#667085]">{row.detail}</span>
+                </span>
+                <span className="text-left">
+                  <b className="block text-lg tabular-nums text-[#111318]" dir="ltr">{formatCurrency(row.revenue, currency)}</b>
+                  <span className="text-xs tabular-nums text-[#667085]">{formatPercent(share)}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <section className="col-span-12 min-w-0 overflow-hidden rounded-lg border border-[#e4e7ec] bg-white">
+      <header className="border-b border-[#eef0f2] px-4 py-4 sm:px-5">
+        <h2 className="text-base font-bold text-[#111318]">פירוק הכנסות</h2>
+        <p className="mt-1 text-xs text-[#667085]">אותו סכום כולל, בשתי זוויות שונות</p>
+      </header>
+      <div className="grid divide-y divide-[#e4e7ec] lg:grid-cols-2 lg:divide-x lg:divide-y-0 lg:divide-x-reverse">
+        {renderGroup("לפי מקור", "קמפיינים מול אוטומציות", sources)}
+        {renderGroup("לפי ערוץ", "אימייל, SMS ואוטומציות מעורבות", channels)}
+      </div>
+    </section>
+  );
 }
 
 function ClientSelector({
@@ -1801,37 +1787,88 @@ function Overview({
       };
     }),
   ];
-  const channelData = ["אימייל", "SMS", "אוטומציות"].map((channel) => {
-    const items = performanceItems.filter((item) => item.channel === channel);
-    const revenue = items.reduce((total, item) => total + item.revenue, 0);
-    const cost = items.reduce((total, item) => total + item.cost, 0);
-    const recipients = items.reduce((total, item) => total + item.recipients, 0);
-    const purchases = items.reduce((total, item) => total + item.purchases, 0);
-
-    return {
-      channel,
-      revenue,
-      cost,
-      profit: revenue - cost,
-      count: items.length,
-      purchases,
-      recipients,
-      roas: cost > 0 ? revenue / cost : null,
-      revenuePerRecipient: recipients > 0 ? revenue / recipients : 0,
-      share: summary.revenue > 0 ? revenue / summary.revenue : 0,
-    };
+  const campaignItems = performanceItems.filter((item) => item.kind === "campaign");
+  const automationItems = performanceItems.filter((item) => item.kind === "automation");
+  const emailAutomationIds = new Set(
+    automations.filter((item) => getAutomationType(item) === "email").map((item) => `automation-${item.id}`),
+  );
+  const smsAutomationIds = new Set(
+    automations.filter((item) => getAutomationType(item) === "sms").map((item) => `automation-${item.id}`),
+  );
+  const mixedAutomationIds = new Set(
+    automations.filter((item) => getAutomationType(item) === "mixed").map((item) => `automation-${item.id}`),
+  );
+  const emailItems = performanceItems.filter((item) => item.medium === "email" && (item.kind === "campaign" || emailAutomationIds.has(item.id)));
+  const smsItems = performanceItems.filter((item) => item.medium === "sms" && (item.kind === "campaign" || smsAutomationIds.has(item.id)));
+  const mixedItems = performanceItems.filter((item) => mixedAutomationIds.has(item.id));
+  const dimension = (
+    key: string,
+    label: string,
+    items: PerformanceItem[],
+    color: string,
+    detail: string,
+  ): OverviewRevenueDimension => ({
+    key,
+    label,
+    items,
+    color,
+    detail,
+    revenue: items.reduce((sum, item) => sum + item.revenue, 0),
+    count: items.length,
+    purchases: items.reduce((sum, item) => sum + item.purchases, 0),
   });
-  const topPerformers = [...performanceItems]
-    .sort((a, b) => b.revenue - a.revenue)
-    .slice(0, 6);
-  const needsAttention = [...performanceItems]
-    .filter((item) => item.cost > 0 || item.revenue === 0)
-    .sort((a, b) => {
-      const roasA = a.cost > 0 ? a.revenue / a.cost : a.revenue > 0 ? 999_999 : 0;
-      const roasB = b.cost > 0 ? b.revenue / b.cost : b.revenue > 0 ? 999_999 : 0;
-      return roasA - roasB || b.cost - a.cost;
-    })
-    .slice(0, 6);
+  const sourceDimensions = [
+    dimension("source-campaigns", "קמפיינים", campaignItems, chartColors.email, `${formatNumber(campaignItems.length)} קמפיינים`),
+    dimension("source-automations", "אוטומציות", automationItems, chartColors.automation, `${formatNumber(automationItems.length)} אוטומציות`),
+  ];
+  const channelDimensions = [
+    dimension("channel-email", "אימייל", emailItems, chartColors.email, `${formatNumber(emailItems.length)} פעילויות אימייל`),
+    dimension("channel-sms", "SMS", smsItems, chartColors.sms, `${formatNumber(smsItems.length)} פעילויות SMS`),
+    ...(mixedItems.length > 0
+      ? [dimension("channel-mixed", "מעורב", mixedItems, chartColors.automation, "אוטומציות שמשלבות אימייל ו־SMS")]
+      : []),
+  ];
+  const campaignTimingRows = [
+    ...emails.map((item) => ({ sentAt: item.sentAt, revenue: item.revenueGenerated, purchases: item.purchases })),
+    ...sms.map((item) => ({ sentAt: item.sentAt, revenue: item.revenueGenerated, purchases: item.purchases })),
+  ];
+  const timing = campaignTiming(campaignTimingRows, account.timezone);
+  const bestHours = timing.hours.map((row) => ({
+    ...row,
+    average: row.count > 0 ? row.revenue / row.count : 0,
+  }));
+  let campaignClock: Intl.DateTimeFormat;
+  try {
+    campaignClock = new Intl.DateTimeFormat("en-US", {
+      timeZone: account.timezone,
+      weekday: "short",
+      hour: "2-digit",
+      hourCycle: "h23",
+    });
+  } catch {
+    campaignClock = new Intl.DateTimeFormat("en-US", {
+      timeZone: "UTC",
+      weekday: "short",
+      hour: "2-digit",
+      hourCycle: "h23",
+    });
+  }
+  const campaignTimingKey = (sentAt: string) => {
+    const parts = campaignClock.formatToParts(new Date(sentAt));
+    const weekday = parts.find((part) => part.type === "weekday")?.value ?? "";
+    const dayIndex = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday);
+    return {
+      day: ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"][dayIndex] ?? "",
+      hour: `${parts.find((part) => part.type === "hour")?.value ?? "00"}:00`,
+    };
+  };
+  const campaignItemsForTime = (value: string, unit: "day" | "hour") => {
+    const ids = new Set([
+      ...emails.filter((item) => campaignTimingKey(item.sentAt)[unit] === value).map((item) => `email-${item.id}`),
+      ...sms.filter((item) => campaignTimingKey(item.sentAt)[unit] === value).map((item) => `sms-${item.id}`),
+    ]);
+    return campaignItems.filter((item) => ids.has(item.id));
+  };
   return (
     <section className="grid grid-cols-12 gap-3">
       <div className="col-span-12">
@@ -1888,6 +1925,89 @@ function Overview({
         )}
       </div>
 
+      <OverviewRevenueBreakdown
+        currency={account.currency}
+        total={summary.revenue}
+        sources={sourceDimensions}
+        channels={channelDimensions}
+        onSelect={(selected) => setDrilldown({
+          title: selected.label,
+          context: "הפעילויות שמרכיבות את ההכנסה שנבחרה",
+          items: selected.items.map(performanceToDrilldown),
+        })}
+      />
+
+      <div className="col-span-12 grid min-w-0 gap-3 xl:grid-cols-2">
+        <RankedBars
+          title="הקמפיינים המובילים"
+          detail="מדורג לפי הכנסה מיוחסת"
+          currency={account.currency}
+          limit={5}
+          rows={campaignItems.map((item) => ({
+            id: item.id,
+            label: item.name,
+            value: item.revenue,
+            color: item.medium === "sms" ? chartColors.sms : chartColors.email,
+            meta: `${item.channel} · ${formatNumber(item.purchases)} רכישות`,
+          }))}
+          onSelect={(selected) => {
+            const item = campaignItems.find((candidate) => candidate.id === selected.id);
+            if (item) setDrilldown({ title: item.name, context: "פירוט הקמפיין", items: [performanceToDrilldown(item)] });
+          }}
+        />
+        <RankedBars
+          title="האוטומציות המובילות"
+          detail="מדורג לפי הכנסה מיוחסת"
+          currency={account.currency}
+          limit={5}
+          rows={automationItems.map((item) => {
+            const report = automations.find((candidate) => `automation-${candidate.id}` === item.id);
+            return {
+              id: item.id,
+              label: item.name,
+              value: item.revenue,
+              color: chartColors.automation,
+              meta: `${report ? automationFilterLabels[getAutomationType(report)] : "אוטומציה"} · ${formatNumber(item.purchases)} רכישות`,
+            };
+          })}
+          onSelect={(selected) => {
+            const item = automationItems.find((candidate) => candidate.id === selected.id);
+            if (item) setDrilldown({ title: item.name, context: "פירוט האוטומציה", items: [performanceToDrilldown(item)] });
+          }}
+        />
+      </div>
+
+      <div className="col-span-12 grid min-w-0 gap-3 xl:grid-cols-2">
+        <WeekdayBars
+          groups={timing.days}
+          currency={account.currency}
+          timezone={timing.timezone}
+          onSelect={(label) => setDrilldown({
+            title: `קמפיינים ביום ${label}`,
+            context: "הקמפיינים שנשלחו ביום הזה בטווח שנבחר",
+            items: campaignItemsForTime(label, "day").map(performanceToDrilldown),
+          })}
+        />
+        <RankedBars
+          title="השעות החזקות"
+          detail={`הכנסה ממוצעת לקמפיין · ${timing.timezone}`}
+          currency={account.currency}
+          limit={5}
+          rows={bestHours.map((item) => ({
+            id: item.label,
+            label: item.label,
+            value: item.average,
+            color: chartColors.sms,
+            meta: `${formatNumber(item.count)} קמפיינים · ${formatNumber(item.purchases)} רכישות`,
+          }))}
+          onSelect={(selected) => setDrilldown({
+            title: `שעת שליחה ${selected.id}`,
+            context: "הקמפיינים שנשלחו בשעה הזו בטווח שנבחר",
+            items: campaignItemsForTime(selected.id, "hour").map(performanceToDrilldown),
+          })}
+        />
+      </div>
+
       {comparisonPoints.length > 0 && (
         <div className="col-span-12 min-w-0">
           <PeriodComparisonChart
@@ -1899,7 +2019,7 @@ function Overview({
               const items = performanceItems.filter((item) => item.date === point.date && item.channel === channel);
               setDrilldown({
                 title: `${channel} · ${point.label}`,
-                context: "הפעילויות שמרכיבות את העמודה שנבחרה",
+                context: "הפעילויות שמרכיבות את הנקודה שנבחרה",
                 items: items.map(performanceToDrilldown),
               });
             }}
@@ -1920,52 +2040,6 @@ function Overview({
         </div>
       )}
 
-      <ChannelBreakdown
-        account={account}
-        channelData={channelData}
-        onSelect={(channel) => setDrilldown({
-          title: channel,
-          context: "כל הפעילויות בערוץ בטווח שנבחר",
-          items: performanceItems.filter((item) => item.channel === channel).map(performanceToDrilldown),
-        })}
-      />
-
-      <RevenueCostChart
-        account={account}
-        items={performanceItems}
-        onSelect={(item) => setDrilldown({
-          title: item.name,
-          context: "פירוט הפעילות שנבחרה",
-          items: [performanceToDrilldown(item)],
-        })}
-      />
-
-      {showDeepAnalysis && (
-        <div className="col-span-12 grid gap-5 xl:grid-cols-2">
-          <DataTable
-            title="המנצחים בתקופה"
-            columns={["שם", "ערוץ", "הכנסה", "רכישות", "קליקים"]}
-            rows={topPerformers.map((item) => [
-              item.name,
-              item.channel,
-              formatCurrency(item.revenue, account.currency),
-              formatNumber(item.purchases),
-              formatNumber(item.clicks),
-            ])}
-          />
-          <DataTable
-            title="דורשים בדיקה"
-            columns={["שם", "ערוץ", "עלות", "הכנסה", "ROAS"]}
-            rows={needsAttention.map((item) => [
-              item.name,
-              item.channel,
-              formatCurrency(item.cost, account.currency),
-              formatCurrency(item.revenue, account.currency),
-              item.cost > 0 ? `${(item.revenue / item.cost).toFixed(1)}x` : "ללא הכנסה",
-            ])}
-          />
-        </div>
-      )}
       <ChartDrilldown state={drilldown} currency={account.currency} onClose={() => setDrilldown(null)} />
     </section>
   );
