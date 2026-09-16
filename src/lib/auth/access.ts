@@ -11,7 +11,6 @@ export type AccessContext = {
   email: string;
   role: string;
   clientIds: string[] | null;
-  mustChangePassword: boolean;
 };
 
 export function isAdminRole(role: string) {
@@ -22,7 +21,7 @@ export function isOwnerRole(role: string) {
   return role === "owner";
 }
 
-export async function getAccessContext(options: { allowPasswordChangeRequired?: boolean } = {}): Promise<
+export async function getAccessContext(): Promise<
   | { ok: true; access: AccessContext }
   | { ok: false; response: NextResponse }
 > {
@@ -34,7 +33,6 @@ export async function getAccessContext(options: { allowPasswordChangeRequired?: 
         email: "dev@local",
         role: "owner",
         clientIds: null,
-        mustChangePassword: false,
       },
     };
   }
@@ -79,16 +77,6 @@ export async function getAccessContext(options: { allowPasswordChangeRequired?: 
     };
   }
 
-  if (user.mustChangePassword && !options.allowPasswordChangeRequired) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { success: false, code: "PASSWORD_CHANGE_REQUIRED", message: "צריך לבחור סיסמה חדשה לפני הכניסה." },
-        { status: 428 },
-      ),
-    };
-  }
-
   const ownerByEmail = isOwnerEmail(email);
   if (ownerByEmail && user.role !== "owner") {
     await db.update(users).set({ role: "owner" }).where(eq(users.id, user.id));
@@ -103,7 +91,6 @@ export async function getAccessContext(options: { allowPasswordChangeRequired?: 
         email: user.email,
         role,
         clientIds: null,
-        mustChangePassword: user.mustChangePassword,
       },
     };
   }
@@ -117,7 +104,6 @@ export async function getAccessContext(options: { allowPasswordChangeRequired?: 
       email: user.email,
       role: user.role,
       clientIds: rows.map((row) => row.clientId).filter(Boolean) as string[],
-      mustChangePassword: user.mustChangePassword,
     },
   };
 }

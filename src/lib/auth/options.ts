@@ -2,6 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
+import { consumeLoginCode } from "@/lib/auth/email-code";
 import { hashPassword, secretsMatch, verifyPassword } from "@/lib/auth/password";
 import { isOwnerEmail } from "@/lib/auth/owner";
 import { users } from "@/lib/schema";
@@ -18,6 +19,30 @@ const demoProvider = CredentialsProvider({
       id: "demo-admin",
       name: "Demo Admin",
       email,
+    };
+  },
+});
+
+const emailCodeProvider = CredentialsProvider({
+  id: "email-code",
+  name: "Email code",
+  credentials: {
+    email: { label: "Email", type: "email" },
+    code: { label: "Code", type: "text" },
+  },
+  async authorize(credentials) {
+    if (!databaseConfigured) return null;
+    const user = await consumeLoginCode({
+      email: credentials?.email ?? "",
+      code: credentials?.code ?? "",
+    });
+    if (!user) return null;
+
+    return {
+      id: user.id,
+      name: user.name || user.email,
+      email: user.email,
+      sessionVersion: user.sessionVersion,
     };
   },
 });
@@ -77,13 +102,22 @@ const passwordProvider = CredentialsProvider({
 });
 
 const databaseConfigured = isDatabaseConfigured();
-const providers = databaseConfigured ? [passwordProvider] : process.env.NODE_ENV !== "production" ? [demoProvider] : [];
+const passwordFallbackEnabled = process.env.AUTH_PASSWORD_FALLBACK === "true";
+const providers = databaseConfigured
+  ? [emailCodeProvider, ...(passwordFallbackEnabled ? [passwordProvider] : [])]
+  : process.env.NODE_ENV !== "production" ? [demoProvider] : [];
+
+const sessionMaxAgeSeconds = 3 * 24 * 60 * 60;
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.AUTH_SECRET || (process.env.NODE_ENV !== "production" ? "local-dev-only-secret-change-in-production" : undefined),
   providers,
   session: {
     strategy: "jwt",
+    maxAge: sessionMaxAgeSeconds,
+  },
+  jwt: {
+    maxAge: sessionMaxAgeSeconds,
   },
   pages: {
     signIn: "/",

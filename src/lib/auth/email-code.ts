@@ -2,6 +2,7 @@ import { and, count, desc, eq, gt, gte, isNull, lt, sql } from "drizzle-orm";
 import { recordAudit } from "@/lib/audit";
 import { getDb } from "@/lib/db";
 import { loginCodes, users } from "@/lib/schema";
+import { isOwnerEmail } from "./owner";
 import {
   createLoginCode,
   hashLoginCode,
@@ -71,6 +72,17 @@ export async function requestLoginCode(input: { email: string; ip: string }) {
   const cooldownStart = new Date(now.getTime() - LOGIN_CODE_COOLDOWN_SECONDS * 1000);
   const staleBefore = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const db = getDb();
+
+  if (isOwnerEmail(email)) {
+    await db.insert(users).values({
+      id: crypto.randomUUID(),
+      email,
+      name: "Agency Owner",
+      role: "owner",
+      status: "active",
+      mustChangePassword: false,
+    }).onConflictDoNothing();
+  }
 
   await db.delete(loginCodes).where(lt(loginCodes.requestedAt, staleBefore));
   const [[emailRequests], [ipRequests], recent] = await Promise.all([
@@ -158,6 +170,13 @@ export async function consumeLoginCode(input: { email: string; code: string }) {
 
   const user = await db.select().from(users).where(and(eq(users.id, challenge.userId), eq(users.status, "active"))).limit(1).then((rows) => rows[0]);
   if (!user) return null;
-  await db.update(users).set({ lastLoginAt: now, loginAttempts: 0, loginWindowStart: null }).where(eq(users.id, user.id));
+  await db.update(users).set({
+    emailVerified: user.emailVerified ?? now,
+    lastLoginAt: now,
+    loginAttempts: 0,
+    loginWindowStart: null,
+    mustChangePassword: false,
+  }).where(eq(users.id, user.id));
+  await recordAudit({ actorUserId: user.id, action: "auth.login_code_consumed", entityType: "user", entityId: user.id });
   return user;
 }

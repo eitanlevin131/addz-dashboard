@@ -1,11 +1,13 @@
 export const authRuntimeConfig = {
-  strategy: "Auth.js email and password",
+  strategy: "Auth.js email one-time code",
   database: "Neon Postgres Free",
   requiredEnv: [
     "DATABASE_URL",
     "AUTH_SECRET",
     "AUTH_URL",
     "NEXTAUTH_URL",
+    "RESEND_API_KEY",
+    "EMAIL_FROM",
   ],
 };
 

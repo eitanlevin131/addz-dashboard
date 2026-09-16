@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 import { recordAudit } from "@/lib/audit";
 import { requireOwner } from "@/lib/auth/access";
 import { isOwnerEmail } from "@/lib/auth/owner";
-import { hashPassword, validatePassword } from "@/lib/auth/password";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { clientUsers, clients, users } from "@/lib/schema";
 
@@ -40,9 +39,7 @@ export async function GET() {
       email: user.email,
       role: isOwnerEmail(user.email) ? "owner" : user.role,
       status: user.status,
-      mustChangePassword: user.mustChangePassword,
       lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
-      hasPassword: Boolean(user.passwordHash),
       isOwner: isOwnerEmail(user.email) || user.role === "owner",
       createdAt: user.createdAt.toISOString(),
       clients: linkRows.filter((link) => link.userId === user.id).map((link) => ({
@@ -61,15 +58,12 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const email = normalizeEmail(body.email);
   const name = String(body.name ?? "").trim();
-  const password = String(body.password ?? "");
   const role = normalizeRole(body.role);
   const clientId = String(body.clientId ?? "").trim();
 
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ success: false, message: "חסר אימייל משתמש תקין." }, { status: 400 });
   }
-  const passwordError = validatePassword(password);
-  if (passwordError) return NextResponse.json({ success: false, message: passwordError }, { status: 400 });
   if (role === "client" && !clientId) {
     return NextResponse.json({ success: false, message: "צריך לבחור לקוח עבור משתמש לקוח." }, { status: 400 });
   }
@@ -83,7 +77,7 @@ export async function POST(request: Request) {
   if (existing) return NextResponse.json({ success: false, message: "המשתמש כבר קיים." }, { status: 409 });
 
   const userId = crypto.randomUUID();
-  const insertUser = db.insert(users).values({ id: userId, email, name: name || email, passwordHash: await hashPassword(password), role, status: "active", mustChangePassword: true });
+  const insertUser = db.insert(users).values({ id: userId, email, name: name || email, role, status: "active", mustChangePassword: false });
   try {
     if (role === "client") {
       await db.batch([insertUser, db.insert(clientUsers).values({ clientId, userId })]);
@@ -125,15 +119,6 @@ export async function PATCH(request: Request) {
   const [target] = await db.select().from(users).where(eq(users.id, userId));
   if (!target) return NextResponse.json({ success: false, message: "המשתמש לא נמצא." }, { status: 404 });
   const targetIsOwner = target.role === "owner" || isOwnerEmail(target.email);
-
-  if (body.password !== undefined) {
-    const password = String(body.password ?? "");
-    const error = validatePassword(password);
-    if (error) return NextResponse.json({ success: false, message: error }, { status: 400 });
-    await db.update(users).set({ passwordHash: await hashPassword(password), mustChangePassword: !targetIsOwner, sessionVersion: sql`${users.sessionVersion} + 1`, loginAttempts: 0, loginWindowStart: null }).where(eq(users.id, userId));
-    await recordAudit({ actorUserId: context.access.userId, action: "user.password_reset", entityType: "user", entityId: userId });
-    return NextResponse.json({ success: true, reauthenticate: target.email === context.access.email });
-  }
 
   if (body.status !== undefined) {
     if (targetIsOwner) return NextResponse.json({ success: false, message: "לא ניתן להשעות את בעל המערכת." }, { status: 400 });

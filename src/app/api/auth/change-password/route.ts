@@ -7,7 +7,7 @@ import { getDb } from "@/lib/db";
 import { users } from "@/lib/schema";
 
 export async function POST(request: Request) {
-  const context = await getAccessContext({ allowPasswordChangeRequired: true });
+  const context = await getAccessContext();
   if (!context.ok) return context.response;
 
   const body = await request.json().catch(() => ({}));

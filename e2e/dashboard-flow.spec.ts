@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { neon } from "@neondatabase/serverless";
 import { encryptSecret } from "../src/lib/crypto";
-import { hashPassword } from "../src/lib/auth/password";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the E2E suite.");
@@ -12,7 +11,6 @@ const db = neon(databaseUrl);
 const suffix = randomUUID().slice(0, 8);
 const userId = `e2e-admin-${suffix}`;
 const email = `e2e-admin-${suffix}@example.test`;
-const password = `E2E-${randomUUID()}!`;
 const primaryClientId = randomUUID();
 const secondaryClientId = randomUUID();
 const primaryAccountId = randomUUID();
@@ -38,9 +36,8 @@ async function cleanup() {
 test.describe("agency dashboard critical journey", () => {
   test.beforeAll(async () => {
     await cleanup();
-    const passwordHash = await hashPassword(password);
-    await db`insert into users (id, name, email, password_hash, role, status, must_change_password)
-      values (${userId}, ${"E2E Agency Admin"}, ${email}, ${passwordHash}, ${"admin"}, ${"active"}, false)`;
+    await db`insert into users (id, name, email, role, status, must_change_password)
+      values (${userId}, ${"E2E Agency Admin"}, ${email}, ${"admin"}, ${"active"}, false)`;
     await db`insert into clients (id, name, owner, industry, visible_modules)
       values
         (${primaryClientId}, ${primaryClientName}, ${"E2E"}, ${"QA"}, ${["reports", "planner", "ai"]}),
@@ -64,11 +61,31 @@ test.describe("agency dashboard critical journey", () => {
   test("login, client selection, range, sync, reports, planner and grounded AI", async ({ page }) => {
     await page.goto("/");
     await page.getByLabel("אימייל").fill(email);
-    await page.getByLabel("סיסמה").fill(password);
+    await page.getByRole("button", { name: "שלחו לי קוד כניסה", exact: true }).click();
+    await expect(page.getByLabel("קוד כניסה")).toBeVisible();
+
+    const deliveredEmail = await fetch(`${mockBaseURL}/test/resend-latest?to=${encodeURIComponent(email)}`).then((response) => response.json());
+    expect(deliveredEmail.count).toBe(1);
+    const deliveredCode = String(deliveredEmail.data.text).match(/\b\d{6}\b/)?.[0];
+    expect(deliveredCode).toMatch(/^\d{6}$/);
+    if (!deliveredCode) throw new Error("Resend mock did not capture a login code.");
+    const [storedCode] = await db`select code_hash, status, provider_message_id from login_codes where user_id = ${userId} order by requested_at desc limit 1`;
+    expect(storedCode.status).toBe("sent");
+    expect(storedCode.provider_message_id).toBe("e2e-email-1");
+    expect(storedCode.code_hash).not.toContain(deliveredCode);
+
+    await page.getByLabel("קוד כניסה").fill(deliveredCode);
     await page.getByRole("button", { name: "כניסה", exact: true }).click();
     await expect(page.getByRole("heading", { name: "סקירת סוכנות" })).toBeVisible();
+    const sessionCookie = (await page.context().cookies()).find((cookie) => cookie.name.endsWith("session-token"));
+    expect(sessionCookie).toBeTruthy();
+    expect(sessionCookie!.expires).toBeGreaterThan(Date.now() / 1000 + 70 * 60 * 60);
+    expect(sessionCookie!.expires).toBeLessThan(Date.now() / 1000 + 74 * 60 * 60);
+    const [consumedCode] = await db`select status, consumed_at from login_codes where user_id = ${userId} order by requested_at desc limit 1`;
+    expect(consumedCode.status).toBe("consumed");
+    expect(consumedCode.consumed_at).toBeTruthy();
 
-    const requestLoginCode = async (targetEmail: string) => page.evaluate(async (value) => {
+    const requestUnknownLoginCode = async (targetEmail: string) => page.evaluate(async (value) => {
       const response = await fetch("/api/access-code/request", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -76,20 +93,9 @@ test.describe("agency dashboard critical journey", () => {
       });
       return { status: response.status, payload: await response.json() };
     }, targetEmail);
-    const knownCodeRequest = await requestLoginCode(email);
-    expect(knownCodeRequest.status).toBe(202);
-    const unknownCodeRequest = await requestLoginCode(`unknown-${suffix}@example.test`);
+    const unknownCodeRequest = await requestUnknownLoginCode(`unknown-${suffix}@example.test`);
     expect(unknownCodeRequest.status).toBe(202);
-    expect(unknownCodeRequest.payload.message).toBe(knownCodeRequest.payload.message);
-
-    const deliveredEmail = await fetch(`${mockBaseURL}/test/resend-latest?to=${encodeURIComponent(email)}`).then((response) => response.json());
-    expect(deliveredEmail.count).toBe(1);
-    const deliveredCode = String(deliveredEmail.data.text).match(/\b\d{6}\b/)?.[0];
-    expect(deliveredCode).toMatch(/^\d{6}$/);
-    const [storedCode] = await db`select code_hash, status, provider_message_id from login_codes where user_id = ${userId} order by requested_at desc limit 1`;
-    expect(storedCode.status).toBe("sent");
-    expect(storedCode.provider_message_id).toBe("e2e-email-1");
-    expect(storedCode.code_hash).not.toContain(deliveredCode);
+    expect(unknownCodeRequest.payload.message).toContain("אם כתובת המייל מורשית");
 
     const clientSelector = page.locator("#client-select");
     await clientSelector.selectOption(secondaryClientId);

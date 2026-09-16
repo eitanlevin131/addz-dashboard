@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { recordAudit } from "@/lib/audit";
 import { requireOwner } from "@/lib/auth/access";
-import { hashPassword, validatePassword } from "@/lib/auth/password";
 import { encryptSecret } from "@/lib/crypto";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { validateFlashyAccount } from "@/lib/flashy";
@@ -72,7 +71,6 @@ export async function POST(request: Request) {
   const industry = String(body.industry ?? "").trim();
   const clientEmail = String(body.clientEmail ?? "").trim().toLowerCase();
   const clientUserName = String(body.clientUserName ?? clientName).trim();
-  const temporaryPassword = String(body.temporaryPassword ?? "");
   const visibleModules = Array.isArray(body.visibleModules)
     ? body.visibleModules.filter((module: unknown) => ["reports", "planner", "ai"].includes(String(module)))
     : ["reports", "planner", "ai"];
@@ -83,11 +81,6 @@ export async function POST(request: Request) {
   if (clientEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail)) {
     return NextResponse.json({ success: false, message: "אימייל משתמש הלקוח אינו תקין." }, { status: 400 });
   }
-  if (clientEmail) {
-    const passwordError = validatePassword(temporaryPassword);
-    if (passwordError) return NextResponse.json({ success: false, message: passwordError }, { status: 400 });
-  }
-
   let flashyAccount;
   try {
     flashyAccount = (await validateFlashyAccount(apiKey)).data;
@@ -129,12 +122,11 @@ export async function POST(request: Request) {
 
   try {
     if (clientEmail && userId) {
-      const passwordHash = await hashPassword(temporaryPassword);
       await db.batch([
         insertClient,
         insertAccount,
         insertMemory,
-        db.insert(users).values({ id: userId, email: clientEmail, name: clientUserName || clientName, passwordHash, role: "client", status: "active", mustChangePassword: true }),
+        db.insert(users).values({ id: userId, email: clientEmail, name: clientUserName || clientName, role: "client", status: "active", mustChangePassword: false }),
         db.insert(clientUsers).values({ clientId, userId }),
       ]);
     } else {

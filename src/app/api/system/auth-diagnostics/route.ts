@@ -63,9 +63,8 @@ export async function GET(request: Request) {
       authUrlHost: hostFromUrl(process.env.AUTH_URL),
       adminEmailMatched: email ? adminEmails.has(email) : false,
       adminEmailsConfigured: adminEmails.size,
-      bootstrapAdminPasswordConfigured: Boolean(
-        process.env.ADMIN_PASSWORD || process.env.ADMIN_LOGIN_CODE,
-      ),
+      emailCodeDeliveryConfigured: Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM),
+      passwordFallbackEnabled: process.env.AUTH_PASSWORD_FALLBACK === "true",
     },
     database: {
       configured: isDatabaseConfigured(),

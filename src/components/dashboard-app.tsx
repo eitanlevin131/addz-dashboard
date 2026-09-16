@@ -141,7 +141,9 @@ type SyncedHoliday = {
 
 function LoginGate({ message }: { message: string }) {
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [step, setStep] = useState<"email" | "code">("email");
+  const [resendSeconds, setResendSeconds] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [state, setState] = useState(() => {
     if (typeof window === "undefined") return "";
@@ -150,38 +152,77 @@ function LoginGate({ message }: { message: string }) {
     if (!error) return "";
 
     const messages: Record<string, string> = {
-      CredentialsSignin: "האימייל או הסיסמה אינם נכונים.",
+      CredentialsSignin: "הקוד אינו תקין או שפג תוקפו. אפשר לנסות שוב או לבקש קוד חדש.",
       AccessDenied: "האימייל אינו מורשה להיכנס לחשבון הזה.",
     };
 
     return messages[error] ?? "הכניסה לא הושלמה. בדוק את הפרטים ונסה שוב.";
   });
 
-  async function submitLogin(event: React.FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    if (resendSeconds <= 0) return;
+    const timer = window.setInterval(() => setResendSeconds((current) => Math.max(0, current - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [resendSeconds]);
+
+  async function requestCode() {
+    const identifier = email.trim().toLowerCase();
+    if (!identifier) {
+      setState("צריך להזין כתובת אימייל.");
+      return;
+    }
+    if (submitting || resendSeconds > 0) return;
+    setSubmitting(true);
+    setState("שולח קוד כניסה...");
+    try {
+      const response = await fetch("/api/access-code/request", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: identifier }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "שליחת הקוד נכשלה.");
+      setEmail(identifier);
+      setCode("");
+      setStep("code");
+      setResendSeconds(60);
+      setState(payload.message);
+    } catch (error) {
+      setState(error instanceof Error ? error.message : "לא ניתן לשלוח קוד כרגע. נסה שוב בעוד רגע.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function submitEmail(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const identifier = email.trim();
-    if (!identifier || !password) {
-      setState("צריך להזין אימייל וסיסמה.");
+    await requestCode();
+  }
+
+  async function submitCode(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!/^\d{6}$/.test(code)) {
+      setState("צריך להזין קוד בן 6 ספרות.");
       return;
     }
 
     if (submitting) return;
     setSubmitting(true);
-    setState("מתחבר...");
+    setState("מאמת את הקוד...");
     try {
-    const result = await signIn("password", {
-      email: identifier,
-      password,
-      redirect: false,
-      callbackUrl: "/",
-    });
+      const result = await signIn("email-code", {
+        email,
+        code,
+        redirect: false,
+        callbackUrl: "/",
+      });
 
-    if (!result?.ok || result.error) {
-      setState("פרטי הכניסה אינם תקינים, או שבוצעו ניסיונות רבים. אפשר לנסות שוב בעוד 15 דקות או לפנות למנהל המערכת.");
-      return;
-    }
+      if (!result?.ok || result.error) {
+        setState("הקוד אינו תקין או שפג תוקפו. אפשר לבדוק את הקוד או לבקש קוד חדש.");
+        return;
+      }
 
-    window.location.href = result?.url || "/";
+      window.location.href = result?.url || "/";
     } catch {
       setState("לא ניתן להתחבר כרגע. נסה שוב בעוד רגע.");
     } finally {
@@ -206,10 +247,10 @@ function LoginGate({ message }: { message: string }) {
         </div>
 
         <p className="mb-5 border-r-2 border-[#42dfcf] bg-[#f8fafb] px-4 py-3 text-sm leading-6 text-[#475467]">
-          {message || "היכנסו עם האימייל והסיסמה שהוגדרו עבורכם."}
+          {message || "הכניסה זמינה רק למיילים שאושרו מראש על ידי מנהל המערכת."}
         </p>
 
-        <form onSubmit={submitLogin} className="space-y-3">
+        {step === "email" ? <form onSubmit={submitEmail} className="space-y-3">
           <label className="block text-sm font-bold text-[#263548]">
             אימייל
             <input
@@ -217,23 +258,9 @@ function LoginGate({ message }: { message: string }) {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               placeholder="you@addz.digital"
-              autoComplete="username"
+              autoComplete="email"
               required
               maxLength={254}
-              className="mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] px-3.5 text-left text-base outline-none transition focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20"
-              dir="ltr"
-            />
-          </label>
-          <label className="block text-sm font-bold text-[#263548]">
-            סיסמה
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="הסיסמה שלך"
-              autoComplete="current-password"
-              required
-              maxLength={128}
               className="mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] px-3.5 text-left text-base outline-none transition focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20"
               dir="ltr"
             />
@@ -241,63 +268,45 @@ function LoginGate({ message }: { message: string }) {
           <button
             type="submit"
             disabled={submitting}
-            className="h-11 w-full rounded-lg bg-[#0b0c10] text-sm font-bold text-white transition hover:bg-[#24262d]"
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#0b0c10] text-sm font-bold text-white transition hover:bg-[#24262d] disabled:opacity-50"
           >
-            {submitting ? "מתחבר..." : "כניסה"}
+            <Send size={16} />
+            {submitting ? "שולח..." : "שלחו לי קוד כניסה"}
           </button>
-        </form>
+        </form> : <form onSubmit={submitCode} className="space-y-4">
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-[#e4e7ec] bg-[#fcfcfd] px-3 py-2.5">
+            <span className="min-w-0 truncate text-left text-sm font-bold text-[#344054]" dir="ltr">{email}</span>
+            <button type="button" onClick={() => { setStep("email"); setCode(""); setResendSeconds(0); setState(""); }} className="shrink-0 text-xs font-bold text-[#087f72]">שינוי</button>
+          </div>
+          <label className="block text-sm font-bold text-[#263548]">
+            קוד כניסה
+            <input
+              autoFocus
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]{6}"
+              autoComplete="one-time-code"
+              value={code}
+              onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="000000"
+              aria-describedby="login-code-help"
+              required
+              maxLength={6}
+              className="mt-2 h-14 w-full rounded-lg border border-[#d0d5dd] px-3.5 text-center text-2xl font-black tracking-[0.35em] outline-none transition focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20"
+              dir="ltr"
+            />
+          </label>
+          <p id="login-code-help" className="text-xs leading-5 text-[#667085]">הקוד תקף ל־10 דקות וניתן לשימוש פעם אחת בלבד.</p>
+          <button type="submit" disabled={submitting || code.length !== 6} className="h-11 w-full rounded-lg bg-[#0b0c10] text-sm font-bold text-white transition hover:bg-[#24262d] disabled:opacity-50">
+            {submitting ? "מאמת..." : "כניסה"}
+          </button>
+          <button type="button" disabled={submitting || resendSeconds > 0} onClick={() => void requestCode()} className="h-9 w-full text-sm font-bold text-[#087f72] disabled:text-[#98a2b3]">
+            {resendSeconds > 0 ? `שליחה חוזרת בעוד ${resendSeconds} שניות` : "שלחו קוד חדש"}
+          </button>
+        </form>}
 
         {state && <p role="status" className="mt-4 whitespace-pre-wrap text-sm leading-6 text-[#4a5870]">{state}</p>}
-        <p className="mt-4 text-xs text-[#667085]">שכחת סיסמה? פנה למנהל החשבון בסוכנות.</p>
-      </section>
-    </div>
-  );
-}
-
-function PasswordChangeGate({ message }: { message: string }) {
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [state, setState] = useState(message);
-  const [busy, setBusy] = useState(false);
-
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (newPassword !== confirmPassword) {
-      setState("הסיסמאות החדשות אינן זהות.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const response = await fetch("/api/auth/change-password", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ currentPassword, newPassword }),
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message || "עדכון הסיסמה נכשל.");
-      await signOut({ callbackUrl: "/" });
-    } catch (error) {
-      setState(error instanceof Error ? error.message : "עדכון הסיסמה נכשל.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div dir="rtl" className="grid min-h-screen place-items-center bg-[#0b0c10] px-4">
-      <section className="w-full max-w-md rounded-xl bg-white p-7 shadow-2xl">
-        <div className="flex items-center gap-3">
-          <div className="grid size-10 place-items-center rounded-lg bg-[#42dfcf]"><KeyRound size={19} /></div>
-          <div><p className="text-xs font-bold text-[#667085]">אבטחת החשבון</p><h1 className="text-2xl font-black text-[#111318]">בחירת סיסמה חדשה</h1></div>
-        </div>
-        <p className="mt-4 text-sm leading-6 text-[#667085]">{state}</p>
-        <form onSubmit={submit} className="mt-5 space-y-3">
-          <input required type="password" autoComplete="current-password" placeholder="סיסמה זמנית" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} className="h-11 w-full rounded-lg border border-[#d0d5dd] px-3 text-left" dir="ltr" />
-          <input required minLength={10} maxLength={128} type="password" autoComplete="new-password" placeholder="סיסמה חדשה, לפחות 10 תווים" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} className="h-11 w-full rounded-lg border border-[#d0d5dd] px-3 text-left" dir="ltr" />
-          <input required minLength={10} maxLength={128} type="password" autoComplete="new-password" placeholder="אימות סיסמה חדשה" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} className="h-11 w-full rounded-lg border border-[#d0d5dd] px-3 text-left" dir="ltr" />
-          <button disabled={busy} className="h-11 w-full rounded-lg bg-[#111318] font-bold text-white disabled:opacity-50">{busy ? "מעדכן..." : "עדכן והתחבר מחדש"}</button>
-        </form>
+        <p className="mt-4 text-xs text-[#667085]">הקוד נשלח רק לכתובת שאושרה מראש במערכת.</p>
       </section>
     </div>
   );
@@ -703,9 +712,7 @@ type AdminUserAccess = {
   email: string;
   role: "owner" | "admin" | "client";
   status: "active" | "suspended";
-  mustChangePassword: boolean;
   lastLoginAt: string | null;
-  hasPassword: boolean;
   createdAt: string;
   clients: {
     linkId: string;
@@ -4726,33 +4733,12 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
   const [users, setUsers] = useState<AdminUserAccess[]>([]);
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const [password, setPassword] = useState("");
   const [role, setRole] = useState<"admin" | "client">("client");
   const [clientId, setClientId] = useState(clients[0]?.id ?? "");
   const [state, setState] = useState("טוען משתמשים...");
-  const [resetUserId, setResetUserId] = useState<string | null>(null);
-  const [resetPassword, setResetPassword] = useState("");
   const [assignmentByUser, setAssignmentByUser] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [query, setQuery] = useState("");
-
-  async function savePassword(userId: string) {
-    if (busy || resetPassword.length < 10) return;
-    setBusy(true);
-    try {
-      const response = await fetch("/api/admin/users", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId, password: resetPassword }) });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.message || "שינוי הסיסמה נכשל.");
-      setResetPassword("");
-      setResetUserId(null);
-      if (payload.reauthenticate) { await signOut({ callbackUrl: "/" }); return; }
-      await loadUsers();
-      setState("הסיסמה עודכנה. המשתמש יתחבר מחדש עם הסיסמה החדשה.");
-    } catch (error) {
-      setState(error instanceof Error ? error.message : "שינוי הסיסמה נכשל.");
-    } finally { setBusy(false); }
-  }
 
   async function loadUsers() {
     try {
@@ -4779,11 +4765,6 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
       return;
     }
 
-    if (password.length < 10) {
-      setState("הסיסמה חייבת להכיל לפחות 10 תווים.");
-      return;
-    }
-
     setState("שומר הרשאה...");
     try {
       const response = await fetch("/api/admin/users", {
@@ -4792,7 +4773,6 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
         body: JSON.stringify({
           email,
           name,
-          password,
           role,
           clientId: role === "client" ? clientId : "",
         }),
@@ -4801,11 +4781,10 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
       if (!response.ok || !payload.success) throw new Error(payload.message || "שמירת משתמש נכשלה");
       setEmail("");
       setName("");
-      setPassword("");
       setRole("client");
       setShowCreateForm(false);
       await loadUsers();
-      setState("המשתמש וההרשאות נשמרו.");
+      setState("המשתמש וההרשאות נשמרו. בכניסה הוא יקבל קוד חד־פעמי למייל.");
     } catch (error) {
       setState(error instanceof Error ? error.message : "שמירת משתמש נכשלה.");
     }
@@ -4896,8 +4875,8 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
       </div>
 
       {showCreateForm && <div className="grid gap-4 border-b border-[#eaecf0] bg-[#f8fafc] px-5 py-5 sm:px-6">
-        <div><h3 className="text-sm font-black text-[#111318]">פרטי המשתמש החדש</h3><p className="mt-1 text-xs text-[#667085]">משתמש לקוח יראה רק את החשבון המשויך אליו. אדמין יקבל גישה לכל הלקוחות.</p></div>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_130px_1fr]">
+        <div><h3 className="text-sm font-black text-[#111318]">פרטי המשתמש החדש</h3><p className="mt-1 text-xs text-[#667085]">אין צורך בסיסמה. המשתמש ייכנס באמצעות קוד חד־פעמי שיישלח למייל שאישרת.</p></div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_130px_1fr]">
         <input
           type="email"
           value={email}
@@ -4914,17 +4893,6 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
           placeholder="שם להצגה"
           aria-label="שם להצגה"
           className="h-10 rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
-        />
-        <input
-          type="password"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          placeholder="סיסמה, לפחות 10 תווים"
-          aria-label="סיסמה למשתמש החדש"
-          maxLength={128}
-          autoComplete="new-password"
-          className="h-10 rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
-          dir="ltr"
         />
         <select
           value={role}
@@ -4967,7 +4935,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
             </div>
             <div className="mt-4 grid grid-cols-2 gap-3 border-y border-[#eaecf0] py-3 text-xs">
               <label className="text-[#667085]">תפקיד<select value={user.role} aria-label={`תפקיד ${user.email}`} disabled={user.isOwner} onChange={(event) => updateUserRole(user.id, event.target.value as "admin" | "client")} className="mt-1 h-9 w-full rounded-md border border-[#dfe7ee] bg-white px-2 text-sm text-[#111318]"><option value="owner">בעלים</option><option value="client">לקוח</option><option value="admin">אדמין</option></select></label>
-              <div><p className="text-[#667085]">התחברות</p><p className="mt-2 font-bold text-[#344054]">{user.hasPassword ? "סיסמה פעילה" : "חסרה סיסמה"}</p></div>
+              <div><p className="text-[#667085]">התחברות</p><p className="mt-2 font-bold text-[#344054]">קוד חד־פעמי</p></div>
               <div><p className="text-[#667085]">כניסה אחרונה</p><p className="mt-2 font-bold text-[#344054]">{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleDateString("he-IL") : "טרם התחבר"}</p></div>
               <div><p className="text-[#667085]">נוצר</p><p className="mt-2 font-bold text-[#344054]">{new Date(user.createdAt).toLocaleDateString("he-IL")}</p></div>
             </div>
@@ -4976,8 +4944,6 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
               <p className="mt-1 text-sm font-bold text-[#344054]">{user.role === "admin" || user.role === "owner" ? "כל הלקוחות" : user.clients.length ? user.clients.map((client) => client.clientName).join(" · ") : "אין שיוך"}</p>
               {user.role === "client" && <div className="mt-3 flex gap-2"><select aria-label={`שיוך לקוח עבור ${user.email}`} value={assignmentByUser[user.id] || clients[0]?.id || ""} onChange={(event) => setAssignmentByUser((current) => ({ ...current, [user.id]: event.target.value }))} className="h-9 min-w-0 flex-1 rounded-md border border-[#dfe7ee] px-2 text-xs">{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select><button type="button" onClick={() => addClientAccess(user.id)} className="h-9 rounded-md border border-[#d0d5dd] px-3 text-xs font-bold">שייך</button></div>}
             </div>
-            <button type="button" className="mt-4 text-xs font-bold text-[#087f72]" onClick={() => { setResetUserId(user.id); setResetPassword(""); }}>שינוי סיסמה</button>
-            {resetUserId === user.id && <form className="mt-2 flex gap-2" onSubmit={(event) => { event.preventDefault(); void savePassword(user.id); }}><input autoFocus aria-label={`סיסמה חדשה עבור ${user.email}`} type="password" autoComplete="new-password" required minLength={10} maxLength={128} dir="ltr" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} className="h-9 min-w-0 flex-1 rounded-md border border-[#dfe7ee] px-2" /><button disabled={busy} className="rounded-md bg-[#111318] px-3 text-xs text-white">שמור</button><button type="button" aria-label="ביטול שינוי סיסמה" onClick={() => { setResetUserId(null); setResetPassword(""); }}><X size={16} /></button></form>}
           </article>
         ))}
         {!filteredUsers.length && <p className="py-8 text-center text-sm text-[#667085]">{query ? "לא נמצאו משתמשים שמתאימים לחיפוש." : "אין משתמשים להצגה."}</p>}
@@ -5018,24 +4984,10 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
                   </select>
                 </td>
                 <td className="p-3">
-                  <span className={classNames(
-                    "inline-flex rounded-full px-3 py-1 text-xs font-bold",
-                    user.hasPassword
-                      ? "bg-[#e8fbf8] text-[#007d72]"
-                      : "bg-[#fff0e8] text-[#9a3412]",
-                  )}>
-                    {user.hasPassword ? "סיסמה פעילה" : "חסרה סיסמה"}
+                  <span className="inline-flex rounded-full bg-[#e8fbf8] px-3 py-1 text-xs font-bold text-[#007d72]">
+                    קוד למייל
                   </span>
-                  <button type="button" className="mt-2 block text-xs font-medium text-[#087f72]" onClick={() => { setResetUserId(user.id); setResetPassword(""); }}>שינוי סיסמה</button>
-                  {resetUserId === user.id && (
-                    <form className="mt-2 space-y-2" onSubmit={(event) => { event.preventDefault(); void savePassword(user.id); }}>
-                      <input autoFocus aria-label={`סיסמה חדשה עבור ${user.email}`} type="password" autoComplete="new-password" required minLength={10} maxLength={128} dir="ltr" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} className="h-9 w-full min-w-0 rounded-md border border-[#dfe7ee] px-2" />
-                      <div className="flex gap-2">
-                        <button disabled={busy} className="rounded-md bg-[#111318] px-3 py-2 text-xs text-white">{busy ? "שומר..." : "עדכן סיסמה"}</button>
-                        <button type="button" disabled={busy} onClick={() => { setResetUserId(null); setResetPassword(""); }} className="text-xs">ביטול</button>
-                      </div>
-                    </form>
-                  )}
+                  <p className="mt-2 text-xs text-[#667085]">הקוד נשלח רק בעת בקשת התחברות</p>
                 </td>
                 <td className="p-3">
                   <button
@@ -5046,7 +4998,6 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
                   >
                     {user.status === "active" ? "פעיל" : "מושעה"}
                   </button>
-                  {user.mustChangePassword && <p className="mt-2 text-xs text-amber-700">נדרשת החלפת סיסמה</p>}
                   <p className="mt-2 text-xs text-[#667085]">{user.lastLoginAt ? `כניסה: ${new Date(user.lastLoginAt).toLocaleDateString("he-IL")}` : "טרם התחבר"}</p>
                 </td>
                 <td className="p-3">
@@ -5139,13 +5090,13 @@ function AdminActivityLog() {
   const labels: Record<string, string> = {
     "client.created": "נוצר לקוח",
     "user.created": "נוצר משתמש",
-    "user.password_reset": "אופסה סיסמה",
     "user.role_changed": "שונה תפקיד",
     "user.active": "הופעל משתמש",
     "user.suspended": "הושעה משתמש",
     "user.client_assigned": "שויך לקוח",
     "user.client_unassigned": "הוסר שיוך לקוח",
-    "password.changed": "הוחלפה סיסמה",
+    "auth.login_code_sent": "נשלח קוד כניסה",
+    "auth.login_code_consumed": "בוצעה כניסה עם קוד",
   };
 
   return (
@@ -6026,7 +5977,6 @@ export function DashboardApp() {
   const [dataSource, setDataSource] = useState<"demo" | "neon" | "loading">("loading");
   const [dataNotice, setDataNotice] = useState("טוען נתונים מ-Neon...");
   const [authRequired, setAuthRequired] = useState(false);
-  const [passwordChangeRequired, setPasswordChangeRequired] = useState(false);
   const [liveDataIssue, setLiveDataIssue] = useState("");
   const [refreshState, setRefreshState] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -6215,14 +6165,6 @@ export function DashboardApp() {
 
         if (cancelled) return;
         if (!response.ok || !payload.success) {
-          if (response.status === 428 && payload.code === "PASSWORD_CHANGE_REQUIRED") {
-            setPasswordChangeRequired(true);
-            setAuthRequired(false);
-            setLiveDataIssue("");
-            setDataSource("loading");
-            setDataNotice(payload.message || "צריך לבחור סיסמה חדשה.");
-            return;
-          }
           if (response.status === 401 || response.status === 403) {
             setAuthRequired(true);
             setLiveDataIssue("");
@@ -6268,7 +6210,6 @@ export function DashboardApp() {
         setLocalSyncHistory(data.syncHistory ?? []);
         setSelectedClientId(data.clients[0].id);
         setAuthRequired(false);
-        setPasswordChangeRequired(false);
         setLiveDataIssue("");
         setDataSource("neon");
         setDataNotice(`נטענו ${data.clients.length} לקוחות מ-Neon.`);
@@ -6444,10 +6385,6 @@ export function DashboardApp() {
 
   if (authRequired) {
     return <LoginGate message={dataNotice} />;
-  }
-
-  if (passwordChangeRequired) {
-    return <PasswordChangeGate message={dataNotice} />;
   }
 
   if (liveDataIssue) {
