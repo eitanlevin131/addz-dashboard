@@ -143,6 +143,81 @@ export function SmsPerformanceTrendChart({
   );
 }
 
+export type AutomationTrendPoint = {
+  date: string;
+  label: string;
+  revenue: number;
+  purchases: number;
+  entered: number;
+  completed: number;
+  previousRevenue: number;
+};
+
+export function AutomationPerformanceTrendChart({
+  points,
+  currency,
+  previousRangeLabel,
+  onSelect,
+}: {
+  points: AutomationTrendPoint[];
+  currency: string;
+  previousRangeLabel: string;
+  onSelect?: (point: AutomationTrendPoint, metric: "revenue" | "purchases" | "entered") => void;
+}) {
+  const [metric, setMetric] = useState<"revenue" | "purchases" | "entered">("revenue");
+  const hasData = points.some((point) => point.revenue || point.purchases || point.entered || point.completed || point.previousRevenue);
+  const selectPoint = (selectedMetric: "revenue" | "purchases" | "entered") => (entry: unknown) => {
+    const point = (entry as { payload?: AutomationTrendPoint }).payload;
+    if (point) onSelect?.(point, selectedMetric);
+  };
+  const tooltipFormatter = (value: unknown, name: unknown) => {
+    const numericValue = Number(value);
+    return name === "הכנסה" || name === "תקופה קודמת"
+      ? [formatCurrency(numericValue, currency), String(name)]
+      : [formatNumber(numericValue), String(name)];
+  };
+
+  return <ChartFrame
+    title="פעילות אוטומציות לאורך התקופה"
+    detail={metric === "revenue" ? `הכנסה יומית מול ${previousRangeLabel}` : metric === "purchases" ? "רכישות מיוחסות לפי יום" : "כניסות והשלמות לפי יום"}
+    controls={<div className="flex rounded-md bg-[#f1f4f5] p-0.5" role="group" aria-label="מדד בגרף אוטומציות">
+      {([
+        { value: "revenue", label: "הכנסה" },
+        { value: "purchases", label: "רכישות" },
+        { value: "entered", label: "נכנסו והשלימו" },
+      ] as const).map((option) => <button key={option.value} type="button" aria-pressed={metric === option.value} onClick={() => setMetric(option.value)} className={`min-h-8 rounded px-2.5 text-xs transition ${metric === option.value ? "bg-white font-bold text-[#111318] shadow-sm" : "text-[#667085] hover:text-[#344054]"}`}>{option.label}</button>)}
+    </div>}
+  >
+    {!hasData ? <EmptyChart /> : <div className="min-w-0">
+      <div className="px-4 pb-1 sm:px-5"><Legend items={metric === "revenue"
+        ? [{ label: "הכנסה", color: chartColors.automation }, { label: "תקופה קודמת", color: "#7b8491" }]
+        : metric === "purchases"
+          ? [{ label: "רכישות", color: chartColors.automation }]
+          : [{ label: "נכנסו", color: chartColors.automation }, { label: "הושלמו", color: chartColors.sms }]}
+      /></div>
+      <div className="h-[280px] min-w-0 px-2 pb-3 pl-0 sm:h-[320px] sm:px-4 sm:pb-4" dir="ltr" role="img" aria-label="מגמת ביצועי אוטומציות לאורך התקופה">
+        <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 900, height: 300 }}>
+          <ComposedChart data={points} margin={{ top: 12, right: 4, bottom: 0, left: 0 }}>
+            <CartesianGrid vertical={false} stroke="#eef0f2" />
+            <XAxis dataKey="label" axisLine={{ stroke: "#dfe3e7" }} tickLine={false} interval="preserveStartEnd" minTickGap={28} tick={{ fill: "#667085", fontSize: 10 }} />
+            <YAxis width={54} axisLine={false} tickLine={false} tickFormatter={compact} tick={{ fill: "#667085", fontSize: 10 }} />
+            <Tooltip formatter={tooltipFormatter} contentStyle={{ direction: "rtl", borderRadius: 8, borderColor: "#e4e7ec", fontSize: 12 }} />
+            {metric === "revenue" && <>
+              <Area type="monotone" dataKey="revenue" name="הכנסה" stroke={chartColors.automation} fill={chartColors.automation} fillOpacity={0.16} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("revenue")} />
+              <Line type="monotone" dataKey="previousRevenue" name="תקופה קודמת" stroke="#7b8491" strokeWidth={2} strokeDasharray="5 4" dot={false} activeDot={{ r: 3 }} isAnimationActive={false} />
+            </>}
+            {metric === "purchases" && <Area type="monotone" dataKey="purchases" name="רכישות" stroke={chartColors.automation} fill={chartColors.automation} fillOpacity={0.16} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("purchases")} />}
+            {metric === "entered" && <>
+              <Area type="monotone" dataKey="entered" name="נכנסו" stroke={chartColors.automation} fill={chartColors.automation} fillOpacity={0.13} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("entered")} />
+              <Line type="monotone" dataKey="completed" name="הושלמו" stroke={chartColors.sms} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("entered")} />
+            </>}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>}
+  </ChartFrame>;
+}
+
 export function PeriodComparisonChart({
   points,
   currency,

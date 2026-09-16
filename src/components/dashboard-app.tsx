@@ -44,6 +44,7 @@ import { signIn, signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import {
   chartColors,
+  AutomationPerformanceTrendChart,
   CampaignJourneyChart,
   EngagementPlot,
   PeriodComparisonChart,
@@ -52,6 +53,7 @@ import {
   RevenueShareChart,
   WeekdayBars,
   type PeriodComparisonPoint,
+  type AutomationTrendPoint,
   type SmsTrendPoint,
 } from "@/components/reporting-charts";
 import { ClientOnboardingWizard } from "@/components/client-onboarding-wizard";
@@ -2467,75 +2469,372 @@ function SmsDashboard({ account, sms, automations, automationTimeline, previousS
   </div>;
 }
 
-function AutomationDashboard({ account, automations, showDeepAnalysis }: {
-  account: FlashyAccount; automations: AutomationReport[]; showDeepAnalysis: boolean;
+type AutomationChannelType = Exclude<AutomationFilterKey, "all">;
+type AutomationActivityRow = {
+  id: string;
+  automationId: number;
+  date: string;
+  name: string;
+  type: AutomationChannelType;
+  entered: number;
+  completed: number;
+  emailMessages: number;
+  smsMessages: number;
+  messages: number;
+  opens: number;
+  clicks: number;
+  purchases: number;
+  revenue: number;
+  smsCost: number;
+};
+
+function buildAutomationActivityRows(
+  account: FlashyAccount,
+  reports: AutomationReport[],
+  scope: "period" | "day" = "period",
+): AutomationActivityRow[] {
+  const grouped = new Map<string, Omit<AutomationActivityRow, "type" | "messages" | "smsCost">>();
+  for (const report of reports) {
+    const date = report.date.slice(0, 10);
+    const key = scope === "day" ? `${report.automationId}-${date}` : String(report.automationId);
+    const emailMessages = report.sentEmails ?? (report.channel === "email" ? report.totalDelivered : 0);
+    const smsMessages = getAutomationSmsRecipients(report);
+    const entered = report.totalEntered ?? report.totalRecipients;
+    const completed = report.totalCompleted ?? report.totalDelivered;
+    const current = grouped.get(key);
+    if (!current) {
+      grouped.set(key, {
+        id: `automation-${key}`,
+        automationId: report.automationId,
+        date,
+        name: report.automationName,
+        entered,
+        completed,
+        emailMessages,
+        smsMessages,
+        opens: report.openedEmails ?? report.totalOpens,
+        clicks: report.totalClicks,
+        purchases: report.purchases,
+        revenue: report.revenueGenerated,
+      });
+      continue;
+    }
+    current.date = date > current.date ? date : current.date;
+    current.entered = Math.max(current.entered, entered);
+    current.completed = Math.max(current.completed, completed);
+    current.emailMessages += emailMessages;
+    current.smsMessages += smsMessages;
+    current.opens += report.openedEmails ?? report.totalOpens;
+    current.clicks += report.totalClicks;
+    current.purchases += report.purchases;
+    current.revenue += report.revenueGenerated;
+  }
+
+  return [...grouped.values()].map((row) => {
+    const type: AutomationChannelType = row.emailMessages > 0 && row.smsMessages > 0 ? "mixed" : row.smsMessages > 0 ? "sms" : "email";
+    return {
+      ...row,
+      type,
+      messages: row.emailMessages + row.smsMessages,
+      smsCost: row.smsMessages * account.smsCreditPriceUsd * account.usdIlsRate,
+    };
+  });
+}
+
+function automationRowToDrilldown(row: AutomationActivityRow): DrilldownItem {
+  return {
+    id: row.id,
+    title: row.name,
+    subtitle: automationFilterLabels[row.type],
+    date: row.date,
+    revenue: row.revenue,
+    cost: row.smsCost,
+    purchases: row.purchases,
+    recipients: row.entered,
+    clicks: row.clicks,
+    opens: row.opens,
+  };
+}
+
+function summarizeAutomationActivity(
+  rows: AutomationActivityRow[],
+  fallback: AutomationActivityRow | null = null,
+): AutomationActivityRow | null {
+  if (rows.length === 0) return fallback;
+  const totals = rows.reduce(
+    (summary, row) => ({
+      entered: summary.entered + row.entered,
+      completed: summary.completed + row.completed,
+      emailMessages: summary.emailMessages + row.emailMessages,
+      smsMessages: summary.smsMessages + row.smsMessages,
+      opens: summary.opens + row.opens,
+      clicks: summary.clicks + row.clicks,
+      purchases: summary.purchases + row.purchases,
+      revenue: summary.revenue + row.revenue,
+      smsCost: summary.smsCost + row.smsCost,
+    }),
+    { entered: 0, completed: 0, emailMessages: 0, smsMessages: 0, opens: 0, clicks: 0, purchases: 0, revenue: 0, smsCost: 0 },
+  );
+  const type: AutomationChannelType = totals.emailMessages > 0 && totals.smsMessages > 0 ? "mixed" : totals.smsMessages > 0 ? "sms" : "email";
+  const latest = [...rows].sort((a, b) => b.date.localeCompare(a.date))[0];
+  return {
+    ...latest,
+    ...totals,
+    type,
+    messages: totals.emailMessages + totals.smsMessages,
+  };
+}
+
+function AutomationKpiStrip({
+  account,
+  rows,
+  previousRows,
+}: {
+  account: FlashyAccount;
+  rows: AutomationActivityRow[];
+  previousRows: AutomationActivityRow[] | null;
+}) {
+  const totals = (items: AutomationActivityRow[]) => {
+    const entered = items.reduce((sum, item) => sum + item.entered, 0);
+    const completed = items.reduce((sum, item) => sum + item.completed, 0);
+    return {
+      revenue: items.reduce((sum, item) => sum + item.revenue, 0),
+      purchases: items.reduce((sum, item) => sum + item.purchases, 0),
+      entered,
+      completed,
+      completionRate: entered > 0 ? completed / entered : null,
+    };
+  };
+  const current = totals(rows);
+  const previous = previousRows ? totals(previousRows) : null;
+  const metrics = [
+    { key: "purchases", label: "רכישות", value: formatNumber(current.purchases), raw: current.purchases, previous: previous?.purchases ?? null, detail: "רכישות מיוחסות לאוטומציות", icon: CheckCircle2 },
+    { key: "entered", label: "נכנסו", value: formatNumber(current.entered), raw: current.entered, previous: previous?.entered ?? null, detail: `${formatNumber(rows.length)} אוטומציות עם פעילות`, icon: Users },
+    { key: "completion", label: "שיעור השלמה", value: current.completionRate === null ? "—" : formatPercent(current.completionRate), raw: current.completionRate, previous: previous?.completionRate ?? null, detail: `${formatNumber(current.completed)} השלימו`, icon: Activity },
+  ];
+  const revenueComparison = comparisonChange(current.revenue, previous?.revenue ?? null);
+  const RevenueIcon = revenueComparison?.direction === "up" ? ArrowUpRight : revenueComparison?.direction === "down" ? ArrowDownRight : Minus;
+
+  return <section dir="rtl" className="grid overflow-hidden rounded-xl border border-[#dfe3e7] bg-[#dfe3e7] sm:grid-cols-3 lg:grid-cols-[minmax(310px,1.4fr)_repeat(3,minmax(0,1fr))]">
+    <article className="relative min-w-0 overflow-hidden bg-[#111318] p-5 text-white sm:col-span-3 lg:col-span-1 lg:p-6">
+      <div className="absolute inset-y-0 right-0 w-1 bg-[#6389d9]" />
+      <p className="text-xs font-medium text-white/60">הכנסות אוטומציות</p>
+      <p className="mt-3 text-right text-4xl font-bold leading-none tabular-nums sm:text-5xl">{formatCurrency(current.revenue, account.currency)}</p>
+      <div className="mt-4 flex min-h-5 flex-wrap items-center gap-2 text-xs tabular-nums">
+        {revenueComparison ? <span className={classNames("inline-flex items-center gap-1 font-bold", revenueComparison.direction === "up" ? "text-[#42dfcf]" : revenueComparison.direction === "down" ? "text-[#fbbf72]" : "text-white/65")}><RevenueIcon size={14} />{revenueComparison.label}</span> : <span className="text-white/50">אימייל, SMS ואוטומציות מעורבות</span>}
+        {previous && <span className="text-white/45">קודם {formatCurrency(previous.revenue, account.currency)}</span>}
+      </div>
+    </article>
+    {metrics.map((metric) => {
+      const comparison = comparisonChange(metric.raw, metric.previous);
+      const ComparisonIcon = comparison?.direction === "up" ? ArrowUpRight : comparison?.direction === "down" ? ArrowDownRight : Minus;
+      const Icon = metric.icon;
+      return <article key={metric.key} className="relative min-w-0 bg-white p-4 text-[#111318] lg:p-5">
+        <div className="flex min-h-6 items-start justify-between gap-2"><p className="text-xs font-medium text-[#667085]">{metric.label}</p><span className="grid size-8 shrink-0 place-items-center rounded-md bg-[#f2f4f7] text-[#4668ad]"><Icon size={16} /></span></div>
+        <p className="mt-3 text-right text-2xl font-bold leading-none tabular-nums sm:text-3xl">{metric.value}</p>
+        {comparison && <span className={classNames("mt-2 inline-flex items-center gap-1 text-[11px] font-bold", comparison.direction === "up" ? "text-[#087f72]" : comparison.direction === "down" ? "text-[#b45309]" : "text-[#667085]")}><ComparisonIcon size={13} />{comparison.label}</span>}
+        <p className="mt-3 text-xs leading-5 text-[#667085]">{metric.detail}</p>
+      </article>;
+    })}
+  </section>;
+}
+
+type AutomationSort = "revenue" | "purchases" | "entered" | "completion" | "openRate" | "clickRate" | "conversion" | "smsCost";
+
+function AutomationActivityTable({
+  rows,
+  currency,
+  showDeepAnalysis,
+  onSelect,
+}: {
+  rows: AutomationActivityRow[];
+  currency: string;
+  showDeepAnalysis: boolean;
+  onSelect: (row: AutomationActivityRow) => void;
+}) {
+  const [sortBy, setSortBy] = useState<AutomationSort>("revenue");
+  const [direction, setDirection] = useState<"asc" | "desc">("desc");
+  const [expanded, setExpanded] = useState(false);
+  const value = (row: AutomationActivityRow, metric: AutomationSort) => {
+    if (metric === "completion") return row.entered > 0 ? row.completed / row.entered : 0;
+    if (metric === "openRate") return row.emailMessages > 0 ? row.opens / row.emailMessages : Number.NEGATIVE_INFINITY;
+    if (metric === "clickRate") return row.messages > 0 ? row.clicks / row.messages : 0;
+    if (metric === "conversion") return row.entered > 0 ? row.purchases / row.entered : 0;
+    return row[metric];
+  };
+  const sorted = [...rows].sort((a, b) => {
+    const result = value(a, sortBy) - value(b, sortBy);
+    return direction === "desc" ? -result : result;
+  });
+  const visible = showDeepAnalysis || expanded ? sorted : sorted.slice(0, 8);
+  const selectSort = (metric: AutomationSort) => {
+    if (metric === sortBy) setDirection((current) => current === "desc" ? "asc" : "desc");
+    else {
+      setSortBy(metric);
+      setDirection("desc");
+    }
+  };
+  const headers: Array<{ key: AutomationSort; label: string }> = [
+    { key: "entered", label: "נכנסו" },
+    { key: "completion", label: "השלמה" },
+    { key: "openRate", label: "פתיחה" },
+    { key: "clickRate", label: "הקלקה" },
+    { key: "purchases", label: "רכישות" },
+    { key: "conversion", label: "המרה" },
+    { key: "revenue", label: "הכנסה" },
+    { key: "smsCost", label: "עלות SMS" },
+  ];
+  const rate = (numerator: number, denominator: number) => denominator > 0 ? formatPercent(numerator / denominator) : "—";
+
+  return <section className="overflow-hidden rounded-lg border border-[#e4e7ec] bg-white" aria-label="טבלת אוטומציות">
+    <header className="flex items-center justify-between gap-3 border-b border-[#eef0f2] px-4 py-4 sm:px-5">
+      <div><h2 className="text-base font-bold">ביצועים לפי אוטומציה</h2><p className="mt-1 text-xs text-[#667085]">לחיצה על שורה פותחת משפך, השוואה ומגמה</p></div>
+      <button type="button" onClick={() => { setSortBy("revenue"); setDirection("desc"); setExpanded(false); }} title="איפוס מיון" aria-label="איפוס מיון אוטומציות" className="grid size-8 shrink-0 place-items-center rounded-md border border-[#d0d5dd] text-[#667085] hover:bg-[#f8fafb] hover:text-[#111318]"><RotateCcw size={14} /></button>
+    </header>
+    {visible.length === 0 ? <div className="grid min-h-40 place-content-center text-sm text-[#667085]">אין אוטומציות להצגה בסינון הזה</div> : <>
+      <div className="hidden overflow-x-auto xl:block">
+        <table className="w-full min-w-[1240px] border-collapse text-right text-xs" aria-label="טבלת אוטומציות">
+          <thead className="bg-[#f8fafb] text-[#667085]"><tr><th className="px-4 py-3 font-medium">אוטומציה</th><th className="px-3 py-3 font-medium">סוג</th>{headers.map((header) => <th key={header.key} className="px-3 py-3 font-medium"><button type="button" onClick={() => selectSort(header.key)} className={classNames("inline-flex items-center gap-1 hover:text-[#111318]", sortBy === header.key && "font-bold text-[#111318]")}>{header.label}{sortBy === header.key && <ArrowDownWideNarrow size={13} className={direction === "asc" ? "rotate-180" : ""} />}</button></th>)}<th className="px-3 py-3 font-medium">ROAS</th></tr></thead>
+          <tbody className="divide-y divide-[#eef0f2]">{visible.map((row) => <tr key={row.id} tabIndex={0} role="button" onClick={() => onSelect(row)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelect(row); }} className="cursor-pointer transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"><td className="max-w-[300px] px-4 py-3"><b className="block truncate text-sm text-[#111318]">{row.name}</b><span className="mt-1 block text-[10px] text-[#667085]">{formatNumber(row.messages)} הודעות</span></td><td className="px-3 py-3"><span className={classNames("rounded-sm px-1.5 py-0.5 text-[10px] font-bold", row.type === "email" ? "bg-[#f2f4f7] text-[#344054]" : row.type === "sms" ? "bg-[#e8fbf8] text-[#087f72]" : "bg-[#eef3fd] text-[#4668ad]")}>{automationFilterLabels[row.type]}</span></td><td className="px-3 py-3 tabular-nums">{formatNumber(row.entered)}</td><td className="px-3 py-3 tabular-nums">{rate(row.completed, row.entered)}</td><td className="px-3 py-3 tabular-nums">{rate(row.opens, row.emailMessages)}</td><td className="px-3 py-3 tabular-nums">{rate(row.clicks, row.messages)}</td><td className="px-3 py-3 tabular-nums">{formatNumber(row.purchases)}</td><td className="px-3 py-3 tabular-nums">{rate(row.purchases, row.entered)}</td><td className="px-3 py-3 font-bold tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</td><td className="px-3 py-3 tabular-nums" dir="ltr">{formatCurrency(row.smsCost, currency)}</td><td className="px-3 py-3 font-bold tabular-nums" dir="ltr">{row.type === "sms" ? formatRoas(row.smsCost > 0 ? row.revenue / row.smsCost : null) : "—"}</td></tr>)}</tbody>
+        </table>
+      </div>
+      <div className="divide-y divide-[#eef0f2] xl:hidden">{visible.map((row) => <button key={row.id} type="button" onClick={() => onSelect(row)} className="block w-full p-4 text-right transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><b className="block text-sm leading-5 text-[#111318] [overflow-wrap:anywhere]">{row.name}</b><span className="mt-1 block text-[10px] font-bold text-[#667085]">{automationFilterLabels[row.type]} · {formatNumber(row.messages)} הודעות</span></div><b className="shrink-0 text-sm tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</b></div><div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-[#667085]"><span>נכנסו <b className="block text-[#111318]">{formatNumber(row.entered)}</b></span><span>השלמה <b className="block text-[#111318]">{rate(row.completed, row.entered)}</b></span><span>פתיחה <b className="block text-[#111318]">{rate(row.opens, row.emailMessages)}</b></span><span>הקלקה <b className="block text-[#111318]">{rate(row.clicks, row.messages)}</b></span><span>רכישות <b className="block text-[#111318]">{formatNumber(row.purchases)}</b></span><span>המרה <b className="block text-[#111318]">{rate(row.purchases, row.entered)}</b></span></div></button>)}</div>
+      {sorted.length > 8 && !showDeepAnalysis && <button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)} className="flex min-h-10 w-full items-center justify-center gap-1.5 border-t border-[#eef0f2] text-xs font-bold hover:bg-[#f5f8f7]">{expanded ? <ChevronDown size={14} className="rotate-180" /> : <ChevronDown size={14} />}{expanded ? "הצג פחות" : `כל האוטומציות (${sorted.length})`}</button>}
+    </>}
+  </section>;
+}
+
+function AutomationDetailDrawer({
+  row,
+  account,
+  reports,
+  previousReports,
+  onClose,
+}: {
+  row: AutomationActivityRow | null;
+  account: FlashyAccount;
+  reports: AutomationReport[];
+  previousReports: AutomationReport[];
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    if (!row) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [row, onClose]);
+  if (!row) return null;
+
+  const currentReports = reports.filter((item) => item.automationId === row.automationId);
+  const oldReports = previousReports.filter((item) => item.automationId === row.automationId);
+  const daily = buildAutomationActivityRows(account, currentReports, "day").sort((a, b) => a.date.localeCompare(b.date));
+  const previousDaily = buildAutomationActivityRows(account, oldReports, "day");
+  const current = summarizeAutomationActivity(daily, row) ?? row;
+  const previous = summarizeAutomationActivity(previousDaily);
+  const maxRevenue = Math.max(1, ...daily.map((item) => item.revenue));
+  const completionRate = current.entered > 0 ? current.completed / current.entered : null;
+  const previousCompletionRate = previous && previous.entered > 0 ? previous.completed / previous.entered : null;
+  const summary = [
+    { label: "הכנסה", value: formatCurrency(current.revenue, account.currency), comparison: comparisonChange(current.revenue, previous?.revenue ?? null) },
+    { label: "רכישות", value: formatNumber(current.purchases), comparison: comparisonChange(current.purchases, previous?.purchases ?? null) },
+    { label: "נכנסו", value: formatNumber(current.entered), comparison: comparisonChange(current.entered, previous?.entered ?? null) },
+    { label: "השלמה", value: completionRate === null ? "—" : formatPercent(completionRate), comparison: comparisonChange(completionRate, previousCompletionRate) },
+  ];
+  const stages = [
+    { label: "נכנסו", value: current.entered, note: "בסיס" },
+    { label: "השלימו", value: current.completed, note: current.entered > 0 ? formatPercent(current.completed / current.entered) : "—" },
+    { label: "פתיחות אימייל", value: current.opens, note: current.emailMessages > 0 ? formatPercent(current.opens / current.emailMessages) : "לא רלוונטי" },
+    { label: "קליקים", value: current.clicks, note: current.messages > 0 ? formatPercent(current.clicks / current.messages) : "—" },
+    { label: "רכישות", value: current.purchases, note: current.entered > 0 ? formatPercent(current.purchases / current.entered) : "—" },
+  ];
+  const base = Math.max(1, current.entered, current.opens, current.clicks);
+
+  return <div className="fixed inset-0 z-[70] flex justify-end bg-[#0b0c10]/35 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <aside role="dialog" aria-modal="true" aria-labelledby="automation-detail-title" className="flex h-full w-full max-w-[620px] flex-col bg-[#f7f9fa] shadow-[-24px_0_70px_rgba(11,12,16,0.18)]">
+      <header className="flex items-start justify-between gap-4 border-b border-[#e4e7ec] bg-white px-4 py-4 sm:px-5"><div className="min-w-0"><p className="text-xs font-bold text-[#4668ad]">פירוט אוטומציה</p><h2 id="automation-detail-title" className="mt-1 text-xl font-black leading-7 text-[#111318] [overflow-wrap:anywhere]">{row.name}</h2><p className="mt-1 text-xs text-[#667085]">{automationFilterLabels[current.type]} · ביצועים בטווח הנבחר</p></div><button type="button" onClick={onClose} aria-label="סגירת פירוט אוטומציה" className="grid size-9 shrink-0 place-items-center rounded-md border border-[#d0d5dd] text-[#475467] hover:bg-[#f2f4f7]"><X size={17} /></button></header>
+      <div className="grid grid-cols-2 gap-px border-b border-[#e4e7ec] bg-[#e4e7ec] sm:grid-cols-4">{summary.map((item) => <div key={item.label} className="bg-white p-3"><p className="text-[11px] text-[#667085]">{item.label}</p><p className="mt-1 text-base font-black tabular-nums text-[#111318]" dir="ltr">{item.value}</p>{item.comparison && <p className={classNames("mt-1 text-[10px] font-bold", item.comparison.direction === "up" ? "text-[#087f72]" : item.comparison.direction === "down" ? "text-[#b45309]" : "text-[#667085]")}>{item.comparison.label}</p>}</div>)}</div>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
+        <section className="rounded-lg border border-[#e4e7ec] bg-white p-4"><h3 className="text-sm font-bold">מסלול האוטומציה</h3><p className="mt-1 text-[11px] text-[#667085]">פתיחות מתייחסות לאימייל בלבד; יתר המדדים כוללים את כלל הערוצים</p><ol className="mt-4 space-y-3">{stages.map((stage) => <li key={stage.label}><div className="mb-1.5 flex items-baseline justify-between gap-3 text-xs"><span className="font-semibold text-[#475467]">{stage.label}</span><span className="flex items-baseline gap-2"><span className="text-[10px] text-[#667085]">{stage.note}</span><b className="text-sm tabular-nums text-[#111318]">{formatNumber(stage.value)}</b></span></div><div className="h-3 overflow-hidden rounded-sm bg-[#f1f4f5]"><div className="h-full rounded-sm bg-[#6389d9]" style={{ width: `${Math.max(stage.value > 0 ? 2 : 0, Math.min(100, stage.value / base * 100))}%` }} /></div></li>)}</ol></section>
+        <section className="rounded-lg border border-[#e4e7ec] bg-white p-4"><h3 className="text-sm font-bold">ערוצים ועלויות</h3><div className="mt-3 grid grid-cols-3 gap-2 text-xs"><div className="rounded-md bg-[#f8fafb] p-3"><span className="text-[#667085]">אימיילים</span><b className="mt-1 block text-base tabular-nums">{formatNumber(current.emailMessages)}</b></div><div className="rounded-md bg-[#f8fafb] p-3"><span className="text-[#667085]">SMS</span><b className="mt-1 block text-base tabular-nums">{formatNumber(current.smsMessages)}</b></div><div className="rounded-md bg-[#f8fafb] p-3"><span className="text-[#667085]">עלות SMS</span><b className="mt-1 block text-base tabular-nums" dir="ltr">{formatCurrency(current.smsCost, account.currency)}</b></div></div>{current.type === "sms" && <p className="mt-3 text-xs text-[#667085]">ROAS SMS: <b className="text-[#111318]" dir="ltr">{formatRoas(current.smsCost > 0 ? current.revenue / current.smsCost : null)}</b></p>}{current.type === "mixed" && <p className="mt-3 text-[11px] leading-5 text-[#667085]">לא מוצג ROAS: ההכנסה משלבת אימייל ו־SMS, בעוד העלות מחושבת ל־SMS בלבד.</p>}</section>
+        <section className="rounded-lg border border-[#e4e7ec] bg-white p-4"><h3 className="text-sm font-bold">ביצועים לפי יום</h3>{daily.length > 0 ? <ol className="mt-4 space-y-3">{daily.map((item) => <li key={item.id}><div className="mb-1 flex items-center justify-between gap-3 text-xs"><span className="text-[#667085]">{new Date(`${item.date}T12:00:00Z`).toLocaleDateString("he-IL")}</span><span><b className="tabular-nums" dir="ltr">{formatCurrency(item.revenue, account.currency)}</b> · {formatNumber(item.purchases)} רכישות</span></div><div className="h-2 overflow-hidden rounded-sm bg-[#f1f4f5]"><div className="h-full rounded-sm bg-[#6389d9]" style={{ width: `${Math.max(item.revenue > 0 ? 2 : 0, item.revenue / maxRevenue * 100)}%` }} /></div></li>)}</ol> : <p className="mt-4 text-sm text-[#667085]">אין פירוט יומי בטווח הנבחר</p>}</section>
+      </div>
+    </aside>
+  </div>;
+}
+
+function AutomationDashboard({
+  account,
+  automations,
+  automationTimeline,
+  previousAutomations,
+  previousAutomationTimeline,
+  rangeStart,
+  rangeEnd,
+  previousRangeStart,
+  previousRangeEnd,
+  previousRangeLabel,
+  showDeepAnalysis,
+}: {
+  account: FlashyAccount;
+  automations: AutomationReport[];
+  automationTimeline: AutomationReport[];
+  previousAutomations: AutomationReport[];
+  previousAutomationTimeline: AutomationReport[];
+  rangeStart: string;
+  rangeEnd: string;
+  previousRangeStart: string;
+  previousRangeEnd: string;
+  previousRangeLabel: string;
+  showDeepAnalysis: boolean;
 }) {
   const [filter, setFilter] = useState<AutomationFilterKey>("all");
   const [drilldown, setDrilldown] = useState<DrilldownState | null>(null);
-  const rows = automations.map(item => ({
-    ...item, type: getAutomationType(item),
-    messages: (item.sentEmails ?? (item.channel === "email" ? item.totalDelivered : 0)) + getAutomationSmsRecipients(item),
-    smsCost: getAutomationSmsRecipients(item) * account.smsCreditPriceUsd * account.usdIlsRate,
+  const [selectedAutomation, setSelectedAutomation] = useState<AutomationActivityRow | null>(null);
+  const rows = buildAutomationActivityRows(account, automations);
+  const previousRows = rangeStart && rangeEnd ? buildAutomationActivityRows(account, previousAutomations) : null;
+  const typeByAutomation = new Map(rows.map((row) => [row.automationId, row.type]));
+  const previousTypeByAutomation = new Map(previousRows?.map((row) => [row.automationId, row.type]) ?? []);
+  const timelineRows = buildAutomationActivityRows(account, automationTimeline, "day").map((row) => ({
+    ...row,
+    type: typeByAutomation.get(row.automationId) ?? row.type,
   }));
-  const filtered = rows.filter(row => filter === "all" || row.type === filter);
-  const revenue = filtered.reduce((s,r)=>s+r.revenueGenerated,0);
-  const purchases = filtered.reduce((s,r)=>s+r.purchases,0);
-  const messages = filtered.reduce((s,r)=>s+r.messages,0);
-  const cost = filtered.reduce((s,r)=>s+r.smsCost,0);
-  const toDrilldownItem = (row: (typeof rows)[number]): DrilldownItem => ({
-    id: row.id,
-    title: row.automationName,
-    subtitle: automationFilterLabels[row.type],
-    date: row.date,
-    revenue: row.revenueGenerated,
-    cost: row.smsCost,
-    purchases: row.purchases,
-    recipients: row.totalEntered ?? row.totalRecipients,
-    clicks: row.totalClicks,
-    opens: row.openedEmails ?? row.totalOpens,
-  });
-  const segments = (["email","sms","mixed"] as const).map(type=>{
-    const items=filtered.filter(row=>row.type===type);
+  const previousTimelineRows = buildAutomationActivityRows(account, previousAutomationTimeline, "day").map((row) => ({
+    ...row,
+    type: previousTypeByAutomation.get(row.automationId) ?? row.type,
+  }));
+  const filtered = rows.filter((row) => filter === "all" || row.type === filter);
+  const filteredPrevious = previousRows?.filter((row) => filter === "all" || row.type === filter) ?? null;
+  const filteredTimeline = timelineRows.filter((row) => filter === "all" || row.type === filter);
+  const filteredPreviousTimeline = previousTimelineRows.filter((row) => filter === "all" || row.type === filter);
+  const dates = rangeStart && rangeEnd ? enumerateCalendarDates({ start: rangeStart, end: rangeEnd }, account.timezone) : [...new Set(filteredTimeline.map((row) => row.date))].sort();
+  const previousDates = previousRangeStart && previousRangeEnd ? enumerateCalendarDates({ start: previousRangeStart, end: previousRangeEnd }, account.timezone) : [];
+  const dateFormatter = new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric" });
+  const trendPoints: AutomationTrendPoint[] = dates.map((date, index) => {
+    const current = filteredTimeline.filter((row) => row.date === date);
+    const previous = filteredPreviousTimeline.filter((row) => row.date === previousDates[index]);
     return {
-      label: automationFilterLabels[type], revenue: items.reduce((s,r)=>s+r.revenueGenerated,0),
-      purchases: items.reduce((s,r)=>s+r.purchases,0), count: items.length,
-      color: type==="email" ? chartColors.email : type==="sms" ? chartColors.sms : chartColors.automation,
+      date,
+      label: dateFormatter.format(new Date(`${date}T12:00:00Z`)),
+      revenue: current.reduce((sum, row) => sum + row.revenue, 0),
+      purchases: current.reduce((sum, row) => sum + row.purchases, 0),
+      entered: current.reduce((sum, row) => sum + row.entered, 0),
+      completed: current.reduce((sum, row) => sum + row.completed, 0),
+      previousRevenue: previous.reduce((sum, row) => sum + row.revenue, 0),
     };
   });
+
   return <div className="space-y-4">
-    <div className="flex flex-wrap justify-end gap-1" role="group" aria-label="סוג אוטומציה">
-      {(["all","email","sms","mixed"] as const).map(type=><button key={type} onClick={()=>setFilter(type)} aria-pressed={filter===type} className={`min-h-9 rounded-md px-3 text-sm ${filter===type ? "bg-[#24282f] text-white" : "bg-white text-[#667085]"}`}>{automationFilterLabels[type]}</button>)}
+    <div className="flex max-w-full gap-1 overflow-x-auto rounded-md bg-[#eef1f3] p-0.5 sm:w-fit" role="group" aria-label="סינון אוטומציות">
+      {(["all", "email", "sms", "mixed"] as const).map((type) => <button key={type} type="button" onClick={() => setFilter(type)} aria-pressed={filter === type} className={classNames("min-h-9 shrink-0 rounded px-3 text-sm transition", filter === type ? "bg-[#24282f] font-bold text-white" : "text-[#667085] hover:bg-white hover:text-[#111318]")}>{automationFilterLabels[type]}</button>)}
     </div>
-    <div className="grid grid-cols-2 gap-2 md:gap-3 xl:grid-cols-4">
-      <MetricCard title="הכנסות אוטומציות" value={formatCurrency(revenue,account.currency)} caption={`${filtered.length} אוטומציות`} icon={TrendingUp} tone="good" />
-      <MetricCard title="רכישות" value={formatNumber(purchases)} caption="מאוטומציות בטווח" icon={CheckCircle2} />
-      <MetricCard title="הודעות" value={formatNumber(messages)} caption="אימייל ו־SMS" icon={Send} />
-      <MetricCard title="עלות SMS" value={formatCurrency(cost,account.currency)} caption="ללא עלות אימייל" icon={MessageSquareText} />
-    </div>
-    <div className="grid min-w-0 gap-4 2xl:grid-cols-2">
-      <RevenueShareChart title="הכנסות לפי סוג אוטומציה" segments={segments} currency={account.currency} onSelect={(segment) => {
-        const type = (["email", "sms", "mixed"] as const).find((candidate) => automationFilterLabels[candidate] === segment.label);
-        if (!type) return;
-        setDrilldown({
-          title: segment.label,
-          context: "האוטומציות שמרכיבות את פלח ההכנסה",
-          items: filtered.filter((row) => row.type === type).map(toDrilldownItem),
-        });
-      }} />
-      <RankedBars key={filter} title="הכנסות לפי אוטומציה" currency={account.currency} rows={filtered.map(row=>({
-        id: row.id, label: row.automationName, value: row.revenueGenerated,
-        color: row.type==="email" ? chartColors.email : row.type==="sms" ? chartColors.sms : chartColors.automation,
-        meta: `${automationFilterLabels[row.type]} · ${formatNumber(row.purchases)} רכישות · ${formatNumber(row.messages)} הודעות`,
-      }))} onSelect={(selected) => {
-        const row = filtered.find((candidate) => candidate.id === selected.id);
-        if (row) setDrilldown({ title: row.automationName, context: "פירוט האוטומציה", items: [toDrilldownItem(row)] });
-      }} />
-    </div>
-    {showDeepAnalysis && <DataTable title="פירוט אוטומציות" columns={["אוטומציה","סוג","נכנסו","הושלמו","אימיילים","פתיחות אימייל","קליקים","SMS","עלות SMS","רכישות","הכנסה","הכנסה / עלות SMS"]} rows={filtered.map(row=>[
-      row.automationName,automationFilterLabels[row.type],formatNumber(row.totalEntered ?? row.totalRecipients),formatNumber(row.totalCompleted ?? 0),
-      formatNumber(row.sentEmails ?? (row.channel === "email" ? row.totalDelivered : 0)),formatNumber(row.openedEmails ?? row.totalOpens),
-      formatNumber(row.totalClicks),formatNumber(getAutomationSmsRecipients(row)),formatCurrency(row.smsCost,account.currency),formatNumber(row.purchases),formatCurrency(row.revenueGenerated,account.currency),formatRoas(row.smsCost > 0 ? row.revenueGenerated / row.smsCost : null),
-    ])} />}
+    <AutomationKpiStrip account={account} rows={filtered} previousRows={filteredPrevious} />
+    <AutomationPerformanceTrendChart points={trendPoints} currency={account.currency} previousRangeLabel={previousRangeLabel} onSelect={(point, metric) => setDrilldown({
+      title: `אוטומציות ב־${point.label}`,
+      context: metric === "revenue" ? "האוטומציות שמרכיבות את ההכנסה ביום הזה" : metric === "purchases" ? "האוטומציות שיצרו רכישות ביום הזה" : "האוטומציות שקיבלו כניסות ביום הזה",
+      items: filteredTimeline.filter((row) => row.date === point.date).map(automationRowToDrilldown),
+    })} />
+    <AutomationActivityTable rows={filtered} currency={account.currency} showDeepAnalysis={showDeepAnalysis} onSelect={setSelectedAutomation} />
+    <AutomationDetailDrawer row={selectedAutomation} account={account} reports={automationTimeline} previousReports={previousAutomationTimeline} onClose={() => setSelectedAutomation(null)} />
     <ChartDrilldown state={drilldown} currency={account.currency} onClose={() => setDrilldown(null)} />
   </div>;
 }
@@ -7040,6 +7339,14 @@ export function DashboardApp() {
             <AutomationDashboard
                 account={account}
                 automations={accountAutomations}
+                automationTimeline={accountAutomationRows}
+                previousAutomations={previousAutomations}
+                previousAutomationTimeline={previousAutomationRows}
+                rangeStart={activeRangeBounds.start}
+                rangeEnd={activeRangeBounds.end}
+                previousRangeStart={previousRangeBounds?.start ?? ""}
+                previousRangeEnd={previousRangeBounds?.end ?? ""}
+                previousRangeLabel={previousRangeLabel}
                 showDeepAnalysis={effectiveShowDeepAnalysis}
               />
           )}
