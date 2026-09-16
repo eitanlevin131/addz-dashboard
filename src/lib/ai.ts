@@ -54,17 +54,18 @@ export type AiContextPack = {
   summary: MetricSummary;
   leaders: {
     email?: { name: string; subject: string; revenue: number; clicks: number; purchases: number };
-    sms?: { name: string; revenue: number; cost: number; roas: number | null; purchases: number };
+    sms?: { name: string; message: string; revenue: number; cost: number; roas: number | null; purchases: number };
     automation?: { name: string; revenue: number; clicks: number; purchases: number };
   };
   weak: {
-    sms?: { name: string; revenue: number; cost: number; roas: number | null };
+    sms?: { name: string; message: string; revenue: number; cost: number; roas: number | null };
     automation?: { name: string; revenue: number; clicks: number; sent: number };
   };
   patterns: {
     bestDays: { label: string; revenue: number; purchases: number; count: number }[];
     bestHours: { label: string; revenue: number; purchases: number; count: number }[];
     subjectWinners: { subject: string; campaign: string; revenue: number; openRate: number; clickRate: number }[];
+    smsCopyExamples: { name: string; message: string; revenue: number; purchases: number; roas: number | null }[];
   };
   planning: {
     total: number;
@@ -82,6 +83,29 @@ export type AiActionRecommendation = {
   expectedImpact: string;
   effort: "low" | "medium" | "high";
   kpi: string;
+};
+
+export type SmsCopyBrief = {
+  objective: string;
+  audience: string;
+  offer: string;
+  mustInclude?: string;
+};
+
+export type SmsCopyExample = {
+  campaignId: number;
+  name: string;
+  message: string;
+  revenue: number;
+  purchases: number;
+  roas: number | null;
+};
+
+export type SmsCopyVariant = {
+  label: string;
+  text: string;
+  rationale: string;
+  basedOnCampaignIds: number[];
 };
 
 export type AiOpportunity = {
@@ -204,6 +228,7 @@ export function buildAiContextPack(input: {
       const cost = item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate;
       return {
         name: item.campaignName,
+        message: item.messageText,
         revenue: item.revenueGenerated,
         cost,
         roas: cost > 0 ? item.revenueGenerated / cost : null,
@@ -299,6 +324,10 @@ export function buildAiContextPack(input: {
         }))
         .sort((a, b) => b.revenue - a.revenue || b.clickRate - a.clickRate || b.openRate - a.openRate)
         .slice(0, 5),
+      smsCopyExamples: [...smsRows]
+        .filter((item) => item.message.trim())
+        .sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0) || b.revenue - a.revenue)
+        .slice(0, 10),
     },
     planning: {
       total: plans.length,
@@ -810,6 +839,63 @@ export async function askOpenAiActionPlan(context: AiContextPack) {
   const parsed = JSON.parse(raw) as { recommendations?: AiActionRecommendation[] };
 
   return (parsed.recommendations ?? []).filter(Boolean).slice(0, 5);
+}
+
+export async function askOpenAiSmsCopy(input: {
+  accountName: string;
+  brief: SmsCopyBrief;
+  memory: AiAccountMemory;
+  examples: SmsCopyExample[];
+}) {
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  const allowedCampaignIds = new Set(input.examples.map((item) => item.campaignId));
+  const raw = await requestOpenAiJson(
+    [
+      "אתה קופירייטר SMS בכיר לסוכנות שיווק.",
+      "כתוב בעברית בלבד והחזר JSON בלבד.",
+      "התבסס על הבריף, פרופיל הלקוח ודוגמאות הביצועים שסופקו.",
+      "אסור להמציא הנחה, קוד קופון, מחיר, תאריך, מלאי או הבטחה שלא הופיעו בבריף.",
+      "שמור על קול המותג, CTA אחד ברור וטקסט שמתאים ל-SMS.",
+      "הודעות עבר הן השראה מבנית בלבד; אין להעתיק משפטים ארוכים או פרטים מסחריים ישנים.",
+      "החזר שלוש וריאציות שונות באמת, ולכל אחת הסבר קצר ומזהי קמפיינים שעליהם התבססה.",
+    ].join(" "),
+    `לקוח: ${input.accountName}\n\nבריף:\n${JSON.stringify(input.brief)}\n\nפרופיל וזיכרון לקוח:\n${JSON.stringify({
+      brandVoice: input.memory.brandVoice ?? "",
+      audiences: input.memory.audiences ?? "",
+      products: input.memory.products ?? "",
+      learnings: input.memory.learnings ?? "",
+      constraints: input.memory.constraints ?? "",
+      documents: (input.memory.documents ?? []).slice(0, 6).map((document) => ({
+        name: document.name,
+        content: document.content.slice(0, 3_000),
+      })),
+    })}\n\nהודעות עבר ומדדים:\n${JSON.stringify(input.examples)}\n\nהחזר JSON במבנה:\n{"patterns":["דפוס מוכח 1","דפוס מוכח 2"],"variants":[{"label":"שם קצר","text":"טקסט SMS מלא","rationale":"למה הנוסח מתאים","basedOnCampaignIds":[123]}]}`,
+  );
+  const parsed = JSON.parse(raw) as { patterns?: unknown; variants?: unknown };
+  const patterns = Array.isArray(parsed.patterns)
+    ? parsed.patterns.map((item) => String(item).trim()).filter(Boolean).slice(0, 5)
+    : [];
+  const variants = Array.isArray(parsed.variants)
+    ? parsed.variants.map((item) => {
+        const value = item && typeof item === "object" ? item as Record<string, unknown> : {};
+        const basedOnCampaignIds = Array.isArray(value.basedOnCampaignIds)
+          ? value.basedOnCampaignIds
+              .map((candidate) => Number(candidate))
+              .filter((candidate) => Number.isInteger(candidate) && allowedCampaignIds.has(candidate))
+              .slice(0, 4)
+          : [];
+        return {
+          label: String(value.label ?? "וריאציה").trim().slice(0, 80),
+          text: String(value.text ?? "").trim().slice(0, 500),
+          rationale: String(value.rationale ?? "").trim().slice(0, 500),
+          basedOnCampaignIds,
+        } satisfies SmsCopyVariant;
+      }).filter((item) => item.text).slice(0, 3)
+    : [];
+
+  if (!variants.length) throw new Error("OpenAI לא החזיר טיוטות SMS תקינות.");
+  return { patterns, variants };
 }
 
 export function fallbackOnboarding(context: AiContextPack) {

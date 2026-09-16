@@ -270,6 +270,7 @@ export async function GET() {
           accountId: report.flashyAccountId ?? "",
           campaignId: report.campaignId,
           campaignName: report.campaignName ?? "קמפיין SMS",
+          messageText: String((report.raw as Record<string, unknown>)?.campaign_message ?? ""),
           sentAt: report.sentAt.toISOString(),
           totalRecipients: report.totalRecipients,
           totalDelivered: report.totalDelivered,

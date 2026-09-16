@@ -94,6 +94,7 @@ export function normalizeSmsReports(
     accountId,
     campaignId: rawNumber(row, ["campaign_id", "id"]) || index + 1,
     campaignName: rawString(row, ["campaign_name", "name", "title"], `קמפיין SMS ${index + 1}`),
+    messageText: rawString(row, ["campaign_message", "message", "message_text", "content", "body"]),
     sentAt: rawDate(row, index, timezone),
     totalRecipients: rawNumber(row, ["total_recipients", "recipients", "sent"]),
     totalDelivered: rawNumber(row, ["total_delivered", "delivered"]),

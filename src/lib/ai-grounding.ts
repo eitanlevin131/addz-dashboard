@@ -23,6 +23,7 @@ export type AiEvidenceSource = {
   reportView: AiReportView;
   title: string;
   subtitle: string;
+  content?: string;
   date?: string;
   metrics: AiEvidenceMetric[];
 };
@@ -182,6 +183,7 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
       reportView: "sms",
       title: item.campaignName,
       subtitle: "קמפיין SMS",
+      content: item.messageText || undefined,
       date: item.sentAt,
       metrics: [
         metric("revenue", "הכנסה", item.revenueGenerated, money(item.revenueGenerated, currency)),

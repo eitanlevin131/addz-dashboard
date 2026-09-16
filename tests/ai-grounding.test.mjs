@@ -63,6 +63,7 @@ const sms = {
   accountId: account.id,
   campaignId: 22,
   campaignName: "SMS weak",
+  messageText: "הזדמנות אחרונה להצעה שביקשת לבדוק",
   sentAt: "2026-09-11T08:00:00Z",
   totalRecipients: 2000,
   totalDelivered: 1970,
@@ -90,6 +91,7 @@ test("evidence catalog keeps measured SMS values and a direct report target", ()
   assert.equal(source.reportView, "sms");
   assert.equal(source.metrics.find((item) => item.key === "revenue")?.value, 500);
   assert.equal(source.metrics.find((item) => item.key === "smsCost")?.value, 74);
+  assert.equal(source.content, "הזדמנות אחרונה להצעה שביקשת לבדוק");
 });
 
 test("grounded AI output cannot cite a source that is not in the catalog", () => {

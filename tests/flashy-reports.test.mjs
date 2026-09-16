@@ -12,7 +12,7 @@ const flashySource = (await readFile(new URL("../src/lib/flashy.ts", import.meta
 const { monthWindows, getFlashyReports } = await import(moduleUrl(flashySource));
 const timeUrl = moduleUrl(await readFile(new URL("../src/lib/report-time.ts", import.meta.url), "utf8"));
 const normalizeSource = (await readFile(new URL("../src/lib/flashy-normalize.ts", import.meta.url), "utf8")).replace('"@/lib/metrics"', JSON.stringify(metricsUrl)).replace('"@/lib/report-time"', JSON.stringify(timeUrl));
-const { normalizeAutomationReports } = await import(moduleUrl(normalizeSource));
+const { normalizeAutomationReports, normalizeSmsReports } = await import(moduleUrl(normalizeSource));
 
 test("90-day windows cover every second once and no more than 30 calendar days", () => {
   const from = new Date("2026-06-09T12:45:00Z"), to = new Date("2026-09-07T12:45:00Z");
@@ -64,4 +64,16 @@ test("automation date and revenues survive normalization in Israel timezone", ()
     if (original === undefined) delete process.env.TZ;
     else process.env.TZ = original;
   }
+});
+
+test("SMS message content survives report normalization", () => {
+  const [row] = normalizeSmsReports([{
+    campaign_id: 42,
+    campaign_name: "SMS test",
+    campaign_message: "הטקסט המלא שנשלח ללקוח",
+    sent_date: "2026-09-16",
+    sent_time: "10:00:00",
+  }], "account", "Asia/Jerusalem");
+
+  assert.equal(row.messageText, "הטקסט המלא שנשלח ללקוח");
 });

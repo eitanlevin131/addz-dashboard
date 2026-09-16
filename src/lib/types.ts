@@ -136,6 +136,7 @@ export interface SmsCampaignReport {
   accountId: string;
   campaignId: number;
   campaignName: string;
+  messageText: string;
   sentAt: string;
   totalRecipients: number;
   totalDelivered: number;
