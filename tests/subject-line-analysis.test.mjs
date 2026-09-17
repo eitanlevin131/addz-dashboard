@@ -53,8 +53,12 @@ test("subject copy rejects commercial claims that were not approved", () => {
     "דדליין שלא אושר",
     "טענת איכות או פופולריות שלא אושרה",
   ]);
+  assert.deepEqual(findUnsupportedSubjectClaims("מארז חדש של SPICEHAUS", approved), [
+    "טענת חדשנות שלא אושרה",
+  ]);
 });
 
 test("subject copy accepts an explicitly approved claim", () => {
   assert.deepEqual(findUnsupportedSubjectClaims("20% הנחה רק היום", "20% הנחה רק היום"), []);
+  assert.deepEqual(findUnsupportedSubjectClaims("מארז חדש של SPICEHAUS", "השקת מארז חדש של SPICEHAUS"), []);
 });

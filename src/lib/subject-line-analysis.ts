@@ -50,6 +50,11 @@ const claimRules = [
     copy: /(?:הכי נמכר|רב[־-]?מכר|מספר\s*1|מומלץ|מקצועי|מובטח|בלעדי)/i,
     approved: /(?:הכי נמכר|רב[־-]?מכר|מספר\s*1|מומלץ|מקצועי|מובטח|בלעדי)/i,
   },
+  {
+    label: "טענת חדשנות שלא אושרה",
+    copy: /(?:חדש(?:ה|ים|ות)?)/i,
+    approved: /(?:חדש(?:ה|ים|ות)?)/i,
+  },
 ] as const;
 
 export function findUnsupportedSubjectClaims(copy: string, approvedText: string) {

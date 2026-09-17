@@ -947,7 +947,7 @@ export async function askOpenAiSubjectLines(input: {
       [
         "אתה קופירייטר אימייל בכיר שמנסח ניסויי A/B לשורות נושא.",
         "כתוב בעברית בלבד והחזר JSON בלבד.",
-        "המדדים מצביעים על קורלציה בלבד; ב-patterns כתוב מה נצפה יחד ואל תשתמש במילים מגביר, משפר, מעלה או גורם.",
+        "המדדים מצביעים על קורלציה בלבד; ב-patterns כתוב מה נצפה יחד ואל תשתמש בניסוח סיבתי כמו מגביר, משפר, מעלה, מביא או גורם.",
         "כל זוג A/B חייב לשנות משתנה מרכזי אחד בלבד ולהציג השערה מדידה.",
         "השתמש רק בעובדות שמופיעות בבריף או במסמכי הלקוח.",
         "אסור להמציא הנחה, מחיר, קוד קופון, מתנה, משלוח, מלאי, דדליין, פופולריות או הבטחת איכות.",
@@ -972,7 +972,7 @@ export async function askOpenAiSubjectLines(input: {
     const patterns = Array.isArray(parsed.patterns)
       ? parsed.patterns
           .map((item) => String(item).trim())
-          .filter((item) => item && !/(?:מגביר|משפר|מעלה|גורם|מייצר|מוביל|מניב)/i.test(item))
+          .filter((item) => item && !/(?:מגביר|משפר|מעלה|גורם|מייצר|מוביל|מניב|מביא|מביאה|יביא|תביא|הוביל|תוביל)/i.test(item))
           .slice(0, 5)
       : [];
     const candidatePairs = Array.isArray(parsed.pairs)
