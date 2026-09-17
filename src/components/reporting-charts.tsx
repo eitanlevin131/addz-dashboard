@@ -223,11 +223,17 @@ export function PeriodComparisonChart({
   currency,
   previousRangeLabel,
   onSelect,
+  title = "הכנסות לאורך התקופה",
+  detail,
+  visibleSeries = ["email", "sms", "automations"],
 }: {
   points: PeriodComparisonPoint[];
   currency: string;
   previousRangeLabel: string;
   onSelect?: (point: PeriodComparisonPoint, series: "email" | "sms" | "automations") => void;
+  title?: string;
+  detail?: string;
+  visibleSeries?: Array<"email" | "sms" | "automations">;
 }) {
   const [focus, setFocus] = useState<"all" | "email" | "sms" | "automations">("all");
   const hasData = points.some(
@@ -240,8 +246,8 @@ export function PeriodComparisonChart({
 
   return (
     <ChartFrame
-      title="הכנסות לאורך התקופה"
-      detail={`הכנסה יומית לפי ערוץ · הקו המקווקו מציג את ${previousRangeLabel}`}
+      title={title}
+      detail={detail ?? `הכנסה יומית לפי ערוץ · הקו המקווקו מציג את ${previousRangeLabel}`}
       controls={
         <div className="flex rounded-md bg-[#f1f4f5] p-0.5" role="group" aria-label="ערוץ בגרף ההכנסות">
           {([
@@ -249,7 +255,7 @@ export function PeriodComparisonChart({
             { value: "email", label: "אימייל" },
             { value: "sms", label: "SMS" },
             { value: "automations", label: "אוטומציות" },
-          ] as const).map((option) => (
+          ] as const).filter((option) => option.value === "all" || visibleSeries.includes(option.value)).map((option) => (
             <button
               key={option.value}
               type="button"
@@ -269,9 +275,9 @@ export function PeriodComparisonChart({
         <div className="min-w-0">
           <div className="px-4 pb-1 sm:px-5">
             <Legend items={[
-              ...(focus === "all" || focus === "email" ? [{ label: "אימייל", color: chartColors.email }] : []),
-              ...(focus === "all" || focus === "sms" ? [{ label: "SMS", color: chartColors.sms }] : []),
-              ...(focus === "all" || focus === "automations" ? [{ label: "אוטומציות", color: chartColors.automation }] : []),
+              ...(visibleSeries.includes("email") && (focus === "all" || focus === "email") ? [{ label: "אימייל", color: chartColors.email }] : []),
+              ...(visibleSeries.includes("sms") && (focus === "all" || focus === "sms") ? [{ label: "SMS", color: chartColors.sms }] : []),
+              ...(visibleSeries.includes("automations") && (focus === "all" || focus === "automations") ? [{ label: "אוטומציות", color: chartColors.automation }] : []),
               { label: "תקופה קודמת", color: "#7b8491" },
             ]} />
           </div>
@@ -287,9 +293,9 @@ export function PeriodComparisonChart({
                 <XAxis dataKey="label" axisLine={{ stroke: "#dfe3e7" }} tickLine={false} interval="preserveStartEnd" minTickGap={28} tick={{ fill: "#667085", fontSize: 10 }} />
                 <YAxis width={54} axisLine={false} tickLine={false} tickFormatter={compact} tick={{ fill: "#667085", fontSize: 10 }} />
                 <Tooltip formatter={(value, name) => [formatCurrency(Number(value), currency), String(name)]} contentStyle={{ direction: "rtl", borderRadius: 8, borderColor: "#e4e7ec", fontSize: 12 }} />
-                {(focus === "all" || focus === "email") && <Area type="monotone" dataKey="email" name="אימייל" stackId={focus === "all" ? "current" : undefined} stroke={chartColors.email} fill={chartColors.email} fillOpacity={0.13} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("email")} />}
-                {(focus === "all" || focus === "sms") && <Area type="monotone" dataKey="sms" name="SMS" stackId={focus === "all" ? "current" : undefined} stroke={chartColors.sms} fill={chartColors.sms} fillOpacity={0.18} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("sms")} />}
-                {(focus === "all" || focus === "automations") && <Area type="monotone" dataKey="automations" name="אוטומציות" stackId={focus === "all" ? "current" : undefined} stroke={chartColors.automation} fill={chartColors.automation} fillOpacity={0.14} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("automations")} />}
+                {visibleSeries.includes("email") && (focus === "all" || focus === "email") && <Area type="monotone" dataKey="email" name="אימייל" stackId={focus === "all" ? "current" : undefined} stroke={chartColors.email} fill={chartColors.email} fillOpacity={0.13} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("email")} />}
+                {visibleSeries.includes("sms") && (focus === "all" || focus === "sms") && <Area type="monotone" dataKey="sms" name="SMS" stackId={focus === "all" ? "current" : undefined} stroke={chartColors.sms} fill={chartColors.sms} fillOpacity={0.18} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("sms")} />}
+                {visibleSeries.includes("automations") && (focus === "all" || focus === "automations") && <Area type="monotone" dataKey="automations" name="אוטומציות" stackId={focus === "all" ? "current" : undefined} stroke={chartColors.automation} fill={chartColors.automation} fillOpacity={0.14} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("automations")} />}
                 <Line type="monotone" dataKey="previousTotal" name="תקופה קודמת" stroke="#7b8491" strokeWidth={2} strokeDasharray="5 4" dot={false} activeDot={{ r: 3 }} />
               </ComposedChart>
             </ResponsiveContainer>

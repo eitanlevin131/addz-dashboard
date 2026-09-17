@@ -46,8 +46,6 @@ import { useEffect, useState } from "react";
 import {
   chartColors,
   AutomationPerformanceTrendChart,
-  CampaignJourneyChart,
-  EngagementPlot,
   PeriodComparisonChart,
   RankedBars,
   SmsPerformanceTrendChart,
@@ -2901,37 +2899,143 @@ function AutomationDashboard({
   </div>;
 }
 
+type CampaignLeaderboardRow = {
+  id: string;
+  name: string;
+  detail: string;
+  revenue: number;
+  cost: number;
+  purchases: number;
+  openRate: number | null;
+  clickRate: number | null;
+  revenuePerThousand: number | null;
+  roas: number | null;
+  item: DrilldownItem;
+};
+
+function CampaignLeaderboard({
+  channel,
+  rows,
+  currency,
+  showAll,
+  onSelect,
+}: {
+  channel: "email" | "sms";
+  rows: CampaignLeaderboardRow[];
+  currency: string;
+  showAll: boolean;
+  onSelect: (row: CampaignLeaderboardRow) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = showAll || expanded ? rows : rows.slice(0, 6);
+  const isEmail = channel === "email";
+
+  return (
+    <section className="min-w-0 overflow-hidden rounded-lg border border-[#e4e7ec] bg-white">
+      <header className="flex items-center justify-between gap-3 border-b border-[#eef0f2] px-4 py-4 sm:px-5">
+        <div>
+          <h2 className="text-base font-bold">קמפייני {isEmail ? "אימייל" : "SMS"} מובילים</h2>
+          <p className="mt-1 text-xs text-[#667085]">מדורגים לפי הכנסה מיוחסת</p>
+        </div>
+        {rows.length > 6 && !showAll && (
+          <button type="button" onClick={() => setExpanded((current) => !current)} className="min-h-8 rounded-md border border-[#d0d5dd] px-3 text-xs font-bold text-[#475467] hover:bg-[#f8fafb]">
+            {expanded ? "צמצם" : `הצג הכל (${formatNumber(rows.length)})`}
+          </button>
+        )}
+      </header>
+      <div className="hidden grid-cols-[minmax(210px,1.6fr)_repeat(5,minmax(72px,0.7fr))] gap-3 border-b border-[#eef0f2] bg-[#fafbfc] px-5 py-2 text-[11px] font-bold text-[#667085] lg:grid">
+        <span>קמפיין</span>
+        <span>הכנסה</span>
+        {isEmail ? <><span>פתיחה</span><span>הקלקה</span></> : <><span>עלות</span><span>ROAS</span></>}
+        <span>רכישות</span>
+        <span>{isEmail ? "הכנסה ל־1,000" : "הקלקה"}</span>
+      </div>
+      <div className="divide-y divide-[#eef0f2]">
+        {visible.map((row) => {
+          const metrics = isEmail
+            ? [
+                ["הכנסה", formatCurrency(row.revenue, currency)],
+                ["פתיחה", row.openRate === null ? "—" : formatPercent(row.openRate)],
+                ["הקלקה", row.clickRate === null ? "—" : formatPercent(row.clickRate)],
+                ["רכישות", formatNumber(row.purchases)],
+                ["הכנסה ל־1,000", row.revenuePerThousand === null ? "—" : formatCurrency(row.revenuePerThousand, currency)],
+              ]
+            : [
+                ["הכנסה", formatCurrency(row.revenue, currency)],
+                ["עלות", formatCurrency(row.cost, currency)],
+                ["ROAS", formatRoas(row.roas)],
+                ["רכישות", formatNumber(row.purchases)],
+                ["הקלקה", row.clickRate === null ? "—" : formatPercent(row.clickRate)],
+              ];
+
+          return (
+            <button key={row.id} type="button" onClick={() => onSelect(row)} className="grid w-full gap-3 px-4 py-4 text-right transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8] lg:grid-cols-[minmax(210px,1.6fr)_repeat(5,minmax(72px,0.7fr))] lg:items-center lg:px-5">
+              <span className="min-w-0">
+                <span className="flex items-center gap-2"><i className="size-2 shrink-0 rounded-sm" style={{ background: isEmail ? chartColors.email : chartColors.sms }} /><b className="truncate text-sm">{row.name}</b></span>
+                <small className="mt-1 block truncate pr-4 text-[11px] text-[#667085]">{row.detail}</small>
+              </span>
+              {metrics.map(([label, value]) => (
+                <span key={label} className="grid grid-cols-[1fr_auto] items-center gap-3 text-xs lg:block">
+                  <span className="text-[#667085] lg:hidden">{label}</span>
+                  <b className="tabular-nums text-[#111318]" dir="ltr">{value}</b>
+                </span>
+              ))}
+            </button>
+          );
+        })}
+        {!visible.length && <p className="px-5 py-8 text-center text-sm text-[#667085]">אין קמפיינים בערוץ הזה בטווח שנבחר.</p>}
+      </div>
+    </section>
+  );
+}
+
 function CampaignDashboard({
   account,
   emails,
   sms,
+  previousEmails,
+  previousSms,
+  rangeStart,
+  rangeEnd,
+  previousRangeStart,
+  previousRangeEnd,
+  previousRangeLabel,
   showDeepAnalysis,
 }: {
   account: FlashyAccount;
   emails: EmailCampaignReport[];
   sms: SmsCampaignReport[];
+  previousEmails: EmailCampaignReport[];
+  previousSms: SmsCampaignReport[];
+  rangeStart: string;
+  rangeEnd: string;
+  previousRangeStart: string;
+  previousRangeEnd: string;
+  previousRangeLabel: string;
   showDeepAnalysis: boolean;
 }) {
   const [drilldown, setDrilldown] = useState<DrilldownState | null>(null);
+  const [timingChannel, setTimingChannel] = useState<"all" | "email" | "sms">("all");
   const emailRevenue = emails.reduce((total, item) => total + item.revenueGenerated, 0);
   const smsRevenue = sms.reduce((total, item) => total + item.revenueGenerated, 0);
-  const smsCost = sms.reduce(
-    (total, item) => total + item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate,
-    0,
-  );
-  const smsRoas = smsCost > 0 ? smsRevenue / smsCost : null;
+  const totalRevenue = emailRevenue + smsRevenue;
   const emailPurchases = emails.reduce((total, item) => total + item.purchases, 0);
   const smsPurchases = sms.reduce((total, item) => total + item.purchases, 0);
-  const emailDelivered = emails.reduce((total, item) => total + item.totalDelivered, 0);
-  const emailOpens = emails.reduce((total, item) => total + item.totalOpens, 0);
-  const emailClicks = emails.reduce((total, item) => total + item.uniqueClicks, 0);
-  const smsDelivered = sms.reduce((total, item) => total + item.totalDelivered, 0);
-  const smsClicks = sms.reduce((total, item) => total + item.uniqueClicks, 0);
+  const smsCost = sms.reduce((total, item) => total + item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate, 0);
+  const smsRoas = smsCost > 0 ? smsRevenue / smsCost : null;
+  const previousEmailRevenue = previousEmails.reduce((total, item) => total + item.revenueGenerated, 0);
+  const previousSmsRevenue = previousSms.reduce((total, item) => total + item.revenueGenerated, 0);
+  const previousSmsCost = previousSms.reduce((total, item) => total + item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate, 0);
+  const previousSmsRoas = previousSmsCost > 0 ? previousSmsRevenue / previousSmsCost : null;
+  const comparisonCaption = (current: number | null, previous: number | null) => {
+    const comparison = comparisonChange(current, previous);
+    return comparison ? `${comparison.label} מול התקופה הקודמת` : "אין בסיס להשוואה לתקופה הקודמת";
+  };
   const emailToDrilldown = (item: EmailCampaignReport): DrilldownItem => ({
     id: item.id,
     title: item.campaignName,
     subtitle: item.subjectLine ? `אימייל · ${item.subjectLine}` : "אימייל",
-    date: item.sentAt.slice(0, 10),
+    date: accountDate(new Date(item.sentAt), account.timezone),
     revenue: item.revenueGenerated,
     cost: 0,
     purchases: item.purchases,
@@ -2943,28 +3047,52 @@ function CampaignDashboard({
     id: item.id,
     title: item.campaignName,
     subtitle: "SMS",
-    date: item.sentAt.slice(0, 10),
+    date: accountDate(new Date(item.sentAt), account.timezone),
     revenue: item.revenueGenerated,
     cost: item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate,
     purchases: item.purchases,
     recipients: item.totalRecipients,
-    clicks: item.totalClicks,
+    clicks: item.uniqueClicks,
+    content: item.messageText,
   });
+  const emailRows: CampaignLeaderboardRow[] = [...emails]
+    .sort((a, b) => b.revenueGenerated - a.revenueGenerated)
+    .map((item) => ({
+      id: item.id,
+      name: item.campaignName,
+      detail: item.subjectLine || "ללא שורת נושא",
+      revenue: item.revenueGenerated,
+      cost: 0,
+      purchases: item.purchases,
+      openRate: measuredRate(item.totalOpens, item.totalDelivered),
+      clickRate: measuredRate(item.uniqueClicks, item.totalDelivered),
+      revenuePerThousand: item.totalDelivered > 0 ? item.revenueGenerated / item.totalDelivered * 1_000 : null,
+      roas: null,
+      item: emailToDrilldown(item),
+    }));
+  const smsRows: CampaignLeaderboardRow[] = [...sms]
+    .sort((a, b) => b.revenueGenerated - a.revenueGenerated)
+    .map((item) => {
+      const cost = item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate;
+      return {
+        id: item.id,
+        name: item.campaignName,
+        detail: `${formatNumber(item.totalDelivered)} מסירות · ${item.messageText ? "טקסט זמין בפירוט" : "ללא טקסט זמין"}`,
+        revenue: item.revenueGenerated,
+        cost,
+        purchases: item.purchases,
+        openRate: null,
+        clickRate: measuredRate(item.uniqueClicks, item.totalDelivered),
+        revenuePerThousand: item.totalDelivered > 0 ? item.revenueGenerated / item.totalDelivered * 1_000 : null,
+        roas: cost > 0 ? item.revenueGenerated / cost : null,
+        item: smsToDrilldown(item),
+      };
+    });
   let campaignClock: Intl.DateTimeFormat;
   try {
-    campaignClock = new Intl.DateTimeFormat("en-US", {
-      timeZone: account.timezone,
-      weekday: "short",
-      hour: "2-digit",
-      hourCycle: "h23",
-    });
+    campaignClock = new Intl.DateTimeFormat("en-US", { timeZone: account.timezone, weekday: "short", hour: "2-digit", hourCycle: "h23" });
   } catch {
-    campaignClock = new Intl.DateTimeFormat("en-US", {
-      timeZone: "UTC",
-      weekday: "short",
-      hour: "2-digit",
-      hourCycle: "h23",
-    });
+    campaignClock = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", hour: "2-digit", hourCycle: "h23" });
   }
   const campaignTimingKey = (sentAt: string) => {
     const parts = campaignClock.formatToParts(new Date(sentAt));
@@ -2975,242 +3103,104 @@ function CampaignDashboard({
       hour: `${parts.find((part) => part.type === "hour")?.value ?? "00"}:00`,
     };
   };
-  const campaignPurchases = emailPurchases + smsPurchases;
-  const emailLeaders = [...emails].sort((a, b) => b.revenueGenerated - a.revenueGenerated).slice(0, 8);
-  const smsLeaders = [...sms].sort((a, b) => b.revenueGenerated - a.revenueGenerated).slice(0, 8);
-  const weakCampaigns = [
-    ...emails
-      .filter((item) => item.revenueGenerated === 0 || item.totalClicks === 0)
-      .map((item) => ({
-        name: item.campaignName,
-        channel: "אימייל",
-        cost: 0,
-        revenue: item.revenueGenerated,
-        clicks: item.totalClicks,
-      })),
-    ...sms.map((item) => {
-      const cost = item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate;
-
-      return {
-        name: item.campaignName,
-        channel: "SMS",
-        cost,
-        revenue: item.revenueGenerated,
-        clicks: item.totalClicks,
-      };
-    }),
-  ]
-    .sort((a, b) => {
-      const scoreA = a.cost > 0 ? a.revenue / a.cost : a.revenue > 0 ? 999_999 : 0;
-      const scoreB = b.cost > 0 ? b.revenue / b.cost : b.revenue > 0 ? 999_999 : 0;
-      return scoreA - scoreB || a.clicks - b.clicks;
-    })
-    .slice(0, 8);
-  const allCampaignsForDecision = [
-    ...emails.map((item) => ({
-      name: item.campaignName,
-      channel: "אימייל",
-      sentAt: item.sentAt,
-      revenue: item.revenueGenerated,
-      cost: 0,
-      purchases: item.purchases,
-      clicks: item.totalClicks,
-      recipients: item.totalRecipients,
-      subject: item.subjectLine,
-    })),
-    ...sms.map((item) => {
-      const cost = item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate;
-
-      return {
-        name: item.campaignName,
-        channel: "SMS",
-        sentAt: item.sentAt,
-        revenue: item.revenueGenerated,
-        cost,
-        purchases: item.purchases,
-        clicks: item.totalClicks,
-        recipients: item.totalRecipients,
-        subject: "",
-      };
-    }),
+  const timingEmails = timingChannel === "sms" ? [] : emails;
+  const timingSms = timingChannel === "email" ? [] : sms;
+  const timing = campaignTiming([
+    ...timingEmails.map((item) => ({ sentAt: item.sentAt, revenue: item.revenueGenerated, purchases: item.purchases })),
+    ...timingSms.map((item) => ({ sentAt: item.sentAt, revenue: item.revenueGenerated, purchases: item.purchases })),
+  ], account.timezone);
+  const bestDays = timing.days.map((row) => ({ ...row, average: row.count > 0 ? row.revenue / row.count : 0 }));
+  const bestHours = timing.hours.map((row) => ({ ...row, average: row.count > 0 ? row.revenue / row.count : 0 }));
+  const bestDay = [...bestDays].sort((a, b) => b.average - a.average)[0];
+  const bestHour = [...bestHours].sort((a, b) => b.average - a.average)[0];
+  const currentDaily = new Map<string, { email: number; sms: number }>();
+  const previousDaily = new Map<string, { email: number; sms: number }>();
+  const addDailyRevenue = (target: Map<string, { email: number; sms: number }>, sentAt: string, channel: "email" | "sms", revenue: number) => {
+    const date = accountDate(new Date(sentAt), account.timezone);
+    const day = target.get(date) ?? { email: 0, sms: 0 };
+    day[channel] += revenue;
+    target.set(date, day);
+  };
+  emails.forEach((item) => addDailyRevenue(currentDaily, item.sentAt, "email", item.revenueGenerated));
+  sms.forEach((item) => addDailyRevenue(currentDaily, item.sentAt, "sms", item.revenueGenerated));
+  previousEmails.forEach((item) => addDailyRevenue(previousDaily, item.sentAt, "email", item.revenueGenerated));
+  previousSms.forEach((item) => addDailyRevenue(previousDaily, item.sentAt, "sms", item.revenueGenerated));
+  const currentDates = rangeStart && rangeEnd ? enumerateCalendarDates({ start: rangeStart, end: rangeEnd }, account.timezone) : [];
+  const previousDates = previousRangeStart && previousRangeEnd ? enumerateCalendarDates({ start: previousRangeStart, end: previousRangeEnd }, account.timezone) : [];
+  const dateFormatter = new Intl.DateTimeFormat("he-IL", { day: "numeric", month: "numeric" });
+  const campaignTrendPoints: PeriodComparisonPoint[] = currentDates.map((date, index) => {
+    const current = currentDaily.get(date) ?? { email: 0, sms: 0 };
+    const previous = previousDaily.get(previousDates[index]) ?? { email: 0, sms: 0 };
+    return {
+      date,
+      label: dateFormatter.format(new Date(`${date}T12:00:00Z`)),
+      email: current.email,
+      sms: current.sms,
+      automations: 0,
+      previousTotal: previous.email + previous.sms,
+    };
+  });
+  const timingDrilldown = (value: string, unit: "day" | "hour") => [
+    ...timingEmails.filter((item) => campaignTimingKey(item.sentAt)[unit] === value).map(emailToDrilldown),
+    ...timingSms.filter((item) => campaignTimingKey(item.sentAt)[unit] === value).map(smsToDrilldown),
   ];
-  const timing = campaignTiming(allCampaignsForDecision, account.timezone);
-  const bestHours = timing.hours.map(row => ({ ...row, average: row.count > 0 ? row.revenue / row.count : 0 }));
-  const subjectWinners = [...emails]
-    .map((item) => ({
-      subject: item.subjectLine,
-      campaign: item.campaignName,
-      revenue: item.revenueGenerated,
-      openRate: item.totalDelivered > 0 ? item.totalOpens / item.totalDelivered : 0,
-      clickRate: item.totalDelivered > 0 ? item.uniqueClicks / item.totalDelivered : 0,
-      engagement: item.totalDelivered > 0 ? (item.totalOpens + item.totalClicks * 2) / item.totalDelivered : 0,
-      clicks: item.totalClicks,
-      purchases: item.purchases,
-    }))
-    .sort((a, b) => b.revenue - a.revenue || b.engagement - a.engagement)
-    .slice(0, 5);
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="grid grid-cols-2 gap-2 md:gap-3 xl:grid-cols-4">
-        <MetricCard
-          title="הכנסות קמפיינים"
-          value={formatCurrency(emailRevenue + smsRevenue, account.currency)}
-          caption={`${formatNumber(emails.length + sms.length)} קמפיינים בטווח`}
-          icon={Send}
-          tone="good"
-        />
-        <MetricCard
-          title="קמפיינים שנשלחו"
-          value={formatNumber(emails.length + sms.length)}
-          caption={`${formatNumber(emails.length)} אימייל · ${formatNumber(sms.length)} SMS`}
-          icon={LineChart}
-        />
-        <MetricCard
-          title="עלות SMS"
-          value={formatCurrency(smsCost, account.currency)}
-          caption={`הכנסה / עלות SMS ${formatRoas(smsRoas)}`}
-          icon={MessageSquareText}
-        />
-        <MetricCard
-          title="רכישות"
-          value={formatNumber(campaignPurchases)}
-          caption="אימייל ו-SMS יחד"
-          icon={CheckCircle2}
-          tone="good"
-        />
+        <MetricCard title="הכנסות מקמפיינים" value={formatCurrency(totalRevenue, account.currency)} caption={`${formatNumber(emails.length + sms.length)} קמפיינים · ${comparisonCaption(totalRevenue, previousEmailRevenue + previousSmsRevenue)}`} icon={Send} tone="good" />
+        <MetricCard title="הכנסות מאימייל" value={formatCurrency(emailRevenue, account.currency)} caption={`${totalRevenue > 0 ? formatPercent(emailRevenue / totalRevenue) : "—"} מהכנסות הקמפיינים · ${comparisonCaption(emailRevenue, previousEmailRevenue)}`} icon={Send} />
+        <MetricCard title="הכנסות מ־SMS" value={formatCurrency(smsRevenue, account.currency)} caption={`${totalRevenue > 0 ? formatPercent(smsRevenue / totalRevenue) : "—"} מהכנסות הקמפיינים · ${comparisonCaption(smsRevenue, previousSmsRevenue)}`} icon={MessageSquareText} />
+        <MetricCard title="ROAS של SMS" value={formatRoas(smsRoas)} caption={`עלות SMS ${formatCurrency(smsCost, account.currency)} · ${comparisonCaption(smsRoas, previousSmsRoas)}`} icon={TrendingUp} tone={smsRoas !== null && smsRoas >= 1 ? "good" : "warn"} />
       </div>
+
+      <PeriodComparisonChart
+        points={campaignTrendPoints}
+        currency={account.currency}
+        previousRangeLabel={previousRangeLabel}
+        title="הכנסות מקמפיינים לאורך התקופה"
+        detail={`אימייל מול SMS · הקו המקווקו מציג את ${previousRangeLabel}`}
+        visibleSeries={["email", "sms"]}
+        onSelect={(point, series) => {
+          const items = series === "email"
+            ? emails.filter((item) => accountDate(new Date(item.sentAt), account.timezone) === point.date).map(emailToDrilldown)
+            : sms.filter((item) => accountDate(new Date(item.sentAt), account.timezone) === point.date).map(smsToDrilldown);
+          setDrilldown({ title: `${series === "email" ? "אימייל" : "SMS"} · ${point.label}`, context: "הקמפיינים שמרכיבים את ההכנסה ביום שנבחר", items });
+        }}
+      />
+
+      <RevenueShareChart
+        title="חלוקת הכנסות בין הערוצים"
+        currency={account.currency}
+        showCosts
+        segments={[
+          { label: "אימייל", revenue: emailRevenue, count: emails.length, purchases: emailPurchases, cost: 0, color: chartColors.email },
+          { label: "SMS", revenue: smsRevenue, count: sms.length, purchases: smsPurchases, cost: smsCost, color: chartColors.sms },
+        ]}
+        onSelect={(segment) => setDrilldown({ title: `קמפייני ${segment.label}`, context: "הקמפיינים שמרכיבים את הכנסות הערוץ", items: segment.label === "אימייל" ? emails.map(emailToDrilldown) : sms.map(smsToDrilldown) })}
+      />
 
       <div className="grid min-w-0 gap-4 2xl:grid-cols-2">
-        <RevenueShareChart
-          title="תמהיל הכנסות קמפיינים"
-          currency={account.currency}
-          showCosts
-          segments={[
-            { label: "אימייל", revenue: emailRevenue, count: emails.length, purchases: emailPurchases, cost: 0, color: chartColors.email },
-            { label: "SMS", revenue: smsRevenue, count: sms.length, purchases: smsPurchases, cost: smsCost, color: chartColors.sms },
-          ]}
-          onSelect={(segment) => setDrilldown({
-            title: `קמפייני ${segment.label}`,
-            context: "הקמפיינים שמרכיבים את פלח ההכנסה",
-            items: segment.label === "אימייל" ? emails.map(emailToDrilldown) : sms.map(smsToDrilldown),
-          })}
-        />
-        <CampaignJourneyChart
-          title="מסע מקמפיין לרכישה"
-          detail="היחס בין כל שלב לשלב שקדם לו"
-          series={[
-            {
-              id: "email",
-              label: "אימייל",
-              color: chartColors.email,
-              stages: [
-                { label: "נמסרו", value: emailDelivered },
-                { label: "פתיחות", value: emailOpens },
-                { label: "הקלקות ייחודיות", value: emailClicks },
-                { label: "רכישות", value: emailPurchases },
-              ],
-            },
-            {
-              id: "sms",
-              label: "SMS",
-              color: chartColors.sms,
-              stages: [
-                { label: "נמסרו", value: smsDelivered },
-                { label: "הקלקות ייחודיות", value: smsClicks },
-                { label: "רכישות", value: smsPurchases },
-              ],
-            },
-          ]}
-        />
+        <CampaignLeaderboard channel="email" rows={emailRows} currency={account.currency} showAll={showDeepAnalysis} onSelect={(row) => setDrilldown({ title: row.name, context: "פירוט קמפיין האימייל", items: [row.item] })} />
+        <CampaignLeaderboard channel="sms" rows={smsRows} currency={account.currency} showAll={showDeepAnalysis} onSelect={(row) => setDrilldown({ title: row.name, context: "פירוט קמפיין ה־SMS", items: [row.item] })} />
       </div>
 
-      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-        <WeekdayBars groups={timing.days} currency={account.currency} timezone={timing.timezone} onSelect={(label) => setDrilldown({
-          title: `קמפיינים ביום ${label}`,
-          context: "כל הקמפיינים שנשלחו ביום הזה בטווח שנבחר",
-          items: [
-            ...emails.filter((item) => campaignTimingKey(item.sentAt).day === label).map(emailToDrilldown),
-            ...sms.filter((item) => campaignTimingKey(item.sentAt).day === label).map(smsToDrilldown),
-          ],
-        })} />
-        <EngagementPlot rows={[...emails].sort((a,b)=>b.revenueGenerated-a.revenueGenerated).slice(0,4).map(item=>({
-          id: item.id, label: item.subjectLine || item.campaignName, revenue: item.revenueGenerated, currency: account.currency,
-          opens: measuredRate(item.totalOpens,item.totalDelivered), clicks: measuredRate(item.uniqueClicks,item.totalDelivered),
-        }))} onSelect={(id) => {
-          const item = emails.find((candidate) => candidate.id === id);
-          if (item) setDrilldown({ title: item.subjectLine || item.campaignName, context: "הקמפיין שמרכיב את נקודת המעורבות", items: [emailToDrilldown(item)] });
-        }} />
-      </div>
-
-      {showDeepAnalysis && (
-      <>
-      <RankedBars title="הכנסה לפי שעת שליחה" detail={`ממוצע לקמפיין · ${timing.timezone}`} currency={account.currency} rows={bestHours.map(item=>({
-        id: item.label, label: item.label, value: item.average, color: chartColors.sms,
-        meta: `${item.count} קמפיינים · ${formatNumber(item.purchases)} רכישות`,
-      }))} onSelect={(selected) => setDrilldown({
-        title: `שעת שליחה ${selected.id}`,
-        context: "הקמפיינים שנשלחו בשעה הזו בטווח שנבחר",
-        items: [
-          ...emails.filter((item) => campaignTimingKey(item.sentAt).hour === selected.id).map(emailToDrilldown),
-          ...sms.filter((item) => campaignTimingKey(item.sentAt).hour === selected.id).map(smsToDrilldown),
-        ],
-      })} />
-      <DataTable
-        title="שורות נושא שעבדו"
-        columns={["שורת נושא", "קמפיין", "הכנסה", "קליקים", "מעורבות"]}
-        rows={subjectWinners.map((item) => [
-          item.subject,
-          item.campaign,
-          formatCurrency(item.revenue, account.currency),
-          formatNumber(item.clicks),
-          formatPercent(item.engagement),
-        ])}
-      />
-      <div className="grid gap-5 xl:grid-cols-2">
-        <DataTable
-          title="קמפייני אימייל מובילים"
-          columns={["קמפיין", "שורת נושא", "פתיחות", "אחוז פתיחה", "קליקים", "אחוז הקלקה", "הכנסה"]}
-          rows={emailLeaders.map((item) => [
-            item.campaignName,
-            item.subjectLine,
-            formatNumber(item.totalOpens),
-            formatPercent(item.totalDelivered > 0 ? item.totalOpens / item.totalDelivered : 0),
-            formatNumber(item.totalClicks),
-            formatPercent(item.totalDelivered > 0 ? item.uniqueClicks / item.totalDelivered : 0),
-            formatCurrency(item.revenueGenerated, account.currency),
-          ])}
-        />
-        <DataTable
-          title="קמפייני SMS מובילים"
-          columns={["קמפיין", "נמענים", "קליקים", "עלות", "הכנסה"]}
-          rows={smsLeaders.map((item) => [
-            item.campaignName,
-            formatNumber(item.totalRecipients),
-            formatNumber(item.totalClicks),
-            formatCurrency(
-              item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate,
-              account.currency,
-            ),
-            formatCurrency(item.revenueGenerated, account.currency),
-          ])}
-        />
-      </div>
-
-      <DataTable
-        title="קמפיינים שדורשים בדיקה"
-        columns={["קמפיין", "ערוץ", "קליקים", "עלות", "הכנסה", "ROAS"]}
-        rows={weakCampaigns.map((item) => [
-          item.name,
-          item.channel,
-          formatNumber(item.clicks),
-          formatCurrency(item.cost, account.currency),
-          formatCurrency(item.revenue, account.currency),
-          item.cost > 0 ? `${(item.revenue / item.cost).toFixed(1)}x` : "ללא עלות",
-        ])}
-      />
-      </>
-      )}
+      <section className="space-y-3 pt-1">
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div><h2 className="text-lg font-black text-[#111318]">תזמון שעובד</h2><p className="mt-1 text-xs text-[#667085]">הכנסה ממוצעת לקמפיין לפי יום ושעת השליחה</p></div>
+          <div className="flex rounded-md bg-[#eef1f3] p-0.5" role="group" aria-label="ערוץ בניתוח תזמון">
+            {([{ value: "all", label: "הכל" }, { value: "email", label: "אימייל" }, { value: "sms", label: "SMS" }] as const).map((option) => <button key={option.value} type="button" aria-pressed={timingChannel === option.value} onClick={() => setTimingChannel(option.value)} className={classNames("min-h-8 rounded px-3 text-xs transition", timingChannel === option.value ? "bg-white font-bold text-[#111318] shadow-sm" : "text-[#667085]")}>{option.label}</button>)}
+          </div>
+        </header>
+        <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-[#e4e7ec] bg-[#e4e7ec]">
+          <div className="bg-white p-4"><p className="text-xs text-[#667085]">היום החזק</p><p className="mt-1 text-xl font-black">{bestDay?.count ? bestDay.label : "—"}</p><p className="mt-1 text-[11px] text-[#667085]">{bestDay?.count ? `${formatCurrency(bestDay.average, account.currency)} בממוצע לקמפיין` : "אין מספיק נתונים"}</p></div>
+          <div className="bg-white p-4"><p className="text-xs text-[#667085]">השעה החזקה</p><p className="mt-1 text-xl font-black" dir="ltr">{bestHour?.count ? bestHour.label : "—"}</p><p className="mt-1 text-[11px] text-[#667085]">{bestHour?.count ? `${formatCurrency(bestHour.average, account.currency)} בממוצע לקמפיין` : "אין מספיק נתונים"}</p></div>
+        </div>
+        <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+          <WeekdayBars groups={timing.days} currency={account.currency} timezone={timing.timezone} onSelect={(label) => setDrilldown({ title: `קמפיינים ביום ${label}`, context: "הקמפיינים שנשלחו ביום הזה לפי פילטר הערוץ", items: timingDrilldown(label, "day") })} />
+          <RankedBars title="הכנסה לפי שעת שליחה" detail={`ממוצע לקמפיין · ${timing.timezone}`} currency={account.currency} rows={bestHours.map((item) => ({ id: item.label, label: item.label, value: item.average, color: chartColors.sms, meta: `${formatNumber(item.count)} קמפיינים · ${formatNumber(item.purchases)} רכישות` }))} onSelect={(selected) => setDrilldown({ title: `שעת שליחה ${selected.id}`, context: "הקמפיינים שנשלחו בשעה הזו לפי פילטר הערוץ", items: timingDrilldown(selected.id, "hour") })} />
+        </div>
+      </section>
       <ChartDrilldown state={drilldown} currency={account.currency} onClose={() => setDrilldown(null)} />
     </div>
   );
@@ -5916,81 +5906,6 @@ function AccountSettings({
   );
 }
 
-function DataTable({
-  title,
-  columns,
-  rows,
-}: {
-  title: string;
-  columns: string[];
-  rows: string[][];
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const visibleRows = expanded ? rows : rows.slice(0, 6);
-
-  return (
-    <section className="overflow-hidden rounded-xl border border-[#e4e7ec] bg-white">
-      <div className="flex items-center justify-between gap-3 border-b border-[#e4e7ec] px-4 py-3">
-        <h2 className="text-base font-bold text-[#111318]">{title}</h2>
-        {rows.length > 6 && (
-          <button
-            onClick={() => setExpanded((current) => !current)}
-            className="rounded-md border border-[#d0d5dd] bg-white px-3 py-1.5 text-xs font-medium text-[#475467] hover:bg-[#f8fafb]"
-          >
-            {expanded ? "צמצם" : `הצג הכל (${formatNumber(rows.length)})`}
-          </button>
-        )}
-      </div>
-      <div className="divide-y divide-[#eef3f7] md:hidden">
-        {visibleRows.length ? (
-          visibleRows.map((row, rowIndex) => (
-            <article key={rowIndex} className="p-4">
-              <div className="mb-3 min-w-0">
-                <p className="truncate text-sm font-bold text-[#080123]">{row[0]}</p>
-                {row[1] && <p className="mt-1 truncate text-xs text-[#65738a]">{row[1]}</p>}
-              </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-[#eef0f2] pt-3">
-                {row.slice(2, 8).map((cell, index) => (
-                  <div key={`${rowIndex}-mobile-${index}`} className="min-w-0 text-xs">
-                    <p className="text-[#65738a]">{columns[index + 2]}</p>
-                    <p className="mt-1 truncate font-bold text-[#080123]">{cell}</p>
-                  </div>
-                ))}
-              </div>
-            </article>
-          ))
-        ) : (
-          <div className="p-6 text-center text-sm text-[#65738a]">אין נתונים להצגה.</div>
-        )}
-      </div>
-      <div className="hidden overflow-x-auto md:block">
-        <table className="w-full min-w-[760px] text-right text-sm">
-          <thead className="bg-[#f8fafb] text-[#667085]">
-            <tr>
-              {columns.map((column) => (
-                <th key={column} className="px-4 py-2.5 font-medium">
-                  {column}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[#eef0f2] text-[#344054]">
-            {visibleRows.map((row, rowIndex) => (
-              <tr key={rowIndex} className="hover:bg-[#f8fbfa]">
-                {row.map((cell, cellIndex) => (
-                  <td key={`${rowIndex}-${cellIndex}`} className="px-4 py-3">
-                    {cell}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
 export function DashboardApp() {
   const [localClients, setLocalClients] = useState<Client[]>(clients);
   const [localAccounts, setLocalAccounts] = useState<FlashyAccount[]>(flashyAccounts);
@@ -6649,6 +6564,13 @@ export function DashboardApp() {
                 account={account}
                 emails={accountEmails}
                 sms={accountSms}
+                previousEmails={previousEmails}
+                previousSms={previousSms}
+                rangeStart={activeRangeBounds.start}
+                rangeEnd={activeRangeBounds.end}
+                previousRangeStart={previousRangeBounds?.start ?? ""}
+                previousRangeEnd={previousRangeBounds?.end ?? ""}
+                previousRangeLabel={previousRangeLabel}
                 showDeepAnalysis={effectiveShowDeepAnalysis}
               />
           )}
