@@ -24,6 +24,44 @@ export type SubjectLineEvidenceSet = {
   minimumDelivered: number;
 };
 
+const claimRules = [
+  {
+    label: "הנחה, מחיר או מתנה שלא אושרו",
+    copy: /(?:\d+\s*%|הנח|קופון|מתנה|חינם|₪|ש[\"״']?ח)/i,
+    approved: /(?:\d+\s*%|הנח|קופון|מתנה|חינם|₪|ש[\"״']?ח)/i,
+  },
+  {
+    label: "דדליין שלא אושר",
+    copy: /(?:רק היום|היום בלבד|עד חצות|מחר בלבד|הזדמנות אחרונה|יום אחרון)/i,
+    approved: /(?:רק היום|היום בלבד|עד חצות|מחר בלבד|הזדמנות אחרונה|יום אחרון)/i,
+  },
+  {
+    label: "מחסור או מלאי שלא אושרו",
+    copy: /(?:לפני שייגמר|לפני שנגמר|עד גמר|גמר המלאי|יחידות אחרונות|המלאי אוזל)/i,
+    approved: /(?:ייגמר|נגמר|עד גמר|מלאי|יחידות אחרונות|אוזל)/i,
+  },
+  {
+    label: "טענת משלוח שלא אושרה",
+    copy: /(?:משלוח חינם|משלוח מהיר|משלוח מהיום להיום)/i,
+    approved: /(?:משלוח חינם|משלוח מהיר|משלוח מהיום להיום)/i,
+  },
+  {
+    label: "טענת איכות או פופולריות שלא אושרה",
+    copy: /(?:הכי נמכר|רב[־-]?מכר|מספר\s*1|מומלץ|מקצועי|מובטח)/i,
+    approved: /(?:הכי נמכר|רב[־-]?מכר|מספר\s*1|מומלץ|מקצועי|מובטח)/i,
+  },
+] as const;
+
+export function findUnsupportedSubjectClaims(copy: string, approvedText: string) {
+  const affirmativeApprovedText = approvedText.replace(
+    /(?:ללא|בלי|אין)\s+(?:\d+\s*%\s*)?(?:הנחה|קופון|מתנה|משלוח|מלאי|דדליין|תאריך סיום)/gi,
+    "",
+  );
+  return claimRules
+    .filter((rule) => rule.copy.test(copy) && !rule.approved.test(affirmativeApprovedText))
+    .map((rule) => rule.label);
+}
+
 function median(values: number[]) {
   if (!values.length) return 0;
   const ordered = [...values].sort((a, b) => a - b);

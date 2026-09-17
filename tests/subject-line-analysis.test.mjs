@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSubjectLineEvidence } from "../src/lib/subject-line-analysis.ts";
+import { buildSubjectLineEvidence, findUnsupportedSubjectClaims } from "../src/lib/subject-line-analysis.ts";
 
 const report = (campaignId, delivered, revenue, openRate, clickRate = 0.02) => ({
   campaignId,
@@ -38,4 +38,19 @@ test("subject evidence balances opens, clicks, efficiency and total revenue", ()
   const ids = new Set(result.examples.map((item) => item.campaignId));
   assert.deepEqual(ids, new Set([1, 2, 3, 4]));
   assert.equal(result.examples.find((item) => item.campaignId === 3)?.revenuePerThousand, 2_400);
+});
+
+test("subject copy rejects commercial claims that were not approved", () => {
+  const approved = "מארז קוקטיילים במהדורה מוגבלת, ללא הנחה וללא תאריך סיום";
+  assert.deepEqual(findUnsupportedSubjectClaims("20% הנחה רק היום", approved), [
+    "הנחה, מחיר או מתנה שלא אושרו",
+    "דדליין שלא אושר",
+  ]);
+  assert.deepEqual(findUnsupportedSubjectClaims("מהדורה מוגבלת לפני שייגמר", approved), [
+    "מחסור או מלאי שלא אושרו",
+  ]);
+});
+
+test("subject copy accepts an explicitly approved claim", () => {
+  assert.deepEqual(findUnsupportedSubjectClaims("20% הנחה רק היום", "20% הנחה רק היום"), []);
 });
