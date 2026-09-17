@@ -14,6 +14,7 @@ import type {
   NewsletterPlan,
   SmsCampaignReport,
 } from "./types";
+import type { SubjectLineEvidence } from "./subject-line-analysis";
 
 export type AiAccountMemory = {
   brandVoice?: string;
@@ -105,6 +106,28 @@ export type SmsCopyVariant = {
   label: string;
   text: string;
   rationale: string;
+  basedOnCampaignIds: number[];
+};
+
+export type SubjectLineBrief = {
+  objective: string;
+  audience: string;
+  offer: string;
+  tone: "direct" | "curious" | "promotional" | "brand";
+  mustInclude?: string;
+};
+
+export type SubjectLineVariant = {
+  subject: string;
+  preheader: string;
+};
+
+export type SubjectLinePair = {
+  label: string;
+  hypothesis: string;
+  confidence: "high" | "medium" | "low";
+  variantA: SubjectLineVariant;
+  variantB: SubjectLineVariant;
   basedOnCampaignIds: number[];
 };
 
@@ -896,6 +919,73 @@ export async function askOpenAiSmsCopy(input: {
 
   if (!variants.length) throw new Error("OpenAI לא החזיר טיוטות SMS תקינות.");
   return { patterns, variants };
+}
+
+export async function askOpenAiSubjectLines(input: {
+  accountName: string;
+  brief: SubjectLineBrief;
+  memory: AiAccountMemory;
+  examples: SubjectLineEvidence[];
+}) {
+  if (!process.env.OPENAI_API_KEY) return null;
+
+  const allowedCampaignIds = new Set(input.examples.map((item) => item.campaignId));
+  const raw = await requestOpenAiJson(
+    [
+      "אתה קופירייטר אימייל בכיר שמנסח ניסויי A/B לשורות נושא.",
+      "כתוב בעברית בלבד והחזר JSON בלבד.",
+      "המדדים מצביעים על קורלציה בלבד; אל תטען ששורת הנושא לבדה גרמה לביצועים.",
+      "כל זוג A/B חייב לשנות משתנה מרכזי אחד בלבד ולהציג השערה מדידה.",
+      "אסור להמציא הנחה, מחיר, קוד קופון, מוצר, מלאי, תאריך או הבטחה שלא הופיעו בבריף.",
+      "השתמש בקמפיינים ההיסטוריים כהשראה מבנית, בלי להעתיק ניסוחים ארוכים.",
+      "החזר שלושה זוגות שונים ולכל זוג מזהי קמפיינים אמיתיים שעליהם התבססת.",
+    ].join(" "),
+    `לקוח: ${input.accountName}\n\nבריף:\n${JSON.stringify(input.brief)}\n\nפרופיל וזיכרון לקוח:\n${JSON.stringify({
+      brandVoice: input.memory.brandVoice ?? "",
+      audiences: input.memory.audiences ?? "",
+      products: input.memory.products ?? "",
+      learnings: input.memory.learnings ?? "",
+      constraints: input.memory.constraints ?? "",
+      documents: (input.memory.documents ?? []).slice(0, 6).map((document) => ({
+        name: document.name,
+        content: document.content.slice(0, 3_000),
+      })),
+    })}\n\nקמפיינים היסטוריים ומדדים:\n${JSON.stringify(input.examples)}\n\nהחזר JSON במבנה:\n{"patterns":["דפוס שנצפה בנתונים"],"pairs":[{"label":"שם הבדיקה","hypothesis":"מה משתנה ומה המדד שנבדוק","confidence":"high|medium|low","variantA":{"subject":"...","preheader":"..."},"variantB":{"subject":"...","preheader":"..."},"basedOnCampaignIds":[123]}]}`,
+  );
+  const parsed = JSON.parse(raw) as { patterns?: unknown; pairs?: unknown };
+  const patterns = Array.isArray(parsed.patterns)
+    ? parsed.patterns.map((item) => String(item).trim()).filter(Boolean).slice(0, 5)
+    : [];
+  const pairs = Array.isArray(parsed.pairs)
+    ? parsed.pairs.map((item) => {
+        const value = item && typeof item === "object" ? item as Record<string, unknown> : {};
+        const variant = (candidate: unknown): SubjectLineVariant => {
+          const row = candidate && typeof candidate === "object" ? candidate as Record<string, unknown> : {};
+          return {
+            subject: String(row.subject ?? "").trim().slice(0, 180),
+            preheader: String(row.preheader ?? "").trim().slice(0, 240),
+          };
+        };
+        const confidence = value.confidence === "high" || value.confidence === "low" ? value.confidence : "medium";
+        const basedOnCampaignIds = Array.isArray(value.basedOnCampaignIds)
+          ? value.basedOnCampaignIds
+              .map((candidate) => Number(candidate))
+              .filter((candidate) => Number.isInteger(candidate) && allowedCampaignIds.has(candidate))
+              .slice(0, 5)
+          : [];
+        return {
+          label: String(value.label ?? "בדיקת A/B").trim().slice(0, 100),
+          hypothesis: String(value.hypothesis ?? "").trim().slice(0, 500),
+          confidence,
+          variantA: variant(value.variantA),
+          variantB: variant(value.variantB),
+          basedOnCampaignIds,
+        } satisfies SubjectLinePair;
+      }).filter((item) => item.variantA.subject && item.variantB.subject && item.basedOnCampaignIds.length).slice(0, 3)
+    : [];
+
+  if (!pairs.length) throw new Error("OpenAI לא החזיר זוגות שורות נושא עם מקורות תקינים.");
+  return { patterns, pairs };
 }
 
 export function fallbackOnboarding(context: AiContextPack) {
