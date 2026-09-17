@@ -362,3 +362,26 @@ export const aiAccountMemory = pgTable("ai_account_memory", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const aiContentDrafts = pgTable(
+  "ai_content_drafts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
+    flashyAccountId: uuid("flashy_account_id").notNull().references(() => flashyAccounts.id, { onDelete: "cascade" }),
+    createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    kind: text("kind").notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    preheader: text("preheader"),
+    status: text("status").notNull().default("draft"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("ai_content_drafts_account_updated_idx").on(table.flashyAccountId, table.updatedAt),
+    index("ai_content_drafts_client_status_idx").on(table.clientId, table.status),
+  ],
+);
