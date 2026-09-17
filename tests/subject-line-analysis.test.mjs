@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildSubjectLineEvidence, findUnsupportedSubjectClaims } from "../src/lib/subject-line-analysis.ts";
+import { buildSubjectLineEvidence, findUnsupportedSubjectClaims, isCausalSubjectPattern } from "../src/lib/subject-line-analysis.ts";
 
 const report = (campaignId, delivered, revenue, openRate, clickRate = 0.02) => ({
   campaignId,
@@ -61,4 +61,9 @@ test("subject copy rejects commercial claims that were not approved", () => {
 test("subject copy accepts an explicitly approved claim", () => {
   assert.deepEqual(findUnsupportedSubjectClaims("20% הנחה רק היום", "20% הנחה רק היום"), []);
   assert.deepEqual(findUnsupportedSubjectClaims("מארז חדש של SPICEHAUS", "השקת מארז חדש של SPICEHAUS"), []);
+});
+
+test("historical patterns reject causal language", () => {
+  assert.equal(isCausalSubjectPattern("הניסוח שייצרה פתיחה גבוהה יותר"), true);
+  assert.equal(isCausalSubjectPattern("נוסח אישי הופיע לצד פתיחה גבוהה יותר"), false);
 });

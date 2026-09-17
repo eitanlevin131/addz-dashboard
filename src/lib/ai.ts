@@ -14,7 +14,7 @@ import type {
   NewsletterPlan,
   SmsCampaignReport,
 } from "./types";
-import { findUnsupportedSubjectClaims, type SubjectLineEvidence } from "./subject-line-analysis";
+import { findUnsupportedSubjectClaims, isCausalSubjectPattern, type SubjectLineEvidence } from "./subject-line-analysis";
 
 export type AiAccountMemory = {
   brandVoice?: string;
@@ -972,7 +972,7 @@ export async function askOpenAiSubjectLines(input: {
     const patterns = Array.isArray(parsed.patterns)
       ? parsed.patterns
           .map((item) => String(item).trim())
-          .filter((item) => item && !/(?:מגביר|משפר|מעלה|גורם|מייצר|מוביל|מניב|מביא|מביאה|יביא|תביא|הוביל|תוביל)/i.test(item))
+          .filter((item) => item && !isCausalSubjectPattern(item))
           .slice(0, 5)
       : [];
     const candidatePairs = Array.isArray(parsed.pairs)

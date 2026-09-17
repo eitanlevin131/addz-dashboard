@@ -67,6 +67,10 @@ export function findUnsupportedSubjectClaims(copy: string, approvedText: string)
     .map((rule) => rule.label);
 }
 
+export function isCausalSubjectPattern(pattern: string) {
+  return /(?:מגביר|משפר|מעלה|גורם|מייצר|מוביל|מניב|מביא|מביאה|יביא|תביא|הוביל|תוביל|ייצר|יצר)/i.test(pattern);
+}
+
 function median(values: number[]) {
   if (!values.length) return 0;
   const ordered = [...values].sort((a, b) => a - b);
