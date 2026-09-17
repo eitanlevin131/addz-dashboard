@@ -41,13 +41,17 @@ test("subject evidence balances opens, clicks, efficiency and total revenue", ()
 });
 
 test("subject copy rejects commercial claims that were not approved", () => {
-  const approved = "מארז קוקטיילים במהדורה מוגבלת, ללא הנחה וללא תאריך סיום";
+  const approved = "מארז קוקטיילים במהדורה מוגבלת, ללא הנחה, ללא הבטחת מלאי וללא תאריך סיום";
   assert.deepEqual(findUnsupportedSubjectClaims("20% הנחה רק היום", approved), [
     "הנחה, מחיר או מתנה שלא אושרו",
     "דדליין שלא אושר",
   ]);
   assert.deepEqual(findUnsupportedSubjectClaims("מהדורה מוגבלת לפני שייגמר", approved), [
     "מחסור או מלאי שלא אושרו",
+  ]);
+  assert.deepEqual(findUnsupportedSubjectClaims("מארז בלעדי לזמן מוגבל — אל תחמיצו", approved), [
+    "דדליין שלא אושר",
+    "טענת איכות או פופולריות שלא אושרה",
   ]);
 });
 
