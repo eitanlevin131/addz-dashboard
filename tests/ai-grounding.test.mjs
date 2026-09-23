@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildAiEvidenceCatalog,
+  buildTimingGroundedResponse,
   normalizeAiGroundedResponse,
 } from "../src/lib/ai-grounding.ts";
 
@@ -139,4 +140,58 @@ test("an ungrounded model response is replaced with deterministic evidence", () 
   assert.equal(result.answer, "תשובת fallback");
   assert.ok(result.facts.length > 0);
   assert.ok(result.sources.every((source) => catalog.some((candidate) => candidate.id === source.id)));
+});
+
+test("timing questions use the campaign report timezone and average revenue formula", () => {
+  const wednesday = { ...email, id: "email-wed", sentAt: "2026-09-09T06:00:00Z", revenueGenerated: 100, purchases: 1 };
+  const thursdayMorning = { ...email, id: "email-thu-9", sentAt: "2026-09-10T06:00:00Z", revenueGenerated: 1000, purchases: 4 };
+  const thursdayLater = { ...email, id: "email-thu-10", sentAt: "2026-09-10T07:00:00Z", revenueGenerated: 500, purchases: 2 };
+  const result = buildTimingGroundedResponse({
+    account,
+    summary,
+    emails: [wednesday, thursdayMorning, thursdayLater],
+    sms: [],
+    automations: [],
+    plans: [],
+    question: "עדיף לשלוח ביום רביעי או חמישי ובאיזו שעה?",
+    currentView: "ai",
+  });
+
+  assert.ok(result);
+  assert.match(result.answer, /חמישי הוא היום העדיף/);
+  assert.match(result.answer, /09:00/);
+  assert.ok(result.sources.some((source) => source.id === "timing:day:רביעי"));
+  assert.ok(result.sources.some((source) => source.id === "timing:day:חמישי"));
+  assert.ok(result.sources.some((source) => source.id === "timing:hour:09:00"));
+  assert.equal(result.sources.find((source) => source.id === "timing:day:חמישי")?.metrics.find((item) => item.key === "averageRevenue")?.value, 750);
+});
+
+test("a question about a weak send is not mistaken for a timing question", () => {
+  const result = buildTimingGroundedResponse({
+    account,
+    summary,
+    emails: [email],
+    sms: [sms],
+    automations: [],
+    plans: [],
+    question: "איזו שליחת SMS הייתה חלשה?",
+    currentView: "ai",
+  });
+
+  assert.equal(result, null);
+});
+
+test("ordinal words do not accidentally trigger timing analysis", () => {
+  const result = buildTimingGroundedResponse({
+    account,
+    summary,
+    emails: [email],
+    sms: [sms],
+    automations: [],
+    plans: [],
+    question: "מה היה הקמפיין השני הכי חזק?",
+    currentView: "ai",
+  });
+
+  assert.equal(result, null);
 });

@@ -4331,6 +4331,7 @@ function FloatingAiChat({
   const [state, setState] = useState("מוכן");
   const [memory, setMemory] = useState<AiAccountMemory>({});
   const [grounding, setGrounding] = useState<AiGroundedResponse | null>(null);
+  const [conversation, setConversation] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; createdAt: string }>>([]);
   const viewLabels: Record<ViewKey, string> = {
     portfolio: "סוכנות",
     overview: "כללי",
@@ -4369,6 +4370,22 @@ function FloatingAiChat({
     };
   }, [clientId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadConversation() {
+      try {
+        const response = await fetch(`/api/ai/chat?clientId=${encodeURIComponent(clientId)}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.message || "טעינת היסטוריית השיחה נכשלה.");
+        if (!cancelled) setConversation(payload.messages ?? []);
+      } catch (error) {
+        if (!cancelled) setProviderError(error instanceof Error ? error.message : "טעינת היסטוריית השיחה נכשלה.");
+      }
+    }
+    void loadConversation();
+    return () => { cancelled = true; };
+  }, [clientId]);
+
   async function askAi(overrideQuestion?: string) {
     const resolvedQuestion = (overrideQuestion ?? question).trim();
     if (!resolvedQuestion) {
@@ -4379,6 +4396,7 @@ function FloatingAiChat({
     setOpen(true);
     setState("שואל את הסוכן...");
     setGrounding(null);
+    setConversation((current) => [...current, { id: `local-user-${Date.now()}`, role: "user", content: resolvedQuestion, createdAt: new Date().toISOString() }]);
     try {
       const response = await fetch("/api/ai/chat", {
         method: "POST",
@@ -4404,9 +4422,10 @@ function FloatingAiChat({
       if (!payload.grounding) throw new Error("המודל לא החזיר תשובה עם מקורות נתונים.");
       setAnswer(payload.answer);
       setGrounding(payload.grounding);
+      setConversation((current) => [...current, { id: `local-assistant-${Date.now()}`, role: "assistant", content: payload.answer, createdAt: new Date().toISOString() }]);
       setProvider(payload.provider);
       setProviderError(payload.providerError ?? "");
-      setState(payload.provider === "openai" ? `${payload.model || "OpenAI"} פעיל` : "שגיאת חיבור");
+      setState(!payload.historyPersisted ? "התשובה התקבלה, אך ההיסטוריה לא נשמרה" : payload.analysisMode === "deterministic-timing" ? "חושב ישירות מדוח הקמפיינים" : payload.provider === "openai" ? `${payload.model || "OpenAI"} פעיל` : "שגיאת חיבור");
       setQuestion("");
     } catch (error) {
       const message = error instanceof Error ? error.message : "החיבור למודל OpenAI נכשל.";
@@ -4456,10 +4475,11 @@ function FloatingAiChat({
                 <Bot size={14} />
                 <span>{state}</span>
                 <span className="rounded-full bg-white px-2 py-0.5">
-                  {provider === "openai" ? model || "OpenAI" : provider === "idle" ? "טרם הופעל" : "שגיאה"}
+                  {provider === "openai" ? model || "OpenAI" : provider === "deterministic-analysis" ? "חישוב דוח" : provider === "idle" ? "טרם הופעל" : "שגיאה"}
                 </span>
               </div>
-              <p className="font-medium text-[#111318]">{grounding?.answer ?? answer}</p>
+              {conversation.length > 0 && <div className="mb-3 space-y-2">{(grounding ? conversation.slice(0, -1) : conversation).slice(-8).map((message) => <div key={message.id} className={message.role === "user" ? "mr-auto max-w-[88%] rounded-lg bg-[#111318] px-3 py-2 text-white" : "ml-auto max-w-[92%] rounded-lg border border-[#dfe7ee] bg-white px-3 py-2 text-[#263548]"}><span className={`block text-[10px] font-black ${message.role === "user" ? "text-[#9ff3e8]" : "text-[#087f72]"}`}>{message.role === "user" ? "אתה" : "AI"}</span><p className="mt-1 whitespace-pre-wrap">{message.content}</p></div>)}</div>}
+              {grounding ? <p className="font-medium text-[#111318]">{grounding.answer}</p> : conversation.length === 0 ? <p className="font-medium text-[#111318]">{answer}</p> : null}
               {grounding && (
                 <div className="mt-4 divide-y divide-[#dfe7ee] border-t border-[#dfe7ee]">
                   {grounding.facts.length > 0 && (

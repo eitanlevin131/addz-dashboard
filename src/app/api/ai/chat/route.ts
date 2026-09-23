@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
+import { desc, eq } from "drizzle-orm";
 import { assertClientAccess, getAccessContext } from "@/lib/auth/access";
 import { aiChatMessages } from "@/lib/schema";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import {
   buildAiEvidenceCatalog,
   buildFallbackGroundedResponse,
+  buildTimingGroundedResponse,
 } from "@/lib/ai-grounding";
 import {
   askOpenAiAgent,
@@ -27,19 +29,73 @@ import type {
   SmsCampaignReport,
 } from "@/lib/types";
 
-async function trySaveMessage(clientId: string, role: "user" | "assistant", content: string) {
-  if (!isDatabaseConfigured()) return;
+async function readRecentMessages(clientId: string, limit = 60) {
+  if (!isDatabaseConfigured()) return [];
 
   try {
-    await getDb().insert(aiChatMessages).values({
-      clientId,
-      userId: null,
-      role,
-      content,
-    });
+    const rows = await getDb()
+      .select({
+        id: aiChatMessages.id,
+        role: aiChatMessages.role,
+        content: aiChatMessages.content,
+        createdAt: aiChatMessages.createdAt,
+      })
+      .from(aiChatMessages)
+      .where(eq(aiChatMessages.clientId, clientId))
+      .orderBy(desc(aiChatMessages.createdAt))
+      .limit(limit);
+    const messages = rows.reverse().filter((row) => row.role === "user" || row.role === "assistant");
+    const conversation: typeof messages = [];
+    let waitingForAssistant = false;
+    for (const message of messages) {
+      if (message.role === "user") {
+        conversation.push(message);
+        waitingForAssistant = true;
+      } else if (waitingForAssistant) {
+        conversation.push(message);
+        waitingForAssistant = false;
+      }
+    }
+    return conversation;
+  } catch {
+    return [];
+  }
+}
+
+async function trySaveExchange(clientId: string, userId: string | null, question: string, answer: string) {
+  if (!isDatabaseConfigured()) return false;
+
+  try {
+    const userCreatedAt = new Date();
+    const assistantCreatedAt = new Date(userCreatedAt.getTime() + 1);
+    await getDb().insert(aiChatMessages).values([
+      { clientId, userId, role: "user", content: question, createdAt: userCreatedAt },
+      { clientId, userId, role: "assistant", content: answer, createdAt: assistantCreatedAt },
+    ]);
+    return true;
   } catch {
     // Local/demo ids are not always UUIDs and older DBs may not have this table yet.
+    return false;
   }
+}
+
+export async function GET(request: Request) {
+  const clientId = new URL(request.url).searchParams.get("clientId")?.trim() ?? "";
+  if (!clientId) {
+    return NextResponse.json({ success: false, message: "חסר clientId לטעינת היסטוריית השיחה." }, { status: 400 });
+  }
+  if (!isDatabaseConfigured()) return NextResponse.json({ success: true, messages: [] });
+
+  const accessContext = await getAccessContext();
+  if (!accessContext.ok) return accessContext.response;
+  const denied = assertClientAccess(accessContext.access, clientId);
+  if (denied) return denied;
+
+  const messages = await readRecentMessages(clientId, 80);
+  return NextResponse.json({
+    success: true,
+    messages: messages.map((message) => ({ ...message, createdAt: message.createdAt.toISOString() })),
+  });
 }
 
 export async function POST(request: Request) {
@@ -59,11 +115,13 @@ export async function POST(request: Request) {
     );
   }
 
+  let accessUserId: string | null = null;
   if (isDatabaseConfigured()) {
     const accessContext = await getAccessContext();
     if (!accessContext.ok) return accessContext.response;
     const denied = assertClientAccess(accessContext.access, clientId);
     if (denied) return denied;
+    accessUserId = accessContext.access.userId;
   }
 
   const emails = ((body.emails ?? []) as EmailCampaignReport[])
@@ -99,6 +157,23 @@ export async function POST(request: Request) {
     question,
     currentView,
   });
+  const conversation = mode === "chat"
+    ? (await readRecentMessages(clientId, 12)).map((message) => ({
+        role: message.role as "user" | "assistant",
+        content: message.content.slice(0, 2_000),
+      }))
+    : [];
+  const timingGrounding = mode === "chat" ? buildTimingGroundedResponse({
+    account,
+    summary,
+    emails,
+    sms,
+    automations,
+    plans,
+    documents: memory.documents,
+    question,
+    currentView,
+  }) : null;
 
   const fallbackAnswer =
     mode === "recommendations"
@@ -112,10 +187,17 @@ export async function POST(request: Request) {
   let grounding = buildFallbackGroundedResponse(fallbackAnswer, evidence);
   let recommendations = fallbackActionPlan(context);
   let onboarding = fallbackOnboarding(context);
-  let provider: "openai" | "rule-based-fallback" = "rule-based-fallback";
+  let provider: "openai" | "rule-based-fallback" | "deterministic-analysis" = timingGrounding ? "deterministic-analysis" : "rule-based-fallback";
+
+  if (timingGrounding) {
+    grounding = timingGrounding;
+    answer = timingGrounding.answer;
+  }
 
   try {
-    if (mode === "recommendations") {
+    if (timingGrounding) {
+      // Timing recommendations are calculated from the same dataset and formula as the campaign report.
+    } else if (mode === "recommendations") {
       const openAiRecommendations = await askOpenAiActionPlan(context);
       if (openAiRecommendations?.length) {
         recommendations = openAiRecommendations;
@@ -130,7 +212,7 @@ export async function POST(request: Request) {
         provider = "openai";
       } else throw new Error("OpenAI אינו מוגדר בשרת.");
     } else {
-      const openAiAnswer = await askOpenAiAgent({ question, context, evidence, currentView, mode });
+      const openAiAnswer = await askOpenAiAgent({ question, context, evidence, conversation, currentView, mode });
       if (openAiAnswer) {
         grounding = openAiAnswer;
         answer = openAiAnswer.answer;
@@ -150,12 +232,15 @@ export async function POST(request: Request) {
     );
   }
 
-  if (question) await trySaveMessage(clientId, "user", question);
-  await trySaveMessage(clientId, "assistant", answer);
+  const historyPersisted = mode === "chat" && question
+    ? await trySaveExchange(clientId, accessUserId, question, answer)
+    : false;
 
   return NextResponse.json({
     success: true,
     provider,
+    analysisMode: timingGrounding ? "deterministic-timing" : "model",
+    historyPersisted,
     providerError: "",
     model: getConfiguredOpenAiModel(),
     recommendations,

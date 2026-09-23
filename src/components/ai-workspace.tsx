@@ -8,6 +8,7 @@ import {
   Database,
   ExternalLink,
   FileText,
+  History,
   Lightbulb,
   MessageSquareText,
   RefreshCw,
@@ -31,6 +32,14 @@ import type {
 
 type AiWorkspaceTab = "ask" | "create" | "knowledge";
 type CreationTool = "sms" | "subject";
+
+type AiChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: string;
+  grounding?: AiGroundedResponse;
+};
 
 export type AiWorkspaceProps = {
   clientId: string;
@@ -245,7 +254,8 @@ export function AiWorkspace({ clientId, account, summary, emails, sms, automatio
   const [question, setQuestion] = useState("");
   const [askState, setAskState] = useState("מוכן");
   const [askError, setAskError] = useState("");
-  const [grounding, setGrounding] = useState<AiGroundedResponse | null>(null);
+  const [chatHistory, setChatHistory] = useState<AiChatMessage[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [draftRefreshKey, setDraftRefreshKey] = useState(0);
   const [draftState, setDraftState] = useState("");
 
@@ -287,20 +297,45 @@ export function AiWorkspace({ clientId, account, summary, emails, sms, automatio
     return () => { cancelled = true; };
   }, [account.name, clientId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadHistory() {
+      try {
+        const response = await fetch(`/api/ai/chat?clientId=${encodeURIComponent(clientId)}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.message || "טעינת היסטוריית השיחה נכשלה.");
+        if (!cancelled) {
+          setChatHistory((payload.messages ?? []) as AiChatMessage[]);
+          setHistoryLoaded(true);
+          setAskState((payload.messages ?? []).length ? "היסטוריית השיחה נטענה" : "מוכן");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setHistoryLoaded(true);
+          setAskState(error instanceof Error ? error.message : "טעינת היסטוריית השיחה נכשלה.");
+        }
+      }
+    }
+    void loadHistory();
+    return () => { cancelled = true; };
+  }, [clientId]);
+
   async function askData(value = question) {
     const prompt = value.trim();
     if (!prompt) return;
-    setQuestion(prompt);
+    const askedAt = new Date().toISOString();
+    setChatHistory((current) => [...current, { id: `local-user-${askedAt}`, role: "user", content: prompt, createdAt: askedAt }]);
+    setQuestion("");
     setAskState("בודק את הדוחות והמקורות...");
     setAskError("");
     try {
       const response = await fetch("/api/ai/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientId, mode: "chat", question: prompt, view: "ai", account, summary, emails, sms, automations, plans, memory }) });
       const payload = await response.json();
       if (!response.ok || !payload.success || !payload.grounding) throw new Error(payload.message || "בקשת AI נכשלה.");
-      setGrounding(payload.grounding as AiGroundedResponse);
-      setAskState(`${payload.model || "OpenAI"} · התשובה נבדקה מול מקורות`);
+      const grounding = payload.grounding as AiGroundedResponse;
+      setChatHistory((current) => [...current, { id: `local-assistant-${Date.now()}`, role: "assistant", content: grounding.answer, createdAt: new Date().toISOString(), grounding }]);
+      setAskState(!payload.historyPersisted ? "התשובה התקבלה, אך היסטוריית השיחה לא נשמרה" : payload.analysisMode === "deterministic-timing" ? "חושב ישירות מדוח הקמפיינים · ללא ניחוש מודל" : `${payload.model || "OpenAI"} · התשובה נבדקה מול מקורות`);
     } catch (error) {
-      setGrounding(null);
       setAskError(error instanceof Error ? error.message : "בקשת AI נכשלה.");
       setAskState("הבקשה נכשלה");
     }
@@ -377,7 +412,7 @@ export function AiWorkspace({ clientId, account, summary, emails, sms, automatio
 
     <div className="p-4 sm:p-6">
       {tab === "ask" && <div>
-        <div className="mx-auto max-w-4xl"><div className="flex items-center gap-2"><Bot size={18} className="text-[#087f72]" /><h3 className="text-lg font-black">מה תרצה להבין?</h3></div><p className="mt-1 text-sm leading-6 text-[#667085]">הסוכן מפריד בין נתון, חישוב והסקה ומקשר כל תשובה לדוחות שעליהם הסתמך.</p><div className="mt-4 flex flex-wrap gap-2">{quickQuestions.map((item) => <button key={item} type="button" onClick={() => void askData(item)} className="rounded-md border border-[#d0d5dd] bg-white px-3 py-2 text-xs font-bold text-[#344054] transition hover:border-[#20b9a8] hover:bg-[#f4fbfa]">{item}</button>)}</div><div className="mt-4 flex flex-col gap-2 sm:flex-row"><textarea value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void askData(); }} placeholder="למשל: למה ההכנסות מ־SMS ירדו ומה הנתונים שתומכים בזה?" className="min-h-24 flex-1 resize-y rounded-lg border border-[#d0d5dd] p-3 text-sm leading-6 outline-none focus:border-[#20b9a8]" /><button type="button" onClick={() => void askData()} disabled={!question.trim() || askState.startsWith("בודק")} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#111318] px-5 text-sm font-bold text-white disabled:opacity-45"><Send size={15} />שאל</button></div><div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-[#667085]"><span>{askState}</span><span>⌘/Ctrl + Enter</span></div>{askError && <p role="alert" className="mt-3 rounded-md border border-[#fecaca] bg-[#fff7f7] px-3 py-2 text-xs text-[#b42318]">{askError}</p>}{grounding ? <GroundedAnswer grounding={grounding} onNavigate={onNavigate} /> : <div className="mt-8 grid min-h-48 place-content-center border-t border-[#e4e7ec] text-center"><Database size={28} className="mx-auto text-[#98a2b3]" /><p className="mt-3 text-sm font-bold text-[#344054]">התשובה תופיע כאן עם הוכחות</p><p className="mt-1 text-xs text-[#667085]">מספרים, נוסחאות והסקנות יוצגו בנפרד.</p></div>}</div>
+        <div className="mx-auto max-w-4xl"><div className="flex items-center gap-2"><Bot size={18} className="text-[#087f72]" /><h3 className="text-lg font-black">מה תרצה להבין?</h3></div><p className="mt-1 text-sm leading-6 text-[#667085]">הסוכן מפריד בין נתון, חישוב והסקה, זוכר את השיחה ומקשר כל תשובה לדוחות שעליהם הסתמך.</p><div className="mt-4 flex flex-wrap gap-2">{quickQuestions.map((item) => <button key={item} type="button" onClick={() => void askData(item)} className="rounded-md border border-[#d0d5dd] bg-white px-3 py-2 text-xs font-bold text-[#344054] transition hover:border-[#20b9a8] hover:bg-[#f4fbfa]">{item}</button>)}</div><div className="mt-4 flex flex-col gap-2 sm:flex-row"><textarea value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) void askData(); }} placeholder="למשל: האם עדיף לשלוח ברביעי או בחמישי, ומה הנתונים שתומכים בזה?" className="min-h-24 flex-1 resize-y rounded-lg border border-[#d0d5dd] p-3 text-sm leading-6 outline-none focus:border-[#20b9a8]" /><button type="button" onClick={() => void askData()} disabled={!question.trim() || askState.startsWith("בודק")} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-[#111318] px-5 text-sm font-bold text-white disabled:opacity-45"><Send size={15} />שאל</button></div><div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-[#667085]"><span>{askState}</span><span>⌘/Ctrl + Enter</span></div>{askError && <p role="alert" className="mt-3 rounded-md border border-[#fecaca] bg-[#fff7f7] px-3 py-2 text-xs text-[#b42318]">{askError}</p>}<div className="mt-7 border-t border-[#e4e7ec] pt-5"><div className="mb-4 flex items-center justify-between gap-3"><div className="flex items-center gap-2"><History size={16} className="text-[#087f72]" /><h4 className="text-sm font-black">היסטוריית שיחה</h4></div><span className="text-[11px] text-[#667085]">{historyLoaded ? `${formatNumber(chatHistory.length)} הודעות שמורות` : "טוען..."}</span></div>{chatHistory.length ? <div className="space-y-4">{chatHistory.map((message) => <article key={message.id} className={message.role === "user" ? "mr-auto max-w-[88%] rounded-lg bg-[#111318] px-4 py-3 text-white sm:max-w-[72%]" : "ml-auto max-w-full rounded-lg border border-[#e4e7ec] bg-[#fbfcfd] px-4 py-3"}><div className="flex items-center justify-between gap-3"><span className={`text-[10px] font-black ${message.role === "user" ? "text-[#9ff3e8]" : "text-[#087f72]"}`}>{message.role === "user" ? "אתה" : "AI"}</span><time className={`text-[10px] ${message.role === "user" ? "text-[#d0d5dd]" : "text-[#98a2b3]"}`}>{new Date(message.createdAt).toLocaleString("he-IL", { day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit" })}</time></div>{message.grounding ? <GroundedAnswer grounding={message.grounding} onNavigate={onNavigate} /> : <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{message.content}</p>}</article>)}</div> : <div className="grid min-h-40 place-content-center text-center"><Database size={28} className="mx-auto text-[#98a2b3]" /><p className="mt-3 text-sm font-bold text-[#344054]">השיחה הראשונה תישמר כאן</p><p className="mt-1 text-xs text-[#667085]">היא תחכה לך גם אחרי מעבר למסך אחר או התחברות מחדש.</p></div>}</div></div>
       </div>}
 
       {tab === "create" && <div><div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="text-lg font-black">יצירת תוכן מבוסס ביצועים</h3><p className="mt-1 text-sm text-[#667085]">כלים מעשיים שמשתמשים בדוגמאות ובמסמכי הלקוח.</p>{draftState && <p className={`mt-1 text-xs ${draftState.includes("נכשלה") || draftState.includes("דורשת") ? "text-[#b42318]" : "text-[#087f72]"}`}>{draftState}</p>}</div><div className="inline-flex rounded-md bg-[#f1f4f5] p-1"><button type="button" onClick={() => setCreationTool("sms")} className={`h-9 rounded px-4 text-xs font-bold ${creationTool === "sms" ? "bg-white shadow-sm" : "text-[#667085]"}`}>SMS</button><button type="button" onClick={() => setCreationTool("subject")} className={`h-9 rounded px-4 text-xs font-bold ${creationTool === "subject" ? "bg-white shadow-sm" : "text-[#667085]"}`}>שורות נושא</button></div></div>{creationTool === "sms" ? <SmsCopyWorkspace account={account} onSaveDraft={saveGeneratedDraft} /> : <SubjectLineWorkspace account={account} onSaveDraft={saveGeneratedDraft} />}<AiDraftLibrary clientId={clientId} accountId={account.id} refreshKey={draftRefreshKey} /></div>}

@@ -5,6 +5,7 @@ import {
   type AiGroundedResponse,
 } from "./ai-grounding";
 import { getAutomationSmsRecipients } from "./metrics";
+import { campaignTiming } from "./report-chart-data.ts";
 import type {
   AiInsight,
   AutomationReport,
@@ -48,6 +49,7 @@ export type AiContextPack = {
   account: {
     name: string;
     currency: string;
+    timezone: string;
     smsCreditPriceUsd: number;
     monthlySubscriptionCostUsd: number;
     agencyRetainerCostIls: number;
@@ -63,8 +65,8 @@ export type AiContextPack = {
     automation?: { name: string; revenue: number; clicks: number; sent: number };
   };
   patterns: {
-    bestDays: { label: string; revenue: number; purchases: number; count: number }[];
-    bestHours: { label: string; revenue: number; purchases: number; count: number }[];
+    bestDays: { label: string; revenue: number; purchases: number; count: number; average: number }[];
+    bestHours: { label: string; revenue: number; purchases: number; count: number; average: number }[];
     subjectWinners: { subject: string; campaign: string; revenue: number; openRate: number; clickRate: number }[];
     smsCopyExamples: { name: string; message: string; revenue: number; purchases: number; roas: number | null }[];
   };
@@ -266,7 +268,6 @@ export function buildAiContextPack(input: {
     purchases: item.purchases,
     sent: (item.sentEmails ?? 0) + getAutomationSmsRecipients(item),
   }));
-  const dayNames = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"];
   const campaignRows = [
     ...emails.map((item) => ({
       sentAt: item.sentAt,
@@ -283,22 +284,11 @@ export function buildAiContextPack(input: {
       recipients: item.totalRecipients,
     })),
   ];
-  const aggregateBy = (labelFor: (sentAt: string) => string) => {
-    const groups = new Map<string, { label: string; revenue: number; purchases: number; count: number }>();
-
-    for (const item of campaignRows) {
-      const label = labelFor(item.sentAt);
-      const current = groups.get(label) ?? { label, revenue: 0, purchases: 0, count: 0 };
-      current.revenue += item.revenue;
-      current.purchases += item.purchases;
-      current.count += 1;
-      groups.set(label, current);
-    }
-
-    return Array.from(groups.values()).sort(
-      (a, b) => b.revenue - a.revenue || b.purchases - a.purchases || b.count - a.count,
-    );
-  };
+  const timing = campaignTiming(campaignRows, account.timezone);
+  const rankTiming = (rows: typeof timing.days) => rows
+    .filter((item) => item.count > 0)
+    .map((item) => ({ ...item, average: item.revenue / item.count }))
+    .sort((a, b) => b.average - a.average || b.purchases - a.purchases || b.count - a.count);
 
   return {
     measurement: {
@@ -310,6 +300,7 @@ export function buildAiContextPack(input: {
     account: {
       name: account.name,
       currency: account.currency,
+      timezone: timing.timezone,
       smsCreditPriceUsd: account.smsCreditPriceUsd,
       monthlySubscriptionCostUsd: account.monthlySubscriptionCostUsd,
       agencyRetainerCostIls: account.agencyRetainerCostIls,
@@ -335,8 +326,8 @@ export function buildAiContextPack(input: {
         .sort((a, b) => a.clicks - b.clicks || a.revenue - b.revenue)[0],
     },
     patterns: {
-      bestDays: aggregateBy((sentAt) => dayNames[new Date(sentAt).getDay()]).slice(0, 3),
-      bestHours: aggregateBy((sentAt) => `${String(new Date(sentAt).getHours()).padStart(2, "0")}:00`).slice(0, 3),
+      bestDays: rankTiming(timing.days).slice(0, 3),
+      bestHours: rankTiming(timing.hours).slice(0, 3),
       subjectWinners: [...emails]
         .map((item) => ({
           subject: item.subjectLine,
@@ -833,6 +824,7 @@ export async function askOpenAiAgent(input: {
   question: string;
   context: AiContextPack;
   evidence: AiEvidenceSource[];
+  conversation?: { role: "user" | "assistant"; content: string }[];
   currentView?: string;
   mode?: "chat" | "recommendations";
 }): Promise<AiGroundedResponse | null> {
@@ -844,8 +836,8 @@ export async function askOpenAiAgent(input: {
       ? "צור 4 המלצות קצרות ומעשיות לאופטימיזציה. החזר תשובה בעברית עם כותרות קצרות ופעולה לכל המלצה."
       : input.question;
   const raw = await requestOpenAiJson(
-    "אתה סוכן AI לאופטימיזציית אימייל ו-SMS מרקטינג. החזר אובייקט JSON בלבד בעברית. התבסס רק על ה-Context Pack ועל Evidence Catalog. אל תמציא נתונים או מזהי מקור. כל עובדה, חישוב והסקה חייבים evidenceIds מתוך הקטלוג. facts מכיל רק נתונים שנמדדו; calculations מכיל תוצאה ונוסחה גלויה; inferences מכיל פרשנות או המלצה ורמת ביטחון. אם חסר מידע, אמור מה חסר. ההכנסות הן הכנסות מיוחסות לדוחות פעילות לפי מועד שליחה/פעילות, ולא Sales Overview לפי מועד רכישה.",
-    `מסך נוכחי: ${input.currentView ?? "overview"}\n\nContext Pack JSON:\n${JSON.stringify(input.context)}\n\nEvidence Catalog JSON:\n${JSON.stringify(input.evidence)}\n\nשאלה/משימה:\n${prompt}\n\nהחזר אובייקט JSON במבנה הבא בלבד:\n{"answer":"תשובה קצרה וישירה","facts":[{"text":"נתון מדוד","evidenceIds":["source:id"]}],"calculations":[{"text":"תוצאת החישוב","formula":"המספרים והפעולה","evidenceIds":["source:id"]}],"inferences":[{"text":"הסקה או המלצה","confidence":"high|medium|low","evidenceIds":["source:id"]}]}`,
+    "אתה סוכן AI לאופטימיזציית אימייל ו-SMS מרקטינג. החזר אובייקט JSON בלבד בעברית. התבסס רק על ה-Context Pack ועל Evidence Catalog. אל תמציא נתונים או מזהי מקור. כל עובדה, חישוב והסקה חייבים evidenceIds מתוך הקטלוג. facts מכיל רק נתונים שנמדדו; calculations מכיל תוצאה ונוסחה גלויה; inferences מכיל פרשנות או המלצה ורמת ביטחון. אם חסר מידע, אמור מה חסר. ההכנסות הן הכנסות מיוחסות לדוחות פעילות לפי מועד שליחה/פעילות, ולא Sales Overview לפי מועד רכישה. בשאלות תזמון השתמש אך ורק במקורות timing, לפי אזור הזמן של החשבון ולפי הכנסה ממוצעת לקמפיין, בדיוק כמו דוח הקמפיינים. היסטוריית השיחה היא הקשר לשוני בלבד ואינה מקור לנתונים.",
+    `מסך נוכחי: ${input.currentView ?? "overview"}\n\nהיסטוריית שיחה אחרונה:\n${JSON.stringify((input.conversation ?? []).slice(-12))}\n\nContext Pack JSON:\n${JSON.stringify(input.context)}\n\nEvidence Catalog JSON:\n${JSON.stringify(input.evidence)}\n\nשאלה/משימה:\n${prompt}\n\nהחזר אובייקט JSON במבנה הבא בלבד:\n{"answer":"תשובה קצרה וישירה","facts":[{"text":"נתון מדוד","evidenceIds":["source:id"]}],"calculations":[{"text":"תוצאת החישוב","formula":"המספרים והפעולה","evidenceIds":["source:id"]}],"inferences":[{"text":"הסקה או המלצה","confidence":"high|medium|low","evidenceIds":["source:id"]}]}`,
   );
   const parsed = JSON.parse(raw) as unknown;
   return normalizeAiGroundedResponse(parsed, input.evidence, fallbackAgentAnswer(input.question, input.context));

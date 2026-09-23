@@ -6,6 +6,7 @@ import type {
   NewsletterPlan,
   SmsCampaignReport,
 } from "./types";
+import { campaignTiming, weekdayLabels } from "./report-chart-data.ts";
 
 export type AiReportView = "overview" | "campaigns" | "sms" | "automations" | "planner" | "ai";
 
@@ -18,7 +19,7 @@ export type AiEvidenceMetric = {
 
 export type AiEvidenceSource = {
   id: string;
-  kind: "summary" | "email" | "sms" | "automation" | "plan" | "document";
+  kind: "summary" | "email" | "sms" | "automation" | "plan" | "document" | "timing";
   entityId: string;
   reportView: AiReportView;
   title: string;
@@ -104,8 +105,14 @@ function sourceReturn(source: AiEvidenceSource) {
   return sourceRevenue(source);
 }
 
+function isTimingQuestion(question: string) {
+  return /מתי|תזמ|באיזה יום|איזה יום|היום (?:הכי )?חזק|באיזו שעה|איזו שעה|שעה חזקה|בוקר|צהר|ערב|send time/i.test(question)
+    || /(?:^|[^\p{L}])(ראשון|שני|שלישי|רביעי|חמישי|שישי|שבת)(?=$|[^\p{L}])/u.test(question);
+}
+
 function queryArea(question: string, currentView = "") {
   const value = `${question} ${currentView}`.toLowerCase();
+  if (isTimingQuestion(value)) return "timing";
   if (value.includes("אוטומ") || value.includes("automation")) return "automation";
   if (value.includes("sms") || value.includes("סמס")) return "sms";
   if (value.includes("גאנט") || value.includes("תכנ") || value.includes("planner")) return "plan";
@@ -116,6 +123,7 @@ function queryArea(question: string, currentView = "") {
 function relevantReportSources(sources: AiEvidenceSource[], question: string, currentView = "") {
   const area = queryArea(question, currentView);
   const reports = sources.filter((source) => {
+    if (area === "timing") return source.kind === "timing";
     if (area === "automation") return source.kind === "automation";
     if (area === "sms") return source.kind === "sms" || (source.kind === "automation" && metricValue(source, "smsCost") !== null);
     if (area === "plan") return source.kind === "plan";
@@ -235,11 +243,47 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
     date: item.createdAt,
     metrics: [],
   }));
-  const allSources = [...emailSources, ...smsSources, ...automationSources, ...planSources, ...documentSources];
+  const timing = campaignTiming([
+    ...input.emails.map((item) => ({ sentAt: item.sentAt, revenue: item.revenueGenerated, purchases: item.purchases })),
+    ...input.sms.map((item) => ({ sentAt: item.sentAt, revenue: item.revenueGenerated, purchases: item.purchases })),
+  ], account.timezone);
+  const timingSources: AiEvidenceSource[] = [
+    ...timing.days.filter((item) => item.count > 0).map((item): AiEvidenceSource => ({
+      id: `timing:day:${item.label}`,
+      kind: "timing",
+      entityId: item.label,
+      reportView: "campaigns",
+      title: `תזמון ביום ${item.label}`,
+      subtitle: `דוח קמפיינים · ${timing.timezone} · ממוצע לקמפיין`,
+      metrics: [
+        metric("averageRevenue", "הכנסה ממוצעת לקמפיין", item.revenue / item.count, money(item.revenue / item.count, currency)),
+        metric("revenue", "הכנסה מצטברת", item.revenue, money(item.revenue, currency)),
+        metric("campaigns", "קמפיינים", item.count, number(item.count)),
+        metric("purchases", "רכישות", item.purchases, number(item.purchases)),
+      ],
+    })),
+    ...timing.hours.filter((item) => item.count > 0).map((item): AiEvidenceSource => ({
+      id: `timing:hour:${item.label}`,
+      kind: "timing",
+      entityId: item.label,
+      reportView: "campaigns",
+      title: `תזמון בשעה ${item.label}`,
+      subtitle: `דוח קמפיינים · ${timing.timezone} · ממוצע לקמפיין`,
+      metrics: [
+        metric("averageRevenue", "הכנסה ממוצעת לקמפיין", item.revenue / item.count, money(item.revenue / item.count, currency)),
+        metric("revenue", "הכנסה מצטברת", item.revenue, money(item.revenue, currency)),
+        metric("campaigns", "קמפיינים", item.count, number(item.count)),
+        metric("purchases", "רכישות", item.purchases, number(item.purchases)),
+      ],
+    })),
+  ];
+  const allSources = [...emailSources, ...smsSources, ...automationSources, ...planSources, ...timingSources, ...documentSources];
   const relevant = relevantReportSources(allSources, input.question ?? "", input.currentView);
   const area = queryArea(input.question ?? "", input.currentView);
   const supporting = area === "plan"
     ? planSources.slice(0, 20)
+    : area === "timing"
+      ? timingSources
     : area === "all"
       ? relevant
       : relevantReportSources(allSources, input.question ?? "", input.currentView);
@@ -247,6 +291,54 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
 
   for (const source of [summarySource, ...supporting, ...documentSources.slice(0, 6)]) unique.set(source.id, source);
   return Array.from(unique.values()).slice(0, 43);
+}
+
+export function buildTimingGroundedResponse(input: EvidenceInput): AiGroundedResponse | null {
+  if (!isTimingQuestion(input.question ?? "")) return null;
+
+  const catalog = buildAiEvidenceCatalog({ ...input, currentView: "campaigns" });
+  const daySources = catalog.filter((source) => source.id.startsWith("timing:day:"));
+  const hourSources = catalog.filter((source) => source.id.startsWith("timing:hour:"));
+  if (!daySources.length || !hourSources.length) return null;
+
+  const average = (source: AiEvidenceSource) => metricValue(source, "averageRevenue") ?? 0;
+  const count = (source: AiEvidenceSource) => metricValue(source, "campaigns") ?? 0;
+  const mentionedDays = weekdayLabels.filter((day) => (input.question ?? "").includes(day));
+  const comparedDays = mentionedDays.length > 0
+    ? daySources.filter((source) => mentionedDays.includes(source.entityId))
+    : [...daySources].sort((a, b) => average(b) - average(a)).slice(0, 2);
+  if (!comparedDays.length) return null;
+
+  const rankedDays = [...comparedDays].sort((a, b) => average(b) - average(a));
+  const strongestDay = rankedDays[0];
+  const strongestHour = [...hourSources].sort((a, b) => average(b) - average(a))[0];
+  const sources = Array.from(new Map([...rankedDays, strongestHour].map((source) => [source.id, source])).values());
+  const dayComparison = rankedDays
+    .map((source) => `${source.entityId}: ${source.metrics.find((item) => item.key === "averageRevenue")?.display} בממוצע (${number(count(source))} קמפיינים)`)
+    .join(" לעומת ");
+  const hourDisplay = strongestHour.metrics.find((item) => item.key === "averageRevenue")?.display ?? "לא זמין";
+  const confidence: AiGroundedInference["confidence"] = sources.every((source) => count(source) >= 3) ? "high" : "medium";
+
+  return {
+    answer: `${strongestDay.entityId} הוא היום העדיף לפי הטווח שנבחר. ${dayComparison}. שעת השליחה החזקה בכלל הקמפיינים היא ${strongestHour.entityId}, עם ${hourDisplay} בממוצע לקמפיין.`,
+    facts: sources.map((source) => ({
+      text: `${source.title}: ${source.metrics.map((item) => `${item.label} ${item.display}`).join(" · ")}`,
+      evidenceIds: [source.id],
+    })),
+    calculations: rankedDays.length > 1 ? [{
+      text: `הפער בממוצע לקמפיין בין ${rankedDays[0].entityId} ל-${rankedDays[1].entityId} הוא ${money(average(rankedDays[0]) - average(rankedDays[1]), input.account.currency)}.`,
+      formula: `${rankedDays[0].metrics.find((item) => item.key === "averageRevenue")?.display} - ${rankedDays[1].metrics.find((item) => item.key === "averageRevenue")?.display}`,
+      evidenceIds: rankedDays.slice(0, 2).map((source) => source.id),
+    }] : [],
+    inferences: [{
+      text: count(strongestDay) < 3 || count(strongestHour) < 3
+        ? "זו אינדיקציה שימושית, אך המדגם קטן ולכן כדאי לאמת אותה בעוד שליחות."
+        : `לתכנון השליחה הבאה עדיף להתחיל ב-${strongestDay.entityId} סביב ${strongestHour.entityId}, ואז למדוד מול חלון חלופי.`,
+      confidence,
+      evidenceIds: [strongestDay.id, strongestHour.id],
+    }],
+    sources,
+  };
 }
 
 function record(value: unknown): Record<string, unknown> {
