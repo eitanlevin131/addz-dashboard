@@ -4,6 +4,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Flashy Growth Desk",
   description: "דאשבורד פנימי לניהול לקוחות Flashy ואימייל מרקטינג",
+  robots: {
+    index: false,
+    follow: false,
+    nocache: true,
+  },
 };
 
 export default function RootLayout({

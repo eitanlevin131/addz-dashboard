@@ -17,11 +17,14 @@ const clientUserId = `e2e-client-${suffix}`;
 const clientEmail = `e2e-client-${suffix}@example.test`;
 const primaryClientId = randomUUID();
 const secondaryClientId = randomUUID();
+const inactiveClientId = randomUUID();
 const primaryAccountId = randomUUID();
 const secondaryAccountId = randomUUID();
+const inactiveAccountId = randomUUID();
 const planId = randomUUID();
 const primaryClientName = `E2E Alpha ${suffix}`;
 const secondaryClientName = `E2E Beta ${suffix}`;
+const inactiveClientName = `E2E Inactive ${suffix}`;
 const primaryAccountName = "E2E Alpha Account";
 const secondaryAccountName = "E2E Beta Account";
 
@@ -32,8 +35,8 @@ function dateOffset(days: number) {
 }
 
 async function cleanup() {
-  await db`delete from audit_logs where actor_user_id in (${userId}, ${ownerUserId}, ${clientUserId}) or entity_id in (${primaryAccountId}, ${secondaryAccountId}, ${userId}, ${ownerUserId}, ${clientUserId})`;
-  await db`delete from clients where id in (${primaryClientId}, ${secondaryClientId})`;
+  await db`delete from audit_logs where actor_user_id in (${userId}, ${ownerUserId}, ${clientUserId}) or entity_id in (${primaryAccountId}, ${secondaryAccountId}, ${inactiveAccountId}, ${userId}, ${ownerUserId}, ${clientUserId})`;
+  await db`delete from clients where id in (${primaryClientId}, ${secondaryClientId}, ${inactiveClientId})`;
   await db`delete from users where id in (${userId}, ${ownerUserId}, ${clientUserId}) or email in (${email}, ${ownerEmail}, ${clientEmail})`;
 }
 
@@ -61,12 +64,14 @@ test.describe("agency dashboard critical journey", () => {
     await db`insert into clients (id, name, owner, industry, visible_modules)
       values
         (${primaryClientId}, ${primaryClientName}, ${"E2E"}, ${"QA"}, ${["reports", "planner", "ai"]}),
-        (${secondaryClientId}, ${secondaryClientName}, ${"E2E"}, ${"QA"}, ${["reports", "planner", "ai"]})`;
+        (${secondaryClientId}, ${secondaryClientName}, ${"E2E"}, ${"QA"}, ${["reports", "planner", "ai"]}),
+        (${inactiveClientId}, ${inactiveClientName}, ${"E2E"}, ${"QA"}, ${["reports", "planner", "ai"]})`;
     await db`insert into flashy_accounts
       (id, client_id, flashy_account_id, name, website, currency, timezone, encrypted_api_key, usd_ils_rate, sms_credit_price_usd, monthly_subscription_cost_usd, agency_retainer_cost_ils, active)
       values
         (${primaryAccountId}, ${primaryClientId}, 990001, ${primaryAccountName}, ${"https://example.test"}, ${"ILS"}, ${"Asia/Jerusalem"}, ${encryptSecret("e2e-flashy-primary")}, ${"3.7"}, ${"0.01"}, ${"100"}, ${"1500"}, true),
-        (${secondaryAccountId}, ${secondaryClientId}, 990002, ${secondaryAccountName}, ${"https://example.test"}, ${"ILS"}, ${"Asia/Jerusalem"}, ${encryptSecret("e2e-flashy-secondary")}, ${"3.7"}, ${"0.01"}, ${"100"}, ${"1500"}, true)`;
+        (${secondaryAccountId}, ${secondaryClientId}, 990002, ${secondaryAccountName}, ${"https://example.test"}, ${"ILS"}, ${"Asia/Jerusalem"}, ${encryptSecret("e2e-flashy-secondary")}, ${"3.7"}, ${"0.01"}, ${"100"}, ${"1500"}, true),
+        (${inactiveAccountId}, ${inactiveClientId}, 990003, ${"E2E Inactive Account"}, ${"https://example.test"}, ${"ILS"}, ${"Asia/Jerusalem"}, ${encryptSecret("e2e-flashy-inactive")}, ${"3.7"}, ${"0.01"}, ${"100"}, ${"1500"}, false)`;
     await db`insert into client_users (client_id, user_id) values (${primaryClientId}, ${clientUserId})`;
     const plannedDate = new Date();
     plannedDate.setUTCDate(plannedDate.getUTCDate() - 2);
@@ -81,6 +86,24 @@ test.describe("agency dashboard critical journey", () => {
 
   test("login, client selection, range, sync, reports, planner and grounded AI", async ({ page }) => {
     await page.goto("/");
+    const protectedEndpoints = await page.evaluate(async () => {
+      const [accounts, sync, recommendations] = await Promise.all([
+        fetch("/api/flashy/accounts"),
+        fetch("/api/flashy/sync", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        }),
+        fetch("/api/ai/recommendations", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        }),
+      ]);
+      return [accounts.status, sync.status, recommendations.status];
+    });
+    expect(protectedEndpoints).toEqual([401, 401, 401]);
+
     await page.getByLabel("אימייל").fill(email);
     await page.getByRole("button", { name: "שלחו לי קוד כניסה", exact: true }).click();
     await expect(page.getByLabel("קוד כניסה")).toBeVisible();
@@ -119,6 +142,7 @@ test.describe("agency dashboard critical journey", () => {
     expect(unknownCodeRequest.payload.message).toContain("אם כתובת המייל מורשית");
 
     const clientSelector = page.locator("#client-select");
+    await expect(clientSelector.locator("option").filter({ hasText: inactiveClientName })).toHaveCount(0);
     await clientSelector.selectOption(secondaryClientId);
     await expect(page.getByRole("heading", { name: secondaryAccountName, exact: true })).toBeVisible();
     await clientSelector.selectOption(primaryClientId);
@@ -200,12 +224,21 @@ test.describe("agency dashboard critical journey", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
     await page.setViewportSize({ width: 1280, height: 720 });
     await navigation.getByRole("button", { name: "קמפיינים", exact: true }).click();
-    await expect(page.getByText("הכנסות קמפיינים", { exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "תמהיל הכנסות קמפיינים", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "מסע מקמפיין לרכישה", exact: true })).toBeVisible();
-    const campaignFunnelFilter = page.getByRole("group", { name: "ערוץ במשפך הקמפיינים" });
-    await campaignFunnelFilter.getByRole("button", { name: "SMS", exact: true }).click();
-    await expect(campaignFunnelFilter.getByRole("button", { name: "SMS", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText("הכנסות מקמפיינים", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "הכנסות מקמפיינים לאורך התקופה", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "חלוקת הכנסות בין הערוצים", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "קמפייני אימייל מובילים", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "קמפייני SMS מובילים", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "תזמון שעובד", exact: true })).toBeVisible();
+    const campaignTrendFilter = page.getByRole("group", { name: "ערוץ בגרף ההכנסות" });
+    await campaignTrendFilter.getByRole("button", { name: "SMS", exact: true }).click();
+    await expect(campaignTrendFilter.getByRole("button", { name: "SMS", exact: true })).toHaveAttribute("aria-pressed", "true");
+    const campaignTimingFilter = page.getByRole("group", { name: "ערוץ בניתוח תזמון" });
+    await campaignTimingFilter.getByRole("button", { name: "SMS", exact: true }).click();
+    await expect(campaignTimingFilter.getByRole("button", { name: "SMS", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     await navigation.getByRole("button", { name: "גאנט דיוורים", exact: true }).click();
     await expect(page.getByRole("heading", { name: "גאנט דיוורים", exact: true })).toBeVisible();

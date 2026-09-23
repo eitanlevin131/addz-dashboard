@@ -6,9 +6,13 @@ import {
   smsReports,
 } from "@/lib/demo-data";
 import { answerFromData, ruleBasedInsights } from "@/lib/ai";
+import { requireAdmin } from "@/lib/auth/access";
 import { summarizeAccount } from "@/lib/metrics";
 
 export async function POST(request: Request) {
+  const access = await requireAdmin();
+  if (!access.ok) return access.response;
+
   const body = await request.json().catch(() => ({}));
   const clientId = String(body.clientId ?? "");
   const question = String(body.question ?? "");

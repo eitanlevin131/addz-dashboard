@@ -7,15 +7,16 @@ import { validateFlashyAccount } from "@/lib/flashy";
 import { flashyAccounts as flashyAccountsTable } from "@/lib/schema";
 
 export async function GET() {
+  const adminContext = await requireAdmin();
+  if (!adminContext.ok) return adminContext.response;
+
   const safeAccounts = flashyAccounts.map(({ ...account }) => account);
   return NextResponse.json({ success: true, data: safeAccounts });
 }
 
 export async function POST(request: Request) {
-  if (isDatabaseConfigured()) {
-    const adminContext = await requireAdmin();
-    if (!adminContext.ok) return adminContext.response;
-  }
+  const adminContext = await requireAdmin();
+  if (!adminContext.ok) return adminContext.response;
 
   const body = await request.json().catch(() => ({}));
   const apiKey = typeof body.apiKey === "string" ? body.apiKey : "";

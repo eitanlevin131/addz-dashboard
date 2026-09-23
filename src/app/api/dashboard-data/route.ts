@@ -73,13 +73,17 @@ export async function GET() {
   const allowedClientIds = isAdminRole(accessContext.access.role)
     ? null
     : new Set(accessContext.access.clientIds ?? []);
-  const visibleClientRows = allowedClientIds
+  const accessibleClientRows = allowedClientIds
     ? clientRows.filter((client) => allowedClientIds.has(client.id))
     : clientRows;
-  const visibleClientIdSet = new Set(visibleClientRows.map((client) => client.id));
+  const accessibleClientIdSet = new Set(accessibleClientRows.map((client) => client.id));
   const visibleAccountRows = accountRows.filter(
-    (account) => account.clientId && visibleClientIdSet.has(account.clientId),
+    (account) => account.active && account.clientId && accessibleClientIdSet.has(account.clientId),
   );
+  const visibleClientIdSet = new Set(
+    visibleAccountRows.flatMap((account) => account.clientId ? [account.clientId] : []),
+  );
+  const visibleClientRows = accessibleClientRows.filter((client) => visibleClientIdSet.has(client.id));
   const visibleAccountIdSet = new Set(visibleAccountRows.map((account) => account.id));
   const visiblePlanRows = planRows.filter((plan) => plan.clientId && visibleClientIdSet.has(plan.clientId));
   const latestSyncRunByAccount = new Map<string, (typeof syncRunRows)[number]>();

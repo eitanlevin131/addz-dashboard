@@ -12,15 +12,15 @@ import { PersistedSyncError, syncPersistedFlashyAccount } from "@/lib/flashy-syn
 
 export async function POST(request: Request) {
   const startedAt = Date.now();
+  const adminContext = await requireAdmin();
+  if (!adminContext.ok) return adminContext.response;
+
   const body = await request.json().catch(() => ({}));
   const accountId = String(body.accountId ?? "");
   const apiKey = typeof body.apiKey === "string" ? body.apiKey : "";
   const account = flashyAccounts.find((item) => item.id === accountId);
 
   if (isDatabaseConfigured()) {
-    const adminContext = await requireAdmin();
-    if (!adminContext.ok) return adminContext.response;
-
     if (!apiKey && accountId) {
       const lookbackDays = body.lookbackDays === undefined ? 90 : Number(body.lookbackDays);
       if (!Number.isInteger(lookbackDays) || lookbackDays < 1 || lookbackDays > 365) {
