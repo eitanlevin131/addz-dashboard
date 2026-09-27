@@ -18,3 +18,7 @@ export function roleCanAccessAllClients(role: AccessRole) {
 export function roleCanManageUsers(role: AccessRole) {
   return role === "owner";
 }
+
+export function roleCanConnectAccounts(role: AccessRole) {
+  return role === "owner" || role === "admin";
+}

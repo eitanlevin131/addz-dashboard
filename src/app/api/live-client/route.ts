@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { recordAudit } from "@/lib/audit";
-import { requireOwner } from "@/lib/auth/access";
+import { requireAdmin } from "@/lib/auth/access";
 import { encryptSecret } from "@/lib/crypto";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { validateFlashyAccount } from "@/lib/flashy";
@@ -63,7 +63,7 @@ export async function POST(request: Request) {
   if (!isDatabaseConfigured()) {
     return NextResponse.json({ success: false, code: "DATABASE_NOT_CONFIGURED", message: "Neon עדיין לא מחובר." }, { status: 409 });
   }
-  const context = await requireOwner();
+  const context = await requireAdmin();
   if (!context.ok) return context.response;
   const body = await request.json().catch(() => ({}));
   const apiKey = String(body.apiKey ?? "").trim();

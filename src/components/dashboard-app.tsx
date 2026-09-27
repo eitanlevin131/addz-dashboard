@@ -690,6 +690,7 @@ type LiveFlashyPayload = {
 
 type DashboardDataPayload = {
   viewer?: {
+    canConnectAccounts?: boolean;
     canManageUsers?: boolean;
     email: string;
     role: "owner" | "admin" | "client";
@@ -5155,12 +5156,16 @@ function AdminActivityLog() {
   );
 }
 
-function OwnerAdminWorkspace({ clients }: { clients: Client[] }) {
+function AdminWorkspace({ clients, canManageUsers }: { clients: Client[]; canManageUsers: boolean }) {
   const [tab, setTab] = useState<"clients" | "users" | "activity">("clients");
   const tabs = [
     { key: "clients" as const, label: "לקוחות", icon: Building2 },
-    { key: "users" as const, label: "משתמשים", icon: Users },
-    { key: "activity" as const, label: "פעילות", icon: History },
+    ...(canManageUsers
+      ? [
+          { key: "users" as const, label: "משתמשים", icon: Users },
+          { key: "activity" as const, label: "פעילות", icon: History },
+        ]
+      : []),
   ];
 
   return (
@@ -5187,7 +5192,9 @@ function OwnerAdminWorkspace({ clients }: { clients: Client[] }) {
             );
           })}
         </div>
-        <p className="hidden pb-3 text-xs text-[#98a2b3] sm:block">ניהול מערכת · לבעלים בלבד</p>
+        <p className="hidden pb-3 text-xs text-[#98a2b3] sm:block">
+          {canManageUsers ? "ניהול מערכת · בעלים" : "חיבור והקמת חשבונות"}
+        </p>
       </div>
       {tab === "clients" && <ClientOnboardingWizard />}
       {tab === "users" && <UserAccessManager clients={clients} />}
@@ -5200,11 +5207,13 @@ function AdminPanel({
   clientName,
   clients,
   canManageUsers,
+  canConnectAccounts,
   onCreateLiveClient,
 }: {
   clientName: string;
   clients: Client[];
   canManageUsers: boolean;
+  canConnectAccounts: boolean;
   onCreateLiveClient: (input: {
     clientName: string;
     clientEmail: string;
@@ -5231,8 +5240,8 @@ function AdminPanel({
     | { status: "error"; message: string; details?: string[] }
   >({ status: "idle" });
 
-  if (canManageUsers) {
-    return <OwnerAdminWorkspace clients={clients} />;
+  if (canConnectAccounts) {
+    return <AdminWorkspace clients={clients} canManageUsers={canManageUsers} />;
   }
 
   async function testFlashyConnection() {
@@ -5944,6 +5953,7 @@ export function DashboardApp() {
   const [showDeepAnalysis, setShowDeepAnalysis] = useState(false);
   const [viewerRole, setViewerRole] = useState<"owner" | "admin" | "client">("owner");
   const [canManageUsers, setCanManageUsers] = useState(false);
+  const [canConnectAccounts, setCanConnectAccounts] = useState(false);
   const [dataSource, setDataSource] = useState<"demo" | "neon" | "loading">("loading");
   const [dataNotice, setDataNotice] = useState("טוען נתונים מ-Neon...");
   const [authRequired, setAuthRequired] = useState(false);
@@ -6020,7 +6030,6 @@ export function DashboardApp() {
     ? `${new Date(previousRangeBounds.start).toLocaleDateString("he-IL", { timeZone: account.timezone })}–${new Date(previousRangeBounds.end).toLocaleDateString("he-IL", { timeZone: account.timezone })}`
     : "התקופה הקודמת";
   const viewerIsStaff = viewerRole === "owner" || viewerRole === "admin";
-  const viewerIsOwner = viewerRole === "owner";
   const isRestrictedUser = !viewerIsStaff;
   const canonicalAccountIds = new Set(canonicalPortfolioAccounts(localAccounts).map((item) => item.id));
   const portfolioRows: AgencyPortfolioRow[] = localClients.flatMap((client) => {
@@ -6117,7 +6126,7 @@ export function DashboardApp() {
 
   const visibleViews = views.filter((item) => {
     if (item.key === "portfolio" && !viewerIsStaff) return false;
-    if (item.key === "admin" && !viewerIsOwner) return false;
+    if (item.key === "admin" && !canConnectAccounts) return false;
     if (isRestrictedUser && item.key === "settings") return false;
     return !item.module || selectedClient.visibleModules.includes(item.module) || item.key === "admin";
   });
@@ -6156,6 +6165,7 @@ export function DashboardApp() {
         const data = payload.data as DashboardDataPayload;
         const incomingRole = data.viewer?.role ?? "admin";
         setCanManageUsers(data.viewer?.canManageUsers === true);
+        setCanConnectAccounts(data.viewer?.canConnectAccounts === true);
         if (!data.clients.length || !data.accounts.length) {
           setDataSource("loading");
           setLiveDataIssue(
@@ -6225,6 +6235,7 @@ export function DashboardApp() {
       const data = payload.data as DashboardDataPayload;
       const incomingRole = data.viewer?.role ?? "admin";
       setCanManageUsers(data.viewer?.canManageUsers === true);
+      setCanConnectAccounts(data.viewer?.canConnectAccounts === true);
       setViewerRole(incomingRole);
       if (incomingRole === "client") {
         setShowDeepAnalysis(false);
@@ -6643,9 +6654,10 @@ export function DashboardApp() {
               onUpdateAccount={updateAccountSettings}
             />
           )}
-          {activeView === "admin" && viewerIsOwner && (
+          {activeView === "admin" && canConnectAccounts && (
             <AdminPanel
               canManageUsers={canManageUsers}
+              canConnectAccounts={canConnectAccounts}
               clientName={selectedClient.name}
               clients={localClients}
               onCreateLiveClient={createLiveClient}

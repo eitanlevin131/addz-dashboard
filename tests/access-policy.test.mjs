@@ -4,6 +4,7 @@ import {
   parseManagedRole,
   resolveEffectiveRole,
   roleCanAccessAllClients,
+  roleCanConnectAccounts,
   roleCanManageUsers,
 } from "../src/lib/auth/access-policy.ts";
 
@@ -18,6 +19,13 @@ test("managers see all clients while client users remain restricted", () => {
   assert.equal(roleCanAccessAllClients("owner"), true);
   assert.equal(roleCanAccessAllClients("admin"), true);
   assert.equal(roleCanAccessAllClients("client"), false);
+});
+
+test("owners and managers can connect accounts without granting user management", () => {
+  assert.equal(roleCanConnectAccounts("owner"), true);
+  assert.equal(roleCanConnectAccounts("admin"), true);
+  assert.equal(roleCanConnectAccounts("client"), false);
+  assert.equal(roleCanManageUsers("admin"), false);
 });
 
 test("user management accepts only manager and client roles", () => {

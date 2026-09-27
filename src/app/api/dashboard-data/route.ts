@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { asc, desc, like } from "drizzle-orm";
 import { getAccessContext, isAdminRole, isOwnerRole } from "@/lib/auth/access";
 import { isOwnerEmail } from "@/lib/auth/owner";
+import { roleCanConnectAccounts } from "@/lib/auth/access-policy";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { mapNewsletterPlanRow } from "@/lib/newsletter-plan";
 import { latestCampaignReports, latestAutomationReports } from "@/lib/report-identity";
@@ -191,6 +192,13 @@ export async function GET() {
     success: true,
     data: {
       viewer: {
+        canConnectAccounts: roleCanConnectAccounts(
+          isOwnerRole(accessContext.access.role)
+            ? "owner"
+            : isAdminRole(accessContext.access.role)
+              ? "admin"
+              : "client",
+        ),
         canManageUsers: isOwnerRole(accessContext.access.role) || isOwnerEmail(accessContext.access.email),
         email: accessContext.access.email,
         role: isOwnerRole(accessContext.access.role)

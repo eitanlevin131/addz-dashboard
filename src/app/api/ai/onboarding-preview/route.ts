@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { askOpenAiOnboardingDocuments, getConfiguredOpenAiModel } from "@/lib/ai";
-import { requireOwner } from "@/lib/auth/access";
+import { requireAdmin } from "@/lib/auth/access";
 
 type DocumentInput = { name: string; content: string; createdAt: string };
 
 export async function POST(request: Request) {
-  const context = await requireOwner();
+  const context = await requireAdmin();
   if (!context.ok) return context.response;
   const body = await request.json().catch(() => ({}));
   const documents = Array.isArray(body.documents)
