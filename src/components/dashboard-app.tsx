@@ -25,6 +25,7 @@ import {
   ListFilter,
   MessageSquareText,
   Minus,
+  Moon,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -39,6 +40,7 @@ import {
   TrendingUp,
   Users,
   UserPlus,
+  Sun,
   X,
 } from "lucide-react";
 import { signIn, signOut } from "next-auth/react";
@@ -56,6 +58,7 @@ import {
   type SmsTrendPoint,
 } from "@/components/reporting-charts";
 import { ClientOnboardingWizard } from "@/components/client-onboarding-wizard";
+import { BrandLogo } from "@/components/brand-logo";
 import { AgencyPortfolio, type AgencyPortfolioRow } from "@/components/agency-portfolio";
 import { AiWorkspace } from "@/components/ai-workspace";
 import { campaignTiming, measuredRate } from "@/lib/report-chart-data";
@@ -231,22 +234,20 @@ function LoginGate({ message }: { message: string }) {
   return (
     <div
       dir="rtl"
-      className="flex min-h-screen items-center justify-center bg-[oklch(9%_0.05_285)] px-4 text-white"
+      className="flex min-h-screen items-center justify-center bg-[#090024] px-4 py-8 text-white"
     >
-      <section className="w-full max-w-md rounded-xl border border-[#e4e7ec] bg-white p-7 text-[#111318] shadow-[0_20px_60px_rgba(0,0,0,0.22)]">
-        <div className="mb-6 flex items-center justify-between gap-4">
-          <div>
-            <p className="text-sm font-bold text-[#65738a]">Flashy Growth Desk</p>
-            <h1 className="mt-1 text-3xl font-black tracking-normal">כניסה לדאשבורד</h1>
-          </div>
-          <div className="grid size-11 place-items-center rounded-lg bg-[#42dfcf] text-base font-black">
-            FG
-          </div>
+      <section className="w-full max-w-md overflow-hidden rounded-lg border border-white/10 bg-white text-[#080123] shadow-[0_24px_80px_rgba(0,0,0,0.32)]">
+        <div className="border-b border-white/10 bg-[#080123] px-7 py-5">
+          <BrandLogo />
         </div>
 
-        <p className="mb-5 border-r-2 border-[#42dfcf] bg-[#f8fafb] px-4 py-3 text-sm leading-6 text-[#475467]">
-          {message || "הכניסה זמינה רק למיילים שאושרו מראש על ידי מנהל המערכת."}
-        </p>
+        <div className="p-7">
+          <h1 className="text-3xl font-black tracking-normal">כניסה למערכת</h1>
+          <p className="mt-1 text-sm text-[#667085]">הנתונים, התכנון וה־AI של לקוחות addz במקום אחד.</p>
+
+          <p className="mt-5 mb-5 border-r-2 border-[#FFE045] bg-[#fffbed] px-4 py-3 text-sm leading-6 text-[#475467]">
+            {message || "הכניסה זמינה רק למיילים שאושרו מראש על ידי מנהל המערכת."}
+          </p>
 
         {step === "email" ? <form onSubmit={submitEmail} className="space-y-3">
           <label className="block text-sm font-bold text-[#263548]">
@@ -259,14 +260,14 @@ function LoginGate({ message }: { message: string }) {
               autoComplete="email"
               required
               maxLength={254}
-              className="mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] px-3.5 text-left text-base outline-none transition focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20"
+              className="mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] px-3.5 text-left text-base outline-none transition focus:border-[#d8bb00] focus:ring-2 focus:ring-[#FFE045]/35"
               dir="ltr"
             />
           </label>
           <button
             type="submit"
             disabled={submitting}
-            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#0b0c10] text-sm font-bold text-white transition hover:bg-[#24262d] disabled:opacity-50"
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-[#FFE045] text-sm font-bold text-[#080123] transition hover:bg-[#f5d327] disabled:opacity-50"
           >
             <Send size={16} />
             {submitting ? "שולח..." : "שלחו לי קוד כניסה"}
@@ -274,7 +275,7 @@ function LoginGate({ message }: { message: string }) {
         </form> : <form onSubmit={submitCode} className="space-y-4">
           <div className="flex items-center justify-between gap-3 rounded-lg border border-[#e4e7ec] bg-[#fcfcfd] px-3 py-2.5">
             <span className="min-w-0 truncate text-left text-sm font-bold text-[#344054]" dir="ltr">{email}</span>
-            <button type="button" onClick={() => { setStep("email"); setCode(""); setResendSeconds(0); setState(""); }} className="shrink-0 text-xs font-bold text-[#087f72]">שינוי</button>
+            <button type="button" onClick={() => { setStep("email"); setCode(""); setResendSeconds(0); setState(""); }} className="shrink-0 text-xs font-bold text-[#776500]">שינוי</button>
           </div>
           <label className="block text-sm font-bold text-[#263548]">
             קוד כניסה
@@ -290,21 +291,22 @@ function LoginGate({ message }: { message: string }) {
               aria-describedby="login-code-help"
               required
               maxLength={6}
-              className="mt-2 h-14 w-full rounded-lg border border-[#d0d5dd] px-3.5 text-center text-2xl font-black tracking-[0.35em] outline-none transition focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20"
+              className="mt-2 h-14 w-full rounded-lg border border-[#d0d5dd] px-3.5 text-center text-2xl font-black tracking-[0.35em] outline-none transition focus:border-[#d8bb00] focus:ring-2 focus:ring-[#FFE045]/35"
               dir="ltr"
             />
           </label>
           <p id="login-code-help" className="text-xs leading-5 text-[#667085]">הקוד תקף ל־10 דקות וניתן לשימוש פעם אחת בלבד.</p>
-          <button type="submit" disabled={submitting || code.length !== 6} className="h-11 w-full rounded-lg bg-[#0b0c10] text-sm font-bold text-white transition hover:bg-[#24262d] disabled:opacity-50">
+          <button type="submit" disabled={submitting || code.length !== 6} className="h-11 w-full rounded-lg bg-[#FFE045] text-sm font-bold text-[#080123] transition hover:bg-[#f5d327] disabled:opacity-50">
             {submitting ? "מאמת..." : "כניסה"}
           </button>
-          <button type="button" disabled={submitting || resendSeconds > 0} onClick={() => void requestCode()} className="h-9 w-full text-sm font-bold text-[#087f72] disabled:text-[#98a2b3]">
+          <button type="button" disabled={submitting || resendSeconds > 0} onClick={() => void requestCode()} className="h-9 w-full text-sm font-bold text-[#776500] disabled:text-[#98a2b3]">
             {resendSeconds > 0 ? `שליחה חוזרת בעוד ${resendSeconds} שניות` : "שלחו קוד חדש"}
           </button>
         </form>}
 
-        {state && <p role="status" className="mt-4 whitespace-pre-wrap text-sm leading-6 text-[#4a5870]">{state}</p>}
-        <p className="mt-4 text-xs text-[#667085]">הקוד נשלח רק לכתובת שאושרה מראש במערכת.</p>
+          {state && <p role="status" className="mt-4 whitespace-pre-wrap text-sm leading-6 text-[#4a5870]">{state}</p>}
+          <p className="mt-4 text-xs text-[#667085]">הקוד נשלח רק לכתובת שאושרה מראש במערכת.</p>
+        </div>
       </section>
     </div>
   );
@@ -314,17 +316,19 @@ function LiveDataIssue({ message }: { message: string }) {
   return (
     <div
       dir="rtl"
-      className="flex min-h-screen items-center justify-center bg-[oklch(9%_0.05_285)] px-4 text-white"
+      className="flex min-h-screen items-center justify-center bg-[#090024] px-4 text-white"
     >
-      <section className="w-full max-w-lg rounded-xl border border-[#e4e7ec] bg-white p-7 text-[#111318] shadow-[0_20px_60px_rgba(0,0,0,0.22)]">
-        <p className="text-sm font-bold text-[#65738a]">Flashy Growth Desk</p>
-        <h1 className="mt-1 text-3xl font-black tracking-normal">הנתונים החיים לא נטענו</h1>
-        <p className="mt-4 rounded-2xl border border-[#dfe7ee] bg-[#f7fafc] p-4 text-sm leading-6 text-[#4a5870]">
-          {message}
-        </p>
-        <p className="mt-4 text-sm leading-6 text-[#65738a]">
-          אחרי תיקון הרשאות או שיוך לקוח, רענן את העמוד.
-        </p>
+      <section className="w-full max-w-lg overflow-hidden rounded-lg border border-white/10 bg-white text-[#111318] shadow-[0_20px_60px_rgba(0,0,0,0.22)]">
+        <div className="bg-[#080123] px-7 py-5"><BrandLogo /></div>
+        <div className="p-7">
+          <h1 className="mt-1 text-3xl font-black tracking-normal">הנתונים החיים לא נטענו</h1>
+          <p className="mt-4 rounded-2xl border border-[#dfe7ee] bg-[#f7fafc] p-4 text-sm leading-6 text-[#4a5870]">
+            {message}
+          </p>
+          <p className="mt-4 text-sm leading-6 text-[#65738a]">
+            אחרי תיקון הרשאות או שיוך לקוח, רענן את העמוד.
+          </p>
+        </div>
       </section>
     </div>
   );
@@ -1755,8 +1759,8 @@ function ClientSelector({
           className={classNames(
             "min-h-9 w-full appearance-none truncate rounded-md border px-2.5 text-sm outline-none",
             mobile
-              ? "border-[#d0d5dd] bg-white text-[#111318] focus:border-[#42dfcf]"
-              : "border-white/10 bg-white/5 text-white focus:border-[#42dfcf]",
+              ? "border-[#d0d5dd] bg-white text-[#111318] focus:border-[#d8bb00]"
+              : "border-white/10 bg-white/5 text-white focus:border-[#FFE045]",
           )}
         >
           {clients.map((client) => (
@@ -1789,10 +1793,9 @@ function Sidebar({
   onSelectView: (view: ViewKey) => void;
 }) {
   return (
-    <aside className="sticky top-0 hidden h-screen flex-col gap-4 border-l border-white/10 bg-[#0b0c10] px-3 py-4 text-white lg:flex">
-      <div className="flex items-center gap-2 border-b border-white/10 px-1 pb-4 text-sm font-bold">
-        <span className="grid size-8 place-items-center rounded-md bg-[#42dfcf] text-xs font-black text-[#0b0c10]">FG</span>
-        <span className="truncate">Growth Desk</span>
+    <aside className="sticky top-0 hidden h-screen flex-col gap-4 border-l border-white/10 bg-[#090024] px-3 py-4 text-white lg:flex">
+      <div className="border-b border-white/10 px-1 pb-4">
+        <BrandLogo compact />
       </div>
       {!hideClientSelector && (
         <ClientSelector clients={clients} selectedClientId={selectedClientId} onChange={onSelectClient} />
@@ -1807,7 +1810,7 @@ function Sidebar({
               className={classNames(
                 "relative flex min-h-10 items-center gap-2 rounded-md px-2.5 py-2 text-right text-sm font-medium transition",
                 view === item.key
-                  ? "bg-white/10 text-white before:absolute before:inset-y-2 before:right-0 before:w-0.5 before:rounded-full before:bg-[#42dfcf]"
+                  ? "bg-[#FFE045] font-bold text-[#080123] before:absolute before:inset-y-2 before:right-0 before:w-0.5 before:rounded-full before:bg-white"
                   : "text-white/60 hover:bg-white/5 hover:text-white",
               )}
             >
@@ -1817,7 +1820,7 @@ function Sidebar({
           );
         })}
       </nav>
-      <div className="mt-auto px-2 text-[11px] text-white/35">addz.digital</div>
+      <div className="mt-auto border-t border-white/10 px-2 pt-3 text-[11px] text-white/40">addz.digital · Growth OS</div>
     </aside>
   );
 }
@@ -5960,10 +5963,23 @@ export function DashboardApp() {
   const [liveDataIssue, setLiveDataIssue] = useState("");
   const [refreshState, setRefreshState] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark">(() =>
+    typeof window !== "undefined" && window.localStorage.getItem("addz-growth-os-theme") === "dark"
+      ? "dark"
+      : "light",
+  );
   const selectedClient =
     localClients.find((client) => client.id === selectedClientId) ?? localClients[0];
   const account =
     localAccounts.find((item) => item.clientId === selectedClient.id) ?? localAccounts[0];
+
+  useEffect(() => {
+    window.localStorage.setItem("addz-growth-os-theme", theme);
+    document.documentElement.style.colorScheme = theme;
+    return () => {
+      document.documentElement.style.colorScheme = "";
+    };
+  }, [theme]);
   const allAccountEmails = byAccount(localEmailReports, account.id);
   const allAccountSms = byAccount(localSmsReports, account.id);
   const accountEmails = filterByTimeRange(
@@ -6379,8 +6395,10 @@ export function DashboardApp() {
   return (
     <div
       dir="rtl"
+      data-theme={theme}
+      suppressHydrationWarning
       className={classNames(
-        "dashboard-shell min-h-screen overflow-x-hidden lg:grid",
+        "dashboard-shell min-h-screen overflow-x-hidden transition-colors duration-200 lg:grid",
         "lg:grid-cols-[196px_minmax(0,1fr)]",
       )}
     >
@@ -6394,8 +6412,8 @@ export function DashboardApp() {
         onSelectView={setView}
       />
 
-      <div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-white/10 bg-[#0b0c10] px-3 py-2.5 text-white lg:hidden">
-        <strong className="grid size-8 shrink-0 place-items-center rounded-md bg-[#42dfcf] text-xs text-[#0b0c10]">FG</strong>
+      <div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-white/10 bg-[#090024] px-3 py-2.5 text-white lg:hidden">
+        <BrandLogo compact showProductName={false} />
         <div className="flex max-w-[78vw] gap-2 overflow-x-auto">
           {visibleViews.map((item) => (
             <button
@@ -6404,7 +6422,7 @@ export function DashboardApp() {
               className={classNames(
                 "h-8 shrink-0 rounded-md px-3 text-sm",
                 activeView === item.key
-                  ? "bg-[#42dfcf] font-bold text-[#0b0c10]"
+                  ? "bg-[#FFE045] font-bold text-[#080123]"
                   : "bg-white/5 text-white/65",
               )}
             >
@@ -6464,6 +6482,16 @@ export function DashboardApp() {
               <RefreshCw className={classNames("ml-2 inline", isRefreshing && "animate-spin")} size={16} />
               {isRefreshing ? "מסנכרן" : "רענון"}
             </button>}
+            <button
+              type="button"
+              onClick={() => setTheme((current) => current === "light" ? "dark" : "light")}
+              aria-pressed={theme === "dark"}
+              aria-label={theme === "dark" ? "הפעל מצב בהיר" : "הפעל מצב כהה"}
+              title={theme === "dark" ? "מצב בהיר" : "מצב כהה"}
+              className="theme-toggle grid size-9 place-items-center rounded-md border border-[#d0d5dd] bg-white text-[#475467] transition hover:bg-[#f8fafb]"
+            >
+              {theme === "dark" ? <Sun size={17} /> : <Moon size={17} />}
+            </button>
             <button
               onClick={logout}
               className="h-9 rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#667085] transition hover:bg-[#f8fafb] hover:text-[#111318]"

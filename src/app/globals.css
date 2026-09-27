@@ -2,24 +2,26 @@
 
 @font-face {
   font-family: "Rag Sans";
-  src: url("https://addz.digital/wp-content/uploads/2025/06/RagSans-1.4-Regular.woff2")
-    format("woff2");
+  src: url("/fonts/rag-sans-regular.woff2") format("woff2");
   font-weight: 400;
   font-display: swap;
 }
 
 @font-face {
   font-family: "Rag Sans";
-  src: url("https://addz.digital/wp-content/uploads/2025/06/RagSans-1.4-Bold.woff2")
-    format("woff2");
+  src: url("/fonts/rag-sans-bold.woff2") format("woff2");
   font-weight: 700;
   font-display: swap;
 }
 
 :root {
   --background: #f5f7f8;
-  --foreground: #111318;
-  --addz-ink: #0b0c10;
+  --foreground: #080123;
+  --addz-ink: #080123;
+  --addz-night: #090024;
+  --addz-yellow: #ffe045;
+  --addz-yellow-strong: #d8bb00;
+  --addz-yellow-soft: #fff9d8;
   --addz-muted: #667085;
   --addz-line: #e4e7ec;
   --addz-mint: #42dfcf;
@@ -50,8 +52,12 @@ textarea {
 }
 
 ::selection {
-  background: var(--addz-mint);
+  background: var(--addz-yellow);
   color: var(--addz-ink);
+}
+
+:focus-visible {
+  outline-color: var(--addz-yellow-strong);
 }
 
 * {
@@ -65,6 +71,113 @@ body {
 .dashboard-shell {
   background: var(--addz-page);
   color: var(--addz-ink);
+}
+
+.dashboard-shell[data-theme="dark"] {
+  --addz-page: #0f0b20;
+  --addz-panel: #171229;
+  --addz-line: #302a45;
+  --addz-muted: #a7a5b6;
+  background: var(--addz-page);
+  color: #f8f7fc;
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-content {
+  color: #f8f7fc;
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-content [class~="bg-white"] {
+  background-color: var(--addz-panel) !important;
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-content :is(
+  [class~="bg-[#fbfcfc]"],
+  [class~="bg-[#fbfdfc]"],
+  [class~="bg-[#fcfcfd]"],
+  [class~="bg-[#f8fafb]"],
+  [class~="bg-[#f8fafc]"],
+  [class~="bg-[#f7faf9]"],
+  [class~="bg-[#f7fafc]"],
+  [class~="bg-[#f5f7f8]"],
+  [class~="bg-[#f4f7f6]"],
+  [class~="bg-[#f2f4f7]"],
+  [class~="bg-[#eef3f7]"]
+) {
+  background-color: #1d1830 !important;
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-content :is(
+  [class~="bg-[#edfffb]"],
+  [class~="bg-[#e8fbf8]"],
+  [class~="bg-[#ecfdf9]"]
+) {
+  background-color: #102a2a !important;
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-content :is(
+  [class~="bg-[#fffbed]"],
+  [class~="bg-[#fff9d8]"],
+  [class~="bg-[#fffcf5]"],
+  [class~="bg-[#fff8e8]"]
+) {
+  background-color: #2b240d !important;
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-content :is(
+  [class~="text-[#111318]"],
+  [class~="text-[#080123]"],
+  [class~="text-[#263548]"],
+  [class~="text-[#344054]"],
+  [class~="text-[#40506a]"],
+  [class~="text-[#475467]"],
+  [class~="text-[#4a5870]"]
+) {
+  color: #f5f3fb !important;
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-content :is(
+  [class~="text-[#65738a]"],
+  [class~="text-[#667085]"],
+  [class~="text-[#98a2b3]"]
+) {
+  color: #aaa8ba !important;
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-content :is(
+  [class~="border-[#d0d5dd]"],
+  [class~="border-[#dfe7ee]"],
+  [class~="border-[#e4e7ec]"],
+  [class~="border-[#e8eeec]"],
+  [class~="border-[#e8eef4]"],
+  [class~="border-[#eaecf0]"],
+  [class~="border-[#edf2f6]"],
+  [class~="border-[#eef3f7]"]
+) {
+  border-color: var(--addz-line) !important;
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-content :is(input, select, textarea) {
+  border-color: var(--addz-line) !important;
+  background-color: #171229 !important;
+  color: #f8f7fc !important;
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-content :is(input, textarea)::placeholder {
+  color: #858196;
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-content .theme-toggle {
+  border-color: #4a435f !important;
+  background-color: #211b35 !important;
+  color: var(--addz-yellow) !important;
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-content .recharts-cartesian-grid line {
+  stroke: #332d46;
+}
+
+.dashboard-shell[data-theme="dark"] .dashboard-content .recharts-text {
+  fill: #aaa8ba;
 }
 
 .dashboard-content [class*="shadow-"] {

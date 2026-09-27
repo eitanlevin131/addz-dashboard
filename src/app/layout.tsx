@@ -2,8 +2,15 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Flashy Growth Desk",
-  description: "דאשבורד פנימי לניהול לקוחות Flashy ואימייל מרקטינג",
+  title: {
+    default: "addz Growth OS",
+    template: "%s | addz Growth OS",
+  },
+  applicationName: "addz Growth OS",
+  description: "מערכת הביצועים והתפעול של addz לניהול פעילות אימייל, SMS ואוטומציות",
+  icons: {
+    icon: "/addz-logo.svg",
+  },
   robots: {
     index: false,
     follow: false,

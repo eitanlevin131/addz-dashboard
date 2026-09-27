@@ -46,9 +46,9 @@ export async function sendLoginCodeEmail(input: { to: string; code: string }) {
     body: JSON.stringify({
       from,
       to: [input.to],
-      subject: "קוד הכניסה שלך ל-addz Growth Desk",
+      subject: "קוד הכניסה שלך ל-addz Growth OS",
       text: `קוד הכניסה שלך הוא ${input.code}. הקוד תקף ל-${LOGIN_CODE_TTL_MINUTES} דקות וניתן לשימוש פעם אחת בלבד.`,
-      html: `<div dir="rtl" style="font-family:Arial,sans-serif;max-width:520px;margin:auto;color:#111318"><h2 style="margin:0 0 16px">קוד כניסה ל-addz Growth Desk</h2><p>הקוד שלך:</p><div dir="ltr" style="font-size:32px;font-weight:700;letter-spacing:8px;padding:16px 0">${input.code}</div><p style="color:#667085">הקוד תקף ל-${LOGIN_CODE_TTL_MINUTES} דקות וניתן לשימוש פעם אחת בלבד. אם לא ביקשת את הקוד, אפשר להתעלם מהמייל.</p></div>`,
+      html: `<div dir="rtl" style="font-family:Arial,sans-serif;max-width:520px;margin:auto;color:#080123"><div style="background:#080123;color:#fff;padding:20px 24px;border-radius:8px 8px 0 0"><strong style="font-size:22px">addz</strong><span style="color:#FFE045;margin-right:8px">Growth OS</span></div><div style="border:1px solid #e4e7ec;border-top:0;padding:24px;border-radius:0 0 8px 8px"><h2 style="margin:0 0 16px">קוד הכניסה שלך</h2><p>הקוד שלך:</p><div dir="ltr" style="font-size:32px;font-weight:700;letter-spacing:8px;padding:16px 0;color:#080123">${input.code}</div><p style="color:#667085">הקוד תקף ל-${LOGIN_CODE_TTL_MINUTES} דקות וניתן לשימוש פעם אחת בלבד. אם לא ביקשת את הקוד, אפשר להתעלם מהמייל.</p></div></div>`,
     }),
     cache: "no-store",
   });
