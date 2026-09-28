@@ -16,6 +16,7 @@ import type {
   SmsCampaignReport,
 } from "./types";
 import { findUnsupportedSubjectClaims, isCausalSubjectPattern, type SubjectLineEvidence } from "./subject-line-analysis";
+import { preservesMonthlyCopyNumbers } from "./monthly-summary";
 
 export type AiAccountMemory = {
   brandVoice?: string;
@@ -818,6 +819,32 @@ async function requestOpenAiJson(instructions: string, input: string) {
   const output = readOpenAiOutput(payload);
   if (!output) throw new Error("OpenAI החזיר תשובה ריקה.");
   return output;
+}
+
+export async function askOpenAiMonthlySummaryCopy(input: {
+  accountName: string;
+  originalText: string;
+  facts: unknown;
+}) {
+  if (!process.env.OPENAI_API_KEY) return null;
+  const raw = await requestOpenAiJson(
+    [
+      "אתה עורך תוכן בכיר לסיכומי ביצועים חודשיים בעברית.",
+      "שפר רק בהירות, זרימה וטון מקצועי וחם.",
+      "אסור לשנות, לעגל, להשמיט או להוסיף סכום, אחוז, כמות, שם קמפיין או שם אוטומציה.",
+      "אסור להוסיף המלצות, הבטחות או מסקנות שאינן בטקסט המקורי.",
+      "שמור על סימוני WhatsApp בכוכביות ועל מבנה קצר וקל לסריקה.",
+      "החזר JSON בלבד במבנה שנדרש.",
+    ].join(" "),
+    `לקוח: ${input.accountName}\n\nעובדות קפואות לבדיקה בלבד:\n${JSON.stringify(input.facts)}\n\nהנוסח המקורי:\n${input.originalText}\n\nהחזר: {"text":"הנוסח המשופר"}`,
+  );
+  const parsed = JSON.parse(raw) as { text?: unknown };
+  const text = String(parsed.text ?? "").trim().slice(0, 30_000);
+  if (!text) throw new Error("OpenAI לא החזיר נוסח תקין.");
+  if (!preservesMonthlyCopyNumbers(input.originalText, text)) {
+    throw new Error("הנוסח נדחה כי ה-AI שינה או השמיט מספרים מהסיכום.");
+  }
+  return text;
 }
 
 export async function askOpenAiAgent(input: {

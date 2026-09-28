@@ -16,6 +16,7 @@ import {
   Copy,
   Database,
   ExternalLink,
+  FileText,
   KeyRound,
   History,
   Lightbulb,
@@ -61,6 +62,7 @@ import { ClientOnboardingWizard } from "@/components/client-onboarding-wizard";
 import { BrandLogo } from "@/components/brand-logo";
 import { AgencyPortfolio, type AgencyPortfolioRow } from "@/components/agency-portfolio";
 import { AiWorkspace } from "@/components/ai-workspace";
+import { MonthlySummaryDashboard } from "@/components/monthly-summary-dashboard";
 import { campaignTiming, measuredRate } from "@/lib/report-chart-data";
 import {
   matchNewsletterPlans,
@@ -126,6 +128,7 @@ type ViewKey =
   | "sms"
   | "automations"
   | "campaigns"
+  | "monthly"
   | "planner"
   | "ai"
   | "settings"
@@ -215,7 +218,7 @@ function LoginGate({ message }: { message: string }) {
         email,
         code,
         redirect: false,
-        callbackUrl: "/",
+        callbackUrl: window.location.pathname || "/",
       });
 
       if (!result?.ok || result.error) {
@@ -223,7 +226,7 @@ function LoginGate({ message }: { message: string }) {
         return;
       }
 
-      window.location.href = result?.url || "/";
+      window.location.href = result?.url || window.location.pathname || "/";
     } catch {
       setState("לא ניתן להתחבר כרגע. נסה שוב בעוד רגע.");
     } finally {
@@ -340,6 +343,7 @@ const views: { key: ViewKey; label: string; icon: typeof Activity; module?: Modu
   { key: "sms", label: "SMS", icon: MessageSquareText, module: "reports" },
   { key: "automations", label: "אוטומציות", icon: RefreshCw, module: "reports" },
   { key: "campaigns", label: "קמפיינים", icon: Send, module: "reports" },
+  { key: "monthly", label: "סיכומים", icon: FileText, module: "reports" },
   { key: "planner", label: "גאנט דיוורים", icon: CalendarDays, module: "planner" },
   { key: "ai", label: "AI", icon: Bot, module: "ai" },
   { key: "settings", label: "הגדרות", icon: Settings },
@@ -4343,6 +4347,7 @@ function FloatingAiChat({
     automations: "אוטומציות",
     campaigns: "קמפיינים",
     planner: "גאנט",
+    monthly: "סיכום חודשי",
     ai: "AI",
     settings: "הגדרות",
     admin: "ניהול",
@@ -5938,7 +5943,7 @@ function AccountSettings({
   );
 }
 
-export function DashboardApp() {
+export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }) {
   const [localClients, setLocalClients] = useState<Client[]>(clients);
   const [localAccounts, setLocalAccounts] = useState<FlashyAccount[]>(flashyAccounts);
   const [localEmailReports, setLocalEmailReports] = useState<EmailCampaignReport[]>(emailReports);
@@ -5949,7 +5954,7 @@ export function DashboardApp() {
     useState<NewsletterPlan[]>(newsletterPlans);
   const [localSyncHistory, setLocalSyncHistory] = useState<SyncHistoryEntry[]>([]);
   const [selectedClientId, setSelectedClientId] = useState(localClients[0].id);
-  const [view, setView] = useState<ViewKey>("overview");
+  const [view, setView] = useState<ViewKey>(initialSummaryId ? "monthly" : "overview");
   const [timeRange, setTimeRange] = useState<TimeRangeKey>("30d");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
@@ -6191,7 +6196,9 @@ export function DashboardApp() {
         }
 
         setViewerRole(incomingRole);
-        if (incomingRole === "client") {
+        if (initialSummaryId) {
+          setView("monthly");
+        } else if (incomingRole === "client") {
           setShowDeepAnalysis(false);
           setView((current) => (current === "portfolio" || current === "settings" || current === "admin" ? "overview" : current));
         } else if (data.clients.length > 1) {
@@ -6221,7 +6228,23 @@ export function DashboardApp() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialSummaryId]);
+
+  useEffect(() => {
+    if (!initialSummaryId || dataSource !== "neon") return;
+    let cancelled = false;
+    void fetch(`/api/monthly-summaries/${initialSummaryId}`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok || !payload.success) return;
+        if (!cancelled && payload.data?.clientId) {
+          setSelectedClientId(payload.data.clientId);
+          setView("monthly");
+        }
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [dataSource, initialSummaryId]);
 
   async function refreshDashboardData() {
     if (isRefreshing) return;
@@ -6642,6 +6665,15 @@ export function DashboardApp() {
               plans={accountPlans}
               onUpsertPlan={upsertNewsletterPlan}
               onDeletePlan={deleteNewsletterPlan}
+            />
+          )}
+          {activeView === "monthly" && (
+            <MonthlySummaryDashboard
+              key={`${account.id}-${initialSummaryId ?? "archive"}`}
+              client={selectedClient}
+              account={account}
+              isStaff={viewerIsStaff}
+              initialSummaryId={initialSummaryId}
             />
           )}
           {activeView === "ai" && (

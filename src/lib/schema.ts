@@ -13,6 +13,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import type { DailyMetricSnapshot, MetricSnapshotRevision } from "@/lib/types";
+import type { MonthlySummaryManualInput, MonthlySummarySnapshot } from "@/lib/monthly-summary";
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
@@ -221,6 +222,58 @@ export const siteRevenueBenchmarks = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [unique().on(table.flashyAccountId, table.rangeStart, table.rangeEnd)],
+);
+
+export const monthlySummaries = pgTable(
+  "monthly_summaries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    flashyAccountId: uuid("flashy_account_id")
+      .notNull()
+      .references(() => flashyAccounts.id, { onDelete: "cascade" }),
+    periodStart: date("period_start").notNull(),
+    periodEnd: date("period_end").notNull(),
+    version: integer("version").notNull().default(1),
+    status: text("status").notNull().default("draft"),
+    snapshot: jsonb("snapshot").$type<MonthlySummarySnapshot>().notNull(),
+    manualInputs: jsonb("manual_inputs").$type<MonthlySummaryManualInput>().notNull(),
+    whatsappText: text("whatsapp_text").notNull(),
+    emailSubject: text("email_subject").notNull(),
+    internalNote: text("internal_note"),
+    createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    approvedByUserId: text("approved_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique().on(table.flashyAccountId, table.periodStart, table.version),
+    index("monthly_summaries_account_period_idx").on(table.flashyAccountId, table.periodStart),
+    index("monthly_summaries_client_created_idx").on(table.clientId, table.createdAt),
+  ],
+);
+
+export const monthlySummaryDeliveries = pgTable(
+  "monthly_summary_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    monthlySummaryId: uuid("monthly_summary_id")
+      .notNull()
+      .references(() => monthlySummaries.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull().default("email"),
+    recipients: jsonb("recipients").$type<string[]>().notNull(),
+    providerMessageId: text("provider_message_id"),
+    status: text("status").notNull(),
+    errorMessage: text("error_message"),
+    sentByUserId: text("sent_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("monthly_summary_deliveries_summary_created_idx").on(table.monthlySummaryId, table.createdAt)],
 );
 
 export const emailCampaignReports = pgTable(
