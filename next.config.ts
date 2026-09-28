@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  webpack(config) {
+    // Vercel's Node 22 builders intermittently fail inside webpack's WASM
+    // xxhash implementation. A native crypto hash keeps builds deterministic.
+    config.output.hashFunction = "sha256";
+    return config;
+  },
   async headers() {
     return [
       {
