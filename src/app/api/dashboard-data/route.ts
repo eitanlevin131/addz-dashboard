@@ -4,7 +4,7 @@ import { getAccessContext, isAdminRole, isOwnerRole } from "@/lib/auth/access";
 import { isOwnerEmail } from "@/lib/auth/owner";
 import { roleCanConnectAccounts } from "@/lib/auth/access-policy";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
-import { mapNewsletterPlanRow } from "@/lib/newsletter-plan";
+import { mapNewsletterPlanRows } from "@/lib/newsletter-plan";
 import { latestCampaignReports, latestAutomationReports } from "@/lib/report-identity";
 import {
   automationReports,
@@ -12,6 +12,8 @@ import {
   clients,
   emailCampaignReports,
   flashyAccounts,
+  newsletterPlanAssets,
+  newsletterPlanCampaignMatches,
   newsletterPlans,
   smsCampaignReports,
   syncRuns,
@@ -54,6 +56,8 @@ export async function GET() {
     smsRows,
     automationRows,
     planRows,
+    planMatchRows,
+    planAssetRows,
     syncRunRows,
     syncAuditRows,
   ] = await Promise.all([
@@ -63,6 +67,8 @@ export async function GET() {
     db.select().from(smsCampaignReports).orderBy(desc(smsCampaignReports.sentAt)),
     db.select().from(automationReports).orderBy(desc(automationReports.reportDate)),
     db.select().from(newsletterPlans).orderBy(asc(newsletterPlans.plannedDate)),
+    db.select().from(newsletterPlanCampaignMatches),
+    db.select().from(newsletterPlanAssets),
     db.select().from(syncRuns).orderBy(desc(syncRuns.startedAt)),
     db
       .select()
@@ -87,6 +93,9 @@ export async function GET() {
   const visibleClientRows = accessibleClientRows.filter((client) => visibleClientIdSet.has(client.id));
   const visibleAccountIdSet = new Set(visibleAccountRows.map((account) => account.id));
   const visiblePlanRows = planRows.filter((plan) => plan.clientId && visibleClientIdSet.has(plan.clientId));
+  const visiblePlanIds = new Set(visiblePlanRows.map((plan) => plan.id));
+  const visiblePlanMatchRows = planMatchRows.filter((match) => visiblePlanIds.has(match.newsletterPlanId));
+  const visiblePlanAssetRows = planAssetRows.filter((asset) => visiblePlanIds.has(asset.newsletterPlanId));
   const latestSyncRunByAccount = new Map<string, (typeof syncRunRows)[number]>();
   for (const run of syncRunRows) {
     if (run.flashyAccountId && !latestSyncRunByAccount.has(run.flashyAccountId)) {
@@ -317,7 +326,7 @@ export async function GET() {
           revenueGenerated: toNumber(report.revenueGenerated),
         }),
       ),
-      newsletterPlans: visiblePlanRows.map(mapNewsletterPlanRow),
+      newsletterPlans: mapNewsletterPlanRows(visiblePlanRows, visiblePlanMatchRows, visiblePlanAssetRows),
       syncHistory,
     },
   });

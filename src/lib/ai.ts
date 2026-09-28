@@ -73,7 +73,7 @@ export type AiContextPack = {
   };
   planning: {
     total: number;
-    next: { date: string; title: string; channel: string; status: string }[];
+    next: { date: string | null; title: string; channel: string; status: string }[];
   };
   memory: AiAccountMemory;
 };
@@ -347,7 +347,7 @@ export function buildAiContextPack(input: {
     planning: {
       total: plans.length,
       next: [...plans]
-        .sort((a, b) => a.date.localeCompare(b.date))
+        .sort((a, b) => (a.date ?? "9999-12-31").localeCompare(b.date ?? "9999-12-31"))
         .slice(0, 5)
         .map((plan) => ({
           date: plan.date,

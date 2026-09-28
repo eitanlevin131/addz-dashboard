@@ -22,11 +22,11 @@ import {
   Lightbulb,
   LineChart,
   Link2,
-  Link2Off,
   ListFilter,
   MessageSquareText,
   Minus,
   Moon,
+  Paperclip,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -42,6 +42,7 @@ import {
   Users,
   UserPlus,
   Sun,
+  Upload,
   X,
 } from "lucide-react";
 import { signIn, signOut } from "next-auth/react";
@@ -109,7 +110,6 @@ import {
 } from "@/lib/flashy-normalize";
 import type {
   AutomationReport,
-  CampaignKind,
   Channel,
   Client,
   EmailCampaignReport,
@@ -117,7 +117,9 @@ import type {
   MetricSummary,
   ModuleKey,
   NewsletterPlan,
+  NewsletterPlanAsset,
   PlanStatus,
+  PlannerChannel,
   SmsCampaignReport,
   SyncHistoryEntry,
 } from "@/lib/types";
@@ -358,30 +360,18 @@ const timeRanges: { key: TimeRangeKey; label: string; days: number | null }[] = 
   { key: "all", label: "הכל", days: null },
 ];
 
-const statusLabels = {
-  planned: "מתוכנן",
-  postponed: "נדחה",
-  draft: "טיוטה",
-  ready: "מוכן",
-  approved: "מאושר",
-  sent: "נשלח",
-};
-
 const operationalStatusLabels: Record<OperationalPlanStatus, string> = {
+  draft: "בריף",
   planned: "מתוכנן",
   sent: "נשלח",
   postponed: "נדחה",
   not_found: "לא נמצא",
 };
 
-const kindLabels: Record<CampaignKind, string> = {
-  campaign: "קמפיין",
-  automation: "אוטומציה",
-};
-
-const channelLabels: Record<Channel, string> = {
+const channelLabels: Record<PlannerChannel, string> = {
   email: "אימייל",
   sms: "SMS",
+  mixed: "מייל + SMS",
 };
 
 const automationFilterLabels: Record<AutomationFilterKey, string> = {
@@ -3266,7 +3256,7 @@ function PlannerTableSection({
   account: FlashyAccount;
   onEdit: (plan: NewsletterPlan) => void;
 }) {
-  const rows = matches.filter((item) => item.plan.channel === channel);
+  const rows = matches.filter((item) => item.slotChannel === channel && Boolean(item.plan.date));
   const liveRows = unmatchedReports.filter((item) => item.channel === channel);
   const isEmail = channel === "email";
   const [sort, setSort] = useState<{ key: PlannerTableSortKey; direction: "asc" | "desc" } | null>(null);
@@ -3283,14 +3273,14 @@ function PlannerTableSection({
         plan,
         report,
         status,
-        date: plan.date,
+        date: plan.date ?? "",
         time,
         title: plan.title,
         subtitle: report && report.campaignName !== plan.title ? `Flashy: ${report.campaignName}` : "",
         matchState,
         confidence,
-        hasFlashy: Boolean(report || plan.flashyUrl),
-        isScheduled: Boolean(report || plan.flashyUrl),
+        hasFlashy: Boolean(report),
+        isScheduled: Boolean(plan.date || report),
         couponCode: plan.couponCode || "",
         recipients,
         delivered,
@@ -3342,7 +3332,7 @@ function PlannerTableSection({
       };
     }),
   ].sort((a, b) => {
-    const classicOrder = a.date.localeCompare(b.date) || a.time.localeCompare(b.time) || a.title.localeCompare(b.title, "he");
+    const classicOrder = (a.date || "9999-12-31").localeCompare(b.date || "9999-12-31") || a.time.localeCompare(b.time) || a.title.localeCompare(b.title, "he");
     if (!sort) return classicOrder;
 
     const aValue = sort.key === "date" ? Date.parse(`${a.date}T00:00:00`) : sort.key === "time"
@@ -3426,8 +3416,8 @@ function PlannerTableSection({
             {tableRows.map((row) => {
               return (
                 <tr key={row.id} className="border-t border-[#e8ebef] bg-white transition hover:bg-[#f8fafb]">
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 tabular-nums">{new Date(`${row.date}T12:00:00Z`).toLocaleDateString("he-IL")}</td>
-                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">{new Date(`${row.date}T12:00:00Z`).toLocaleDateString("he-IL", { weekday: "long" })}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 tabular-nums">{row.date ? new Date(`${row.date}T12:00:00Z`).toLocaleDateString("he-IL") : "ללא תאריך"}</td>
+                  <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">{row.date ? new Date(`${row.date}T12:00:00Z`).toLocaleDateString("he-IL", { weekday: "long" }) : "—"}</td>
                   <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3 tabular-nums">{row.time || "—"}</td>
                   <td className="max-w-[390px] border-l border-[#e8ebef] px-3 py-3">
                     {row.plan ? (
@@ -3448,6 +3438,7 @@ function PlannerTableSection({
                       "inline-flex rounded-full px-2 py-1 text-[11px] font-bold",
                       row.status === "sent" && "bg-[#d9f7ef] text-[#087f72]",
                       row.status === "planned" && "bg-[#eaf2ff] text-[#295ea8]",
+                      row.status === "draft" && "bg-[#f2f4f7] text-[#475467]",
                       row.status === "postponed" && "bg-[#fff0d8] text-[#9a5b00]",
                       row.status === "not_found" && "bg-[#f2f4f7] text-[#667085]",
                     )}>{operationalStatusLabels[row.status]}</span>
@@ -3504,6 +3495,7 @@ function Planner({
   plans,
   onUpsertPlan,
   onDeletePlan,
+  onEditorOpenChange,
 }: {
   client: Client;
   account: FlashyAccount;
@@ -3512,6 +3504,7 @@ function Planner({
   plans: NewsletterPlan[];
   onUpsertPlan: (plan: NewsletterPlan) => void;
   onDeletePlan: (planId: string) => void;
+  onEditorOpenChange: (open: boolean) => void;
 }) {
   const initialMonth = toDateInputValue(new Date()).slice(0, 7);
   const initialTableRange = getMonthDateRange(initialMonth);
@@ -3521,54 +3514,98 @@ function Planner({
   const [tableDateEnd, setTableDateEnd] = useState(initialTableRange.end);
   const [tableRangeCustomized, setTableRangeCustomized] = useState(false);
   const emptyDraft = {
-    date: toDateInputValue(new Date()),
-    time: "09:00",
-    channel: "email" as Channel,
-    kind: "campaign" as CampaignKind,
-    status: "planned" as PlanStatus,
+    date: "",
+    time: "",
+    channel: "email" as PlannerChannel,
+    status: "draft" as PlanStatus,
     title: "",
-    owner: "",
     notes: "",
+    brief: "",
+    audience: "",
+    offer: "",
+    cta: "",
     couponCode: "",
-    flashyUrl: "",
-    assetUrl: "",
   };
   const [draft, setDraft] = useState({
     ...emptyDraft,
   });
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingMatchChannel, setEditingMatchChannel] = useState<Channel>("email");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [pendingLinks, setPendingLinks] = useState<Array<{ id: string; label: string; url: string }>>([]);
+  const [assetLabel, setAssetLabel] = useState("");
+  const [assetUrl, setAssetUrl] = useState("");
+  const [assetBusy, setAssetBusy] = useState(false);
   const [draggingPlanId, setDraggingPlanId] = useState<string | null>(null);
   const [syncedHolidays, setSyncedHolidays] = useState<Record<string, SyncedHoliday[]>>({});
   const [saveState, setSaveState] = useState("");
   const [matchBusy, setMatchBusy] = useState(false);
   const [manualCampaignKey, setManualCampaignKey] = useState("");
-  const monthPlans = plans.filter((plan) => isSameMonth(plan.date, month));
+
+  useEffect(() => {
+    onEditorOpenChange(editorOpen);
+    return () => onEditorOpenChange(false);
+  }, [editorOpen, onEditorOpenChange]);
+
+  const monthPlans = plans.filter((plan) => plan.date && isSameMonth(plan.date, month));
+  const unscheduledPlans = plans.filter((plan) => !plan.date);
   const planMatching = matchNewsletterPlans(plans, emails, sms, account.timezone);
   const editingMatch = editingPlanId
-    ? planMatching.matches.find((item) => item.plan.id === editingPlanId)
+    ? planMatching.matches.find((item) => item.plan.id === editingPlanId && item.slotChannel === editingMatchChannel)
     : undefined;
+  const editingMatches = editingPlanId
+    ? planMatching.matches.filter((item) => item.plan.id === editingPlanId)
+    : [];
+  const editingPlan = editingPlanId ? plans.find((item) => item.id === editingPlanId) : undefined;
+  const editingSlotStored = editingPlan?.campaignMatches?.find((item) => item.channel === editingMatchChannel);
+  const schedulingConflicts = draft.date
+    ? plans.filter((item) => item.id !== editingPlanId && item.date === draft.date)
+    : [];
   const manualMatchCandidates = editingMatch
     ? planMatching.availableReports
-        .filter((report) => report.accountId === editingMatch.plan.accountId && report.channel === editingMatch.plan.channel)
+        .filter((report) => report.accountId === editingMatch.plan.accountId && report.channel === editingMatch.slotChannel)
         .sort((left, right) => {
-          const target = Date.parse(`${editingMatch.plan.date}T12:00:00Z`);
+          const target = Date.parse(`${editingMatch.plan.date ?? "1970-01-01"}T12:00:00Z`);
           return Math.abs(Date.parse(left.sentAt) - target) - Math.abs(Date.parse(right.sentAt) - target);
         })
         .slice(0, 30)
     : [];
-  const monthMatches = planMatching.matches.filter((item) => isSameMonth(item.plan.date, month));
+  const monthMatches = planMatching.matches.filter((item) => item.plan.date && isSameMonth(item.plan.date, month));
   const monthUnmatchedReports = planMatching.unmatchedReports.filter((item) =>
     isSameMonth(accountDate(new Date(item.sentAt), account.timezone), month),
   );
   const tableRangeInvalid = Boolean(tableDateStart && tableDateEnd && tableDateStart > tableDateEnd);
   const tableMatches = tableRangeInvalid
     ? []
-    : planMatching.matches.filter((item) => isDateInRange(item.plan.date, tableDateStart, tableDateEnd));
+    : planMatching.matches.filter((item) => item.plan.date && isDateInRange(item.plan.date, tableDateStart, tableDateEnd));
   const tableUnmatchedReports = tableRangeInvalid
     ? []
     : planMatching.unmatchedReports.filter((item) =>
         isDateInRange(accountDate(new Date(item.sentAt), account.timezone), tableDateStart, tableDateEnd),
       );
+  const monthPlanEvents = monthPlans.map((plan) => {
+    const slots = monthMatches.filter((item) => item.plan.id === plan.id);
+    const reports = slots.flatMap((item) => item.report ? [item.report] : []);
+    const suggested = slots.some((item) => item.matchState === "suggested");
+    const revenue = reports.reduce((total, report) => total + report.revenueGenerated, 0);
+    const purchases = reports.reduce((total, report) => total + report.purchases, 0);
+    const status = reports.length ? "sent" : (slots[0]?.status ?? (plan.status === "postponed" ? "postponed" : "planned"));
+    return {
+      id: `plan-${plan.id}`,
+      date: plan.date!,
+      time: plan.time ?? "",
+      title: plan.title,
+      channel: plan.channel,
+      source: reports.length
+        ? suggested ? ("התאמה מוצעת" as const) : ("תכנון + Flashy" as const)
+        : ("תכנון" as const),
+      status: status as OperationalPlanStatus,
+      caption: reports.length
+        ? `${formatCurrency(revenue, account.currency)} · ${formatNumber(purchases)} רכישות${plan.channel === "mixed" ? ` · ${reports.length}/2 ערוצים` : ""}`
+        : plan.brief || plan.notes || "קמפיין מתוכנן",
+    };
+  });
   const liveEvents = [
     ...monthUnmatchedReports
       .map((item) => ({
@@ -3580,20 +3617,7 @@ function Planner({
         status: "sent" as OperationalPlanStatus,
         caption: `${formatNumber(item.totalRecipients)} נמענים · ${formatCurrency(item.revenueGenerated, account.currency)}`,
       })),
-    ...monthMatches.map(({ plan, report, status, matchState }) => ({
-      id: `plan-${plan.id}`,
-      date: plan.date,
-      time: plan.time ?? "09:00",
-      title: plan.title,
-      channel: plan.channel,
-      source: report
-        ? matchState === "suggested" ? ("התאמה מוצעת" as const) : ("תכנון + Flashy" as const)
-        : ("תכנון" as const),
-      status,
-      caption: report
-        ? `${formatCurrency(report.revenueGenerated, account.currency)} · ${formatNumber(report.purchases)} רכישות`
-        : plan.notes || `${kindLabels[plan.kind]} · ${plan.owner || "ללא בעלים"}`,
-    })),
+    ...monthPlanEvents,
   ].sort((a, b) => a.date.localeCompare(b.date));
   const { start, end } = getMonthBounds(month);
   const holidayStartDate = toDateInputValue(start);
@@ -3649,32 +3673,66 @@ function Planner({
   function editPlan(plan: NewsletterPlan) {
     setEditingPlanId(plan.id);
     setDraft({
-      date: plan.date,
-      time: plan.time ?? "09:00",
+      date: plan.date ?? "",
+      time: plan.time ?? "",
       channel: plan.channel,
-      kind: plan.kind,
-      status: plan.status === "postponed" ? "postponed" : "planned",
+      status: plan.status === "postponed" ? "postponed" : plan.date ? "planned" : "draft",
       title: plan.title,
-      owner: plan.owner,
       notes: plan.notes,
+      brief: plan.brief ?? plan.notes,
+      audience: plan.audience ?? "",
+      offer: plan.offer ?? "",
+      cta: plan.cta ?? "",
       couponCode: plan.couponCode ?? "",
-      flashyUrl: plan.flashyUrl ?? "",
-      assetUrl: plan.assetUrl ?? "",
     });
+    setEditingMatchChannel(plan.channel === "sms" ? "sms" : "email");
+    setPendingFiles([]);
+    setPendingLinks([]);
+    setEditorOpen(true);
     setSaveState("עורך פריט קיים.");
     setManualCampaignKey("");
   }
 
-  function startQuickPlan(title: string, channel: Channel = "email", date = `${month}-01`) {
+  function startQuickPlan(title = "", channel: PlannerChannel = "email", date: string | null = null) {
     setEditingPlanId(null);
     setDraft({
       ...emptyDraft,
-      date,
+      date: date ?? "",
+      status: date ? "planned" : "draft",
       channel,
       title,
     });
-    setMonth(date.slice(0, 7));
-    setSaveState("נפתח פריט חדש לתכנון.");
+    if (date) setMonth(date.slice(0, 7));
+    setEditingMatchChannel(channel === "sms" ? "sms" : "email");
+    setPendingFiles([]);
+    setPendingLinks([]);
+    setEditorOpen(true);
+    setSaveState(date ? "התאריך נבחר מהיומן. אפשר לשנות או להסיר אותו." : "אפשר לשמור כבריף ולהחליט על תאריך בהמשך.");
+  }
+
+  function closeEditor() {
+    setEditorOpen(false);
+    setEditingPlanId(null);
+    setDraft({ ...emptyDraft });
+    setPendingFiles([]);
+    setPendingLinks([]);
+    setAssetLabel("");
+    setAssetUrl("");
+    setSaveState("");
+  }
+
+  function duplicatePlan() {
+    setEditingPlanId(null);
+    setDraft((current) => ({
+      ...current,
+      date: "",
+      time: "",
+      status: "draft",
+      title: `${current.title} - עותק`,
+    }));
+    setPendingFiles([]);
+    setPendingLinks([]);
+    setSaveState("נוצר עותק כבריף ללא תאריך. שמירה תיצור פריט חדש.");
   }
 
   function selectMonth(value: string) {
@@ -3699,9 +3757,75 @@ function Planner({
     setTableRangeCustomized(true);
   }
 
-  async function savePlan() {
+  function queueLink() {
+    const url = assetUrl.trim();
+    try {
+      const parsed = new URL(url);
+      if (!["http:", "https:"].includes(parsed.protocol)) throw new Error("invalid");
+    } catch {
+      setSaveState("יש להזין קישור מלא שמתחיל ב־http או https.");
+      return;
+    }
+    setPendingLinks((current) => [...current, { id: crypto.randomUUID(), label: assetLabel.trim() || new URL(url).hostname, url }]);
+    setAssetLabel("");
+    setAssetUrl("");
+    setSaveState("הקישור יצורף בשמירה.");
+  }
+
+  async function persistPendingAssets(plan: NewsletterPlan) {
+    if (!pendingLinks.length && !pendingFiles.length) return plan;
+    setAssetBusy(true);
+    const assets = [...(plan.assets ?? [])];
+    try {
+      for (const link of pendingLinks) {
+        const form = new FormData();
+        form.set("planId", plan.id);
+        form.set("kind", "link");
+        form.set("label", link.label);
+        form.set("url", link.url);
+        const response = await fetch("/api/newsletter-plans/assets", { method: "POST", body: form });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.message || "שמירת הקישור נכשלה");
+        assets.push(payload.data as NewsletterPlanAsset);
+      }
+      for (const file of pendingFiles) {
+        const form = new FormData();
+        form.set("planId", plan.id);
+        form.set("kind", "file");
+        form.set("file", file);
+        const response = await fetch("/api/newsletter-plans/assets", { method: "POST", body: form });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error(payload.message || "העלאת הקובץ נכשלה");
+        assets.push(payload.data as NewsletterPlanAsset);
+      }
+      setPendingLinks([]);
+      setPendingFiles([]);
+      return { ...plan, assets };
+    } finally {
+      setAssetBusy(false);
+    }
+  }
+
+  async function removeAsset(asset: NewsletterPlanAsset) {
+    if (!editingPlanId) return;
+    setAssetBusy(true);
+    try {
+      const response = await fetch(`/api/newsletter-plans/assets/${asset.id}`, { method: "DELETE" });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "מחיקת הנכס נכשלה");
+      const plan = plans.find((item) => item.id === editingPlanId);
+      if (plan) onUpsertPlan({ ...plan, assets: (plan.assets ?? []).filter((item) => item.id !== asset.id) });
+      setSaveState("הנכס הוסר.");
+    } catch (error) {
+      setSaveState(error instanceof Error ? error.message : "מחיקת הנכס נכשלה.");
+    } finally {
+      setAssetBusy(false);
+    }
+  }
+
+  async function savePlan(addAnother = false) {
     if (!draft.title.trim()) {
-      setSaveState("צריך להזין שם או רעיון לדיוור.");
+      setSaveState("צריך להזין שם לקמפיין.");
       return;
     }
 
@@ -3709,17 +3833,20 @@ function Planner({
       id: editingPlanId ?? crypto.randomUUID(),
       clientId: client.id,
       accountId: account.id,
-      date: draft.date,
+      date: draft.date || null,
       channel: draft.channel,
-      kind: draft.kind,
-      status: draft.status,
+      kind: "campaign",
+      status: draft.date ? draft.status === "postponed" ? "postponed" : "planned" : "draft",
       title: draft.title.trim(),
-      owner: draft.owner.trim(),
-      notes: draft.notes.trim(),
-      time: draft.time,
+      owner: "",
+      notes: draft.brief.trim(),
+      brief: draft.brief.trim(),
+      audience: draft.audience.trim(),
+      offer: draft.offer.trim(),
+      cta: draft.cta.trim(),
+      time: draft.date && draft.time ? draft.time : undefined,
       couponCode: draft.couponCode.trim() || undefined,
-      flashyUrl: draft.flashyUrl.trim() || undefined,
-      assetUrl: draft.assetUrl.trim() || undefined,
+      assets: editingPlanId ? plans.find((item) => item.id === editingPlanId)?.assets ?? [] : [],
     };
 
     try {
@@ -3730,32 +3857,34 @@ function Planner({
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.message || "שמירה נכשלה");
-      onUpsertPlan(payload.data as NewsletterPlan);
+      const persistedPlan = payload.data as NewsletterPlan;
+      onUpsertPlan(persistedPlan);
+      let savedPlan = persistedPlan;
+      try {
+        savedPlan = await persistPendingAssets(persistedPlan);
+        onUpsertPlan(savedPlan);
+      } catch (error) {
+        setEditingPlanId(persistedPlan.id);
+        setSaveState(`הבריף נשמר, אבל חלק מהנכסים לא צורפו: ${error instanceof Error ? error.message : "שגיאת העלאה"}`);
+        return;
+      }
       setSaveState(editingPlanId ? "הפריט עודכן ונשמר." : "הפריט נוסף ונשמר.");
-      setEditingPlanId(null);
-      setDraft((current) => ({
-        ...current,
-        title: "",
-        notes: "",
-        couponCode: "",
-        flashyUrl: "",
-        assetUrl: "",
-      }));
+      if (addAnother) startQuickPlan("", draft.channel, draft.date || null);
+      else closeEditor();
     } catch (error) {
-      if (!editingPlanId) onUpsertPlan(plan);
       setSaveState(
         error instanceof Error
-          ? `הפעולה עודכנה במסך, אבל השמירה הקבועה נכשלה: ${error.message}`
-          : "הפעולה עודכנה במסך, אבל השמירה הקבועה נכשלה.",
+          ? `השמירה נכשלה: ${error.message}`
+          : "השמירה נכשלה.",
       );
     }
   }
 
   async function movePlanToDate(planId: string, date: string) {
-    const plan = monthPlans.find((item) => item.id === planId);
+    const plan = plans.find((item) => item.id === planId);
     if (!plan || plan.date === date) return;
 
-    const updatedPlan = { ...plan, date };
+    const updatedPlan = { ...plan, date, status: plan.status === "draft" ? "planned" as const : plan.status };
     onUpsertPlan(updatedPlan);
     setSaveState("הדיוור הוזז ביומן.");
 
@@ -3782,7 +3911,8 @@ function Planner({
   async function deletePlan() {
     if (!editingPlanId) return;
     const match = planMatching.matches.find((item) => item.plan.id === editingPlanId);
-    if (!match || match.report || match.plan.status === "sent") {
+    const matches = planMatching.matches.filter((item) => item.plan.id === editingPlanId);
+    if (!match || matches.some((item) => item.report) || match.plan.status === "sent") {
       setSaveState("אי אפשר למחוק דיוור שכבר חובר לביצוע ב־Flashy.");
       return;
     }
@@ -3800,7 +3930,8 @@ function Planner({
 
       onDeletePlan(editingPlanId);
       setEditingPlanId(null);
-      setDraft({ ...emptyDraft, date: `${month}-01` });
+      setDraft({ ...emptyDraft });
+      setEditorOpen(false);
       setSaveState("");
     } catch (error) {
       setSaveState(error instanceof Error ? error.message : "המחיקה נכשלה.");
@@ -3822,7 +3953,7 @@ function Planner({
           id: editingPlanId,
           matchAction,
           campaignId: report?.campaignId,
-          campaignChannel: report?.channel,
+          campaignChannel: report?.channel ?? editingMatchChannel,
         }),
       });
       const payload = await response.json();
@@ -3857,20 +3988,12 @@ function Planner({
           <div>
             <h2 className="text-xl font-bold text-[#080123]">גאנט דיוורים</h2>
             <p className="mt-1 text-sm leading-6 text-[#65738a]">
-              יומן חודשי וטבלת ביצועים לכל טווח. פריטים שנשלחו מתחברים אוטומטית לתוצאות שלהם ב־Flashy.
+              מתחילים מבריף, משבצים תאריך כשמוכנים ומחברים אוטומטית לתוצאות ב־Flashy לאחר השליחה.
             </p>
           </div>
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
             <button
-              onClick={() => startQuickPlan(
-                "דיוור חדש",
-                "email",
-                layout === "table" && tableDateStart
-                  ? tableDateStart
-                  : toDateInputValue(new Date()).slice(0, 7) === month
-                    ? toDateInputValue(new Date())
-                    : `${month}-01`,
-              )}
+              onClick={() => startQuickPlan()}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#111318] px-4 text-sm font-bold text-white transition hover:bg-black"
             >
               <Plus size={17} />
@@ -3903,6 +4026,35 @@ function Planner({
             )}
           </div>
         </div>
+      </section>
+
+      <section className="rounded-xl border border-[#dfe7ee] bg-white p-4 shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2"><Rows3 size={17} className="text-[#087f72]" /><h3 className="text-sm font-bold text-[#111318]">בריפים ללא תאריך</h3><span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-xs font-bold text-[#475467]">{unscheduledPlans.length}</span></div>
+            <p className="mt-1 text-xs text-[#667085]">אפשר לערוך כאן או לגרור בריף ישירות ליום ביומן.</p>
+          </div>
+          <button type="button" onClick={() => startQuickPlan()} className="inline-flex h-9 items-center gap-2 rounded-md border border-[#d0d5dd] bg-white px-3 text-xs font-bold text-[#344054] transition hover:border-[#111318]"><Plus size={14} />בריף חדש</button>
+        </div>
+        {unscheduledPlans.length ? (
+          <div className="mt-3 flex gap-3 overflow-x-auto pb-1">
+            {unscheduledPlans.map((plan) => (
+              <button
+                key={plan.id}
+                type="button"
+                draggable
+                onDragStart={() => setDraggingPlanId(plan.id)}
+                onDragEnd={() => setDraggingPlanId(null)}
+                onClick={() => editPlan(plan)}
+                className="min-w-[240px] max-w-[320px] rounded-lg border border-[#dfe7ee] bg-[#f8fafb] p-3 text-right transition hover:border-[#42dfcf] hover:bg-white"
+              >
+                <div className="flex items-center justify-between gap-2"><span className="rounded bg-white px-2 py-0.5 text-[10px] font-bold text-[#087f72]">{channelLabels[plan.channel]}</span><span className="text-[10px] font-bold text-[#98a2b3]">גרירה ליומן</span></div>
+                <strong className="mt-2 block truncate text-sm text-[#111318]">{plan.title}</strong>
+                <span className="mt-1 block line-clamp-2 text-xs leading-5 text-[#667085]">{plan.brief || plan.notes || "ללא בריף"}</span>
+              </button>
+            ))}
+          </div>
+        ) : <p className="mt-3 rounded-lg border border-dashed border-[#d0d5dd] px-3 py-4 text-center text-xs text-[#98a2b3]">אין כרגע בריפים שממתינים לשיבוץ.</p>}
       </section>
 
       {layout === "calendar" ? (
@@ -3940,7 +4092,7 @@ function Planner({
                         </span>
                       </div>
                       <button
-                        onClick={() => startQuickPlan("דיוור חדש", "email", day.dateKey)}
+                        onClick={() => startQuickPlan("", "email", day.dateKey)}
                         className="inline-flex items-center gap-1 rounded-full border border-[#080123] bg-[#080123] px-2.5 py-1 text-xs font-bold text-white shadow-sm transition hover:bg-black lg:border-[#dfe7ee] lg:bg-white lg:text-[#40506a] lg:shadow-none lg:hover:border-[#080123] lg:hover:bg-[#080123] lg:hover:text-white"
                       >
                         <span className="text-sm leading-none">+</span>
@@ -4073,234 +4225,68 @@ function Planner({
         </section>
       )}
 
-      {(editingPlanId || draft.title.trim()) && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-[#080123]/70 p-4 backdrop-blur-sm">
-          <section className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[#dfe7ee] bg-white p-5 shadow-[0_24px_80px_rgba(8,1,35,0.28)]">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-xl font-bold text-[#080123]">
-                {editingPlanId ? "עריכת פריט תכנון" : "הוספת רעיון או ניוזלטר"}
-              </h3>
-              <button
-                onClick={() => {
-                  setDraft({ ...emptyDraft, date: `${month}-01` });
-                  setEditingPlanId(null);
-                }}
-                className="h-9 rounded-md bg-slate-100 px-3 text-sm font-medium text-[#263548] hover:bg-slate-200"
-              >
-                סגור
-              </button>
-            </div>
-            {editingMatch && editingMatch.plan.kind === "campaign" && (
-              <section className="mt-4 rounded-lg border border-[#dfe7ee] bg-[#f8fafb] p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <Link2 size={16} className="text-[#087f72]" />
-                      <h4 className="text-sm font-bold text-[#111318]">חיבור לביצוע ב־Flashy</h4>
-                    </div>
-                    {editingMatch.report ? (
-                      <>
-                        <p className="mt-2 text-sm font-semibold text-[#111318]">{editingMatch.report.campaignName}</p>
-                        <p className="mt-1 text-xs text-[#667085]">
-                          {new Date(editingMatch.report.sentAt).toLocaleDateString("he-IL", { timeZone: account.timezone })}
-                          {` · ${formatCurrency(editingMatch.report.revenueGenerated, account.currency)}`}
-                          {` · ${formatNumber(editingMatch.report.purchases)} רכישות`}
-                        </p>
-                      </>
-                    ) : editingMatch.matchState === "missing" ? (
-                      <p className="mt-2 text-sm text-[#8a5800]">הקמפיין השמור לא נמצא בדוחות הנוכחיים.</p>
-                    ) : (
-                      <p className="mt-2 text-sm text-[#667085]">עדיין לא נשמר חיבור לקמפיין שנשלח.</p>
-                    )}
-                  </div>
-                  <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-[#344054] shadow-sm">
-                    {editingMatch.matchState === "confirmed"
-                      ? "מאושר"
-                      : editingMatch.matchState === "automatic"
-                        ? "אוטומטי"
-                        : editingMatch.matchState === "suggested"
-                          ? `הצעה · ${formatPercent(editingMatch.confidence)}`
-                          : editingMatch.plan.matchingDisabled
-                            ? "אוטומציה מושהית"
-                            : "לא מחובר"}
-                  </span>
-                </div>
-                <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                  {editingMatch.matchState === "suggested" && editingMatch.report && (
-                    <button disabled={matchBusy} type="button" onClick={() => updatePlanMatch("match", editingMatch.report)} className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#111318] px-3 text-xs font-bold text-white disabled:opacity-50">
-                      <CheckCircle2 size={15} /> אשר התאמה
-                    </button>
-                  )}
-                  {editingMatch.matchState === "automatic" && (
-                    <button disabled={matchBusy} type="button" onClick={() => updatePlanMatch("confirm")} className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#111318] px-3 text-xs font-bold text-white disabled:opacity-50">
-                      <CheckCircle2 size={15} /> אשר התאמה
-                    </button>
-                  )}
-                  {editingMatch.matchState !== "none" && (
-                    <button disabled={matchBusy} type="button" onClick={() => updatePlanMatch("unmatch")} className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[#d0d5dd] bg-white px-3 text-xs font-bold text-[#344054] disabled:opacity-50">
-                      <Link2Off size={15} /> {editingMatch.matchState === "suggested" ? "דחה הצעה" : "בטל התאמה"}
-                    </button>
-                  )}
-                  {editingMatch.plan.matchingDisabled && editingMatch.matchState === "none" && (
-                    <button disabled={matchBusy} type="button" onClick={() => updatePlanMatch("resume")} className="inline-flex h-9 items-center justify-center rounded-md border border-[#d0d5dd] bg-white px-3 text-xs font-bold text-[#344054] disabled:opacity-50">
-                      הפעל התאמה אוטומטית
-                    </button>
-                  )}
-                </div>
-                {editingMatch.matchState !== "confirmed" && editingMatch.matchState !== "automatic" && manualMatchCandidates.length > 0 && (
-                  <div className="mt-3 flex flex-col gap-2 border-t border-[#e4e7ec] pt-3 sm:flex-row">
-                    <select value={manualCampaignKey} onChange={(event) => setManualCampaignKey(event.target.value)} className="h-9 min-w-0 flex-1 rounded-md border border-[#d0d5dd] bg-white px-2 text-xs">
-                      <option value="">בחר קמפיין שנשלח...</option>
-                      {manualMatchCandidates.map((report) => (
-                        <option key={`${report.channel}:${report.campaignId}`} value={`${report.channel}:${report.campaignId}`}>
-                          {new Date(report.sentAt).toLocaleDateString("he-IL", { timeZone: account.timezone })} · {report.campaignName}
-                        </option>
-                      ))}
-                    </select>
-                    <button disabled={matchBusy || !manualCampaignKey} type="button" onClick={matchSelectedCampaign} className="h-9 rounded-md border border-[#087f72] bg-white px-3 text-xs font-bold text-[#087f72] disabled:opacity-40">
-                      התאם ידנית
-                    </button>
-                  </div>
-                )}
+      {editorOpen && (
+        <div className="fixed inset-0 z-50 flex justify-start bg-[#080123]/65 backdrop-blur-sm">
+          <section className="h-full w-full max-w-2xl overflow-y-auto border-r border-[#dfe7ee] bg-white shadow-[20px_0_70px_rgba(8,1,35,0.28)]">
+            <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[#e4e7ec] bg-white/95 px-5 py-4 backdrop-blur">
+              <div><p className="text-xs font-bold text-[#087f72]">{editingPlanId ? "עריכת קמפיין" : "קמפיין חדש"}</p><h3 className="mt-0.5 text-xl font-black text-[#080123]">{draft.date ? "בריף ותזמון" : "בריף ללא תאריך"}</h3></div>
+              <button type="button" onClick={closeEditor} aria-label="סגירה" className="grid size-9 place-items-center rounded-md border border-[#d0d5dd] text-[#475467] hover:bg-[#f2f4f7]"><X size={17} /></button>
+            </header>
+
+            <div className="space-y-5 p-5">
+              <section className="space-y-4">
+                <label className="block text-sm font-bold text-[#344054]">שם הקמפיין<input autoFocus value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="לדוגמה: מבצע ראש השנה" className="mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] px-3 text-sm outline-none focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20" /></label>
+                <label className="block text-sm font-bold text-[#344054]">בריף<textarea value={draft.brief} onChange={(event) => setDraft((current) => ({ ...current, brief: event.target.value }))} placeholder="מה המסר, מה מציעים ומה חשוב שיופיע בקמפיין?" className="mt-2 min-h-32 w-full rounded-lg border border-[#d0d5dd] p-3 text-sm leading-6 outline-none focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20" /></label>
+                <div><p className="text-sm font-bold text-[#344054]">ערוץ</p><div className="mt-2 grid grid-cols-3 gap-2">{([['email','אימייל'],['sms','SMS'],['mixed','מייל + SMS']] as const).map(([value,label]) => <button key={value} type="button" aria-pressed={draft.channel === value} onClick={() => { setDraft((current) => ({ ...current, channel: value })); setEditingMatchChannel(value === 'sms' ? 'sms' : 'email'); }} className={classNames("h-10 rounded-lg border text-xs font-bold transition", draft.channel === value ? "border-[#080123] bg-[#080123] text-white" : "border-[#d0d5dd] bg-white text-[#475467] hover:border-[#98a2b3]")}>{label}</button>)}</div></div>
               </section>
-            )}
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <label className="block text-sm font-medium text-[#263548]">
-                תאריך שליחה
-                <input
-                  type="date"
-                  value={draft.date}
-                  onChange={(event) => {
-                    setDraft((current) => ({ ...current, date: event.target.value }));
-                    selectMonth(event.target.value.slice(0, 7));
-                  }}
-                  className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
-                />
-              </label>
-              <label className="block text-sm font-medium text-[#263548]">
-                סטטוס
-                <select
-                  value={draft.status}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, status: event.target.value as PlanStatus }))
-                  }
-                  className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
-                >
-                  {(["planned", "postponed"] as PlanStatus[]).map((status) => (
-                    <option key={status} value={status}>
-                      {statusLabels[status]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-sm font-medium text-[#263548]">
-                שעת שליחה
-                <input
-                  type="time"
-                  value={draft.time}
-                  onChange={(event) => setDraft((current) => ({ ...current, time: event.target.value }))}
-                  className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
-                />
-              </label>
-              <label className="block text-sm font-medium text-[#263548]">
-                ערוץ
-                <select
-                  value={draft.channel}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, channel: event.target.value as Channel }))
-                  }
-                  className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
-                >
-                  <option value="email">אימייל</option>
-                  <option value="sms">SMS</option>
-                </select>
-              </label>
-              <label className="block text-sm font-medium text-[#263548]">
-                סוג
-                <select
-                  value={draft.kind}
-                  onChange={(event) =>
-                    setDraft((current) => ({ ...current, kind: event.target.value as CampaignKind }))
-                  }
-                  className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
-                >
-                  <option value="campaign">קמפיין</option>
-                  <option value="automation">אוטומציה</option>
-                </select>
-              </label>
-              <label className="block text-sm font-medium text-[#263548] sm:col-span-2">
-                נושא / רעיון
-                <input
-                  value={draft.title}
-                  onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
-                  placeholder="לדוגמה: ערך מכירתי - דיטוקס לנשימה"
-                  className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
-                />
-              </label>
-              <label className="block text-sm font-medium text-[#263548]">
-                בעלים
-                <input
-                  value={draft.owner}
-                  onChange={(event) => setDraft((current) => ({ ...current, owner: event.target.value }))}
-                  className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-sm outline-none focus:border-[#6fffe5]"
-                />
-              </label>
-              <label className="block text-sm font-medium text-[#263548]">
-                לינק Flashy
-                <input
-                  value={draft.flashyUrl}
-                  onChange={(event) => setDraft((current) => ({ ...current, flashyUrl: event.target.value }))}
-                  className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
-                  dir="ltr"
-                />
-              </label>
-              <label className="block text-sm font-medium text-[#263548]">
-                לינק נכסים
-                <input
-                  value={draft.assetUrl}
-                  onChange={(event) => setDraft((current) => ({ ...current, assetUrl: event.target.value }))}
-                  className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
-                  dir="ltr"
-                />
-              </label>
-              <label className="block text-sm font-medium text-[#263548]">
-                קוד קופון
-                <input
-                  value={draft.couponCode}
-                  onChange={(event) => setDraft((current) => ({ ...current, couponCode: event.target.value }))}
-                  placeholder="לדוגמה: SEPTEMBER12"
-                  className="mt-2 h-10 w-full rounded-md border border-[#dfe7ee] px-3 text-left text-sm outline-none focus:border-[#6fffe5]"
-                  dir="ltr"
-                />
-              </label>
-              <label className="block text-sm font-medium text-[#263548] sm:col-span-2">
-                הערות, החרגות, קופון
-                <textarea
-                  value={draft.notes}
-                  onChange={(event) => setDraft((current) => ({ ...current, notes: event.target.value }))}
-                  className="mt-2 min-h-24 w-full rounded-md border border-[#dfe7ee] p-3 text-sm outline-none focus:border-[#6fffe5]"
-                />
-              </label>
-            </div>
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-              <button
-                onClick={savePlan}
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#080123] px-4 text-sm font-medium text-white hover:bg-black"
-              >
-                <CalendarDays size={16} />
-                {editingPlanId ? "שמור שינויים" : "הוסף לגאנט"}
-              </button>
-              {editingPlanId && !planMatching.matches.find((item) => item.plan.id === editingPlanId)?.report && (
-                <button
-                  type="button"
-                  onClick={deletePlan}
-                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-white px-4 text-sm font-medium text-red-700 transition hover:bg-red-50"
-                >
-                  <Trash2 size={16} />
-                  מחק תכנון
-                </button>
+
+              <details open={Boolean(draft.date)} className="rounded-xl border border-[#e4e7ec] bg-[#f8fafb] p-4">
+                <summary className="cursor-pointer text-sm font-bold text-[#111318]">תזמון <span className="mr-2 text-xs font-medium text-[#667085]">{draft.date ? new Date(`${draft.date}T12:00:00Z`).toLocaleDateString('he-IL') : 'אופציונלי'}</span></summary>
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <label className="text-xs font-bold text-[#667085]">תאריך<input type="date" value={draft.date} onChange={(event) => { const date = event.target.value; setDraft((current) => ({ ...current, date, status: date ? current.status === 'draft' ? 'planned' : current.status : 'draft', time: date ? current.time : '' })); if (date) selectMonth(date.slice(0,7)); }} className="mt-1.5 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm" /></label>
+                  <label className="text-xs font-bold text-[#667085]">שעה<input type="time" value={draft.time} disabled={!draft.date} onChange={(event) => setDraft((current) => ({ ...current, time: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm disabled:bg-[#f2f4f7]" /></label>
+                  <label className="text-xs font-bold text-[#667085]">סטטוס<select value={draft.date ? draft.status : 'draft'} disabled={!draft.date} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as PlanStatus }))} className="mt-1.5 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm disabled:bg-[#f2f4f7]"><option value="draft">בריף</option><option value="planned">מתוכנן</option><option value="postponed">נדחה</option></select></label>
+                </div>
+                {schedulingConflicts.length > 0 && <p className="mt-3 rounded-md bg-[#fff8e8] px-3 py-2 text-xs font-semibold text-[#8a5800]">כבר קיימים {schedulingConflicts.length} קמפיינים בתאריך הזה. אפשר לשמור בכל זאת.</p>}
+              </details>
+
+              <details className="rounded-xl border border-[#e4e7ec] p-4">
+                <summary className="cursor-pointer text-sm font-bold text-[#111318]">פרטי קמפיין נוספים</summary>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <label className="text-xs font-bold text-[#667085]">קהל יעד<input value={draft.audience} onChange={(event) => setDraft((current) => ({ ...current, audience: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-[#d0d5dd] px-3 text-sm" /></label>
+                  <label className="text-xs font-bold text-[#667085]">הצעה / מבצע<input value={draft.offer} onChange={(event) => setDraft((current) => ({ ...current, offer: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-[#d0d5dd] px-3 text-sm" /></label>
+                  <label className="text-xs font-bold text-[#667085]">CTA<input value={draft.cta} onChange={(event) => setDraft((current) => ({ ...current, cta: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-[#d0d5dd] px-3 text-sm" /></label>
+                  <label className="text-xs font-bold text-[#667085]">קוד קופון<input dir="ltr" value={draft.couponCode} onChange={(event) => setDraft((current) => ({ ...current, couponCode: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-[#d0d5dd] px-3 text-left text-sm" /></label>
+                </div>
+              </details>
+
+              <section className="rounded-xl border border-[#e4e7ec] p-4">
+                <div className="flex items-center gap-2"><Paperclip size={16} className="text-[#087f72]" /><h4 className="text-sm font-bold text-[#111318]">נכסים ומסמכים</h4></div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1.4fr_auto]"><input value={assetLabel} onChange={(event) => setAssetLabel(event.target.value)} placeholder="שם הקישור" className="h-10 rounded-md border border-[#d0d5dd] px-3 text-sm" /><input dir="ltr" value={assetUrl} onChange={(event) => setAssetUrl(event.target.value)} placeholder="https://..." className="h-10 rounded-md border border-[#d0d5dd] px-3 text-left text-sm" /><button type="button" onClick={queueLink} className="h-10 rounded-md border border-[#087f72] px-3 text-xs font-bold text-[#087f72]">הוסף קישור</button></div>
+                <label className="mt-3 flex min-h-20 cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-[#98a2b3] bg-[#f8fafb] px-4 text-xs font-bold text-[#475467] hover:border-[#42dfcf]"><Upload size={16} />העלה PDF, Word, Excel או תמונה<input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.jpg,.jpeg,.png,.webp" className="sr-only" onChange={(event) => setPendingFiles((current) => [...current, ...Array.from(event.target.files ?? [])])} /></label>
+                <div className="mt-3 grid gap-2">
+                  {(editingPlan?.assets ?? []).map((asset) => <div key={asset.id} className="flex items-center justify-between gap-3 rounded-md bg-[#f8fafb] px-3 py-2 text-xs"><a href={asset.kind === 'link' ? asset.url : asset.downloadUrl} target="_blank" rel="noreferrer" className="min-w-0 truncate font-bold text-[#344054] hover:text-[#087f72]">{asset.label}</a><button type="button" disabled={assetBusy} onClick={() => void removeAsset(asset)} aria-label="הסר נכס" className="text-[#98a2b3] hover:text-red-600"><X size={14} /></button></div>)}
+                  {pendingLinks.map((asset) => <div key={asset.id} className="flex items-center justify-between gap-3 rounded-md bg-[#fffbed] px-3 py-2 text-xs"><span className="truncate font-bold text-[#6f5f00]">{asset.label}</span><button type="button" onClick={() => setPendingLinks((current) => current.filter((item) => item.id !== asset.id))}><X size={14} /></button></div>)}
+                  {pendingFiles.map((file, index) => <div key={`${file.name}-${index}`} className="flex items-center justify-between gap-3 rounded-md bg-[#eefbf8] px-3 py-2 text-xs"><span className="truncate font-bold text-[#087f72]">{file.name}</span><button type="button" onClick={() => setPendingFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={14} /></button></div>)}
+                </div>
+              </section>
+
+              {editingMatch && draft.date && (
+                <section className="rounded-xl border border-[#dfe7ee] bg-[#f8fafb] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><Link2 size={16} className="text-[#087f72]" /><h4 className="text-sm font-bold text-[#111318]">התאמה ל־Flashy</h4></div>{editingMatches.length > 1 && <div className="inline-flex rounded-md bg-white p-1">{editingMatches.map((item) => <button key={item.slotChannel} type="button" onClick={() => { setEditingMatchChannel(item.slotChannel); setManualCampaignKey(''); }} className={classNames("rounded px-3 py-1 text-xs font-bold", editingMatchChannel === item.slotChannel ? "bg-[#111318] text-white" : "text-[#667085]")}>{channelLabels[item.slotChannel]}</button>)}</div>}</div>
+                  {editingMatch.report ? <div className="mt-3"><p className="text-sm font-bold text-[#111318]">{editingMatch.report.campaignName}</p><p className="mt-1 text-xs text-[#667085]">{new Date(editingMatch.report.sentAt).toLocaleDateString('he-IL', { timeZone: account.timezone })} · {formatCurrency(editingMatch.report.revenueGenerated, account.currency)} · {formatNumber(editingMatch.report.purchases)} רכישות</p></div> : <p className="mt-3 text-xs text-[#667085]">עדיין לא נמצא קמפיין תואם בערוץ {channelLabels[editingMatch.slotChannel]}.</p>}
+                  <div className="mt-3 flex flex-wrap gap-2">{editingMatch.matchState === 'suggested' && editingMatch.report && <button type="button" disabled={matchBusy} onClick={() => updatePlanMatch('match', editingMatch.report)} className="h-9 rounded-md bg-[#111318] px-3 text-xs font-bold text-white">אשר התאמה</button>}{editingMatch.matchState === 'automatic' && <button type="button" disabled={matchBusy} onClick={() => updatePlanMatch('confirm')} className="h-9 rounded-md bg-[#111318] px-3 text-xs font-bold text-white">אשר התאמה</button>}{editingMatch.matchState !== 'none' && <button type="button" disabled={matchBusy} onClick={() => updatePlanMatch('unmatch')} className="h-9 rounded-md border border-[#d0d5dd] px-3 text-xs font-bold">בטל התאמה</button>}{editingSlotStored?.matchingDisabled && editingMatch.matchState === 'none' && <button type="button" disabled={matchBusy} onClick={() => updatePlanMatch('resume')} className="h-9 rounded-md border border-[#d0d5dd] px-3 text-xs font-bold">הפעל התאמה אוטומטית</button>}</div>
+                  {editingMatch.matchState !== 'confirmed' && editingMatch.matchState !== 'automatic' && manualMatchCandidates.length > 0 && <div className="mt-3 flex gap-2 border-t border-[#e4e7ec] pt-3"><select value={manualCampaignKey} onChange={(event) => setManualCampaignKey(event.target.value)} className="h-9 min-w-0 flex-1 rounded-md border border-[#d0d5dd] bg-white px-2 text-xs"><option value="">בחר קמפיין שנשלח...</option>{manualMatchCandidates.map((report) => <option key={`${report.channel}:${report.campaignId}`} value={`${report.channel}:${report.campaignId}`}>{new Date(report.sentAt).toLocaleDateString('he-IL', { timeZone: account.timezone })} · {report.campaignName}</option>)}</select><button type="button" disabled={matchBusy || !manualCampaignKey} onClick={matchSelectedCampaign} className="h-9 rounded-md border border-[#087f72] px-3 text-xs font-bold text-[#087f72] disabled:opacity-40">התאם</button></div>}
+                </section>
               )}
-              {saveState && <p className="text-sm text-[#65738a]">{saveState}</p>}
+
+              {saveState && <p role="status" className="rounded-lg bg-[#f2f4f7] px-3 py-2 text-xs font-semibold text-[#475467]">{saveState}</p>}
+              <div className="flex flex-col gap-2 border-t border-[#e4e7ec] pt-4 sm:flex-row sm:flex-wrap">
+                <button type="button" disabled={assetBusy} onClick={() => void savePlan(false)} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#080123] px-5 text-sm font-bold text-white disabled:opacity-50"><CheckCircle2 size={16} />{editingPlanId ? 'שמור שינויים' : draft.date ? 'שמור בגאנט' : 'שמור כבריף'}</button>
+                {!editingPlanId && <button type="button" disabled={assetBusy} onClick={() => void savePlan(true)} className="h-11 rounded-lg border border-[#d0d5dd] px-4 text-sm font-bold text-[#344054]">שמור והוסף נוסף</button>}
+                {editingPlanId && <button type="button" onClick={duplicatePlan} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-[#d0d5dd] px-4 text-sm font-bold text-[#344054]"><Copy size={15} />שכפל כבריף</button>}
+                {editingPlanId && !editingMatches.some((item) => item.report) && <button type="button" onClick={deletePlan} className="mr-auto inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-red-200 px-4 text-sm font-bold text-red-700"><Trash2 size={15} />מחק</button>}
+              </div>
             </div>
           </section>
         </div>
@@ -5968,6 +5954,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
   const [liveDataIssue, setLiveDataIssue] = useState("");
   const [refreshState, setRefreshState] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [plannerEditorOpen, setPlannerEditorOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() =>
     typeof window !== "undefined" && window.localStorage.getItem("addz-growth-os-theme") === "dark"
       ? "dark"
@@ -6665,6 +6652,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
               plans={accountPlans}
               onUpsertPlan={upsertNewsletterPlan}
               onDeletePlan={deleteNewsletterPlan}
+              onEditorOpenChange={setPlannerEditorOpen}
             />
           )}
           {activeView === "monthly" && (
@@ -6725,7 +6713,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
           )}
         </div>
       </main>
-      {!isRestrictedUser && activeView !== "portfolio" && (
+      {!isRestrictedUser && activeView !== "portfolio" && !plannerEditorOpen && (
         <FloatingAiChat
           key={selectedClient.id}
           clientId={selectedClient.id}

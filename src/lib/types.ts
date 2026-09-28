@@ -2,6 +2,8 @@ export type ModuleKey = "reports" | "planner" | "ai";
 
 export type Channel = "email" | "sms";
 
+export type PlannerChannel = Channel | "mixed";
+
 export type CampaignKind = "campaign" | "automation";
 
 export type PlanStatus = "planned" | "postponed" | "draft" | "ready" | "approved" | "sent";
@@ -174,14 +176,18 @@ export interface NewsletterPlan {
   id: string;
   clientId: string;
   accountId: string;
-  date: string;
+  date: string | null;
   time?: string;
-  channel: Channel;
+  channel: PlannerChannel;
   kind: CampaignKind;
   status: PlanStatus;
   title: string;
   owner: string;
   notes: string;
+  brief?: string;
+  audience?: string;
+  offer?: string;
+  cta?: string;
   couponCode?: string;
   flashyUrl?: string;
   assetUrl?: string;
@@ -192,6 +198,31 @@ export interface NewsletterPlan {
   matchedAt?: string;
   matchConfirmedAt?: string;
   matchingDisabled?: boolean;
+  campaignMatches?: NewsletterPlanCampaignMatch[];
+  assets?: NewsletterPlanAsset[];
+}
+
+export interface NewsletterPlanCampaignMatch {
+  id: string;
+  channel: Channel;
+  campaignId?: number;
+  method?: "auto" | "manual";
+  confidence?: number;
+  matchedAt?: string;
+  confirmedAt?: string;
+  matchingDisabled: boolean;
+}
+
+export interface NewsletterPlanAsset {
+  id: string;
+  kind: "link" | "file";
+  label: string;
+  url?: string;
+  fileName?: string;
+  mimeType?: string;
+  size?: number;
+  downloadUrl?: string;
+  createdAt: string;
 }
 
 export interface AiInsight {

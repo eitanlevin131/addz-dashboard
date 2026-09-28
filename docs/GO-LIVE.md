@@ -58,6 +58,18 @@ RESEND_API_KEY
 EMAIL_FROM
 ```
 
+## אחסון קבצי גאנט
+
+העלאת קבצים לבריפים נשמרת ב־Vercel Blob פרטי. בפרויקט Vercel יש לפתוח `Storage`, ליצור Blob Store במצב `Private` ולחבר אותו לפרויקט. לאחר החיבור Vercel מספק את הרשאות האחסון ל־Production ול־Preview באופן אוטומטי.
+
+לפיתוח מקומי אפשר למשוך את משתני הסביבה דרך Vercel CLI או להגדיר ב־`.env.local`:
+
+```text
+BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
+```
+
+הקבצים אינם ציבוריים: ההורדה עוברת דרך נתיב מאומת במערכת ורק משתמש בעל גישה ללקוח יכול לפתוח אותם. קישורים חיצוניים שמצורפים לבריף אינם מועתקים ל־Blob.
+
 ב־Preview/Production, הערכים של `AUTH_URL` ו־`NEXTAUTH_URL` צריכים להיות הכתובת של Vercel, לא localhost.
 
 לא להגדיר `AUTH_DEV_BYPASS=true` ב־Vercel Production.

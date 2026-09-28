@@ -1,11 +1,11 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/lib/db";
-import { mapNewsletterPlanRow } from "@/lib/newsletter-plan";
+import { mapNewsletterPlanRows } from "@/lib/newsletter-plan";
 import {
   AUTO_PERSIST_MATCH_CONFIDENCE,
   matchNewsletterPlans,
 } from "@/lib/planner-match";
-import { auditLogs, newsletterPlans } from "@/lib/schema";
+import { auditLogs, newsletterPlanCampaignMatches, newsletterPlans } from "@/lib/schema";
 import type { EmailCampaignReport, SmsCampaignReport } from "@/lib/types";
 
 export async function persistAutomaticPlannerMatches(input: {
@@ -22,8 +22,14 @@ export async function persistAutomaticPlannerMatches(input: {
       eq(newsletterPlans.flashyAccountId, input.accountId),
       eq(newsletterPlans.kind, "campaign"),
     ));
+  const storedMatches = storedPlans.length
+    ? await db.select().from(newsletterPlanCampaignMatches).where(inArray(
+        newsletterPlanCampaignMatches.newsletterPlanId,
+        storedPlans.map((plan) => plan.id),
+      ))
+    : [];
   const matching = matchNewsletterPlans(
-    storedPlans.map(mapNewsletterPlanRow),
+    mapNewsletterPlanRows(storedPlans, storedMatches),
     input.emails,
     input.sms,
     input.timezone,
@@ -37,22 +43,17 @@ export async function persistAutomaticPlannerMatches(input: {
 
   for (const candidate of candidates) {
     const report = candidate.report!;
-    const updated = await db
-      .update(newsletterPlans)
-      .set({
-        matchedCampaignId: report.campaignId,
-        matchedCampaignChannel: report.channel,
-        matchMethod: "auto",
-        matchConfidence: candidate.confidence.toFixed(4),
-        matchedAt: new Date(),
-        matchConfirmedAt: null,
-      })
-      .where(and(
-        eq(newsletterPlans.id, candidate.plan.id),
-        isNull(newsletterPlans.matchedCampaignId),
-        eq(newsletterPlans.matchingDisabled, false),
-      ))
-      .returning({ id: newsletterPlans.id });
+    const updated = await db.insert(newsletterPlanCampaignMatches).values({
+      newsletterPlanId: candidate.plan.id,
+      flashyAccountId: input.accountId,
+      channel: candidate.slotChannel,
+      campaignId: report.campaignId,
+      method: "auto",
+      confidence: candidate.confidence.toFixed(4),
+      matchedAt: new Date(),
+      confirmedAt: null,
+      matchingDisabled: false,
+    }).onConflictDoNothing().returning({ id: newsletterPlanCampaignMatches.id });
     if (updated.length) saved += 1;
   }
 

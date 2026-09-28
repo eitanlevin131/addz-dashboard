@@ -154,7 +154,7 @@ test.describe("agency dashboard critical journey", () => {
     await expect(page.getByRole("button", { name: "30 ימים", exact: true })).toHaveClass(/bg-\[#111318\]/);
 
     const navigation = page.getByRole("navigation", { name: "ניווט ראשי" });
-    await expect(navigation.getByRole("button", { name: "ניהול", exact: true })).toHaveCount(0);
+    await expect(navigation.getByRole("button", { name: "ניהול", exact: true })).toBeVisible();
     await navigation.getByRole("button", { name: "הגדרות", exact: true }).click();
     const syncResponsePromise = page.waitForResponse((response) =>
       response.url().endsWith("/api/flashy/sync") && response.request().method() === "POST",

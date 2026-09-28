@@ -230,7 +230,7 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
     reportView: "planner",
     title: item.title,
     subtitle: `גאנט · ${item.channel.toUpperCase()} · ${item.status}`,
-    date: item.date,
+    date: item.date ?? undefined,
     metrics: [],
   }));
   const documentSources = (input.documents ?? []).map((item, index): AiEvidenceSource => ({

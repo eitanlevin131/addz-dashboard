@@ -358,7 +358,7 @@ export const newsletterPlans = pgTable(
     flashyAccountId: uuid("flashy_account_id").references(() => flashyAccounts.id, {
       onDelete: "cascade",
     }),
-    plannedDate: date("planned_date").notNull(),
+    plannedDate: date("planned_date"),
     plannedTime: text("planned_time"),
     channel: text("channel").notNull(),
     kind: text("kind").notNull(),
@@ -366,6 +366,10 @@ export const newsletterPlans = pgTable(
     title: text("title").notNull(),
     owner: text("owner"),
     notes: text("notes"),
+    brief: text("brief"),
+    audience: text("audience"),
+    offer: text("offer"),
+    cta: text("cta"),
     couponCode: text("coupon_code"),
     flashyUrl: text("flashy_url"),
     assetUrl: text("asset_url"),
@@ -376,11 +380,52 @@ export const newsletterPlans = pgTable(
     matchedAt: timestamp("matched_at", { withTimezone: true }),
     matchConfirmedAt: timestamp("match_confirmed_at", { withTimezone: true }),
     matchingDisabled: boolean("matching_disabled").notNull().default(false),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     unique().on(table.flashyAccountId, table.matchedCampaignChannel, table.matchedCampaignId),
   ],
+);
+
+export const newsletterPlanCampaignMatches = pgTable(
+  "newsletter_plan_campaign_matches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    newsletterPlanId: uuid("newsletter_plan_id").notNull().references(() => newsletterPlans.id, { onDelete: "cascade" }),
+    flashyAccountId: uuid("flashy_account_id").notNull().references(() => flashyAccounts.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull(),
+    campaignId: integer("campaign_id"),
+    method: text("method"),
+    confidence: numeric("confidence", { precision: 5, scale: 4 }),
+    matchedAt: timestamp("matched_at", { withTimezone: true }),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    matchingDisabled: boolean("matching_disabled").notNull().default(false),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique().on(table.newsletterPlanId, table.channel),
+    unique().on(table.flashyAccountId, table.channel, table.campaignId),
+    index("newsletter_plan_matches_plan_idx").on(table.newsletterPlanId),
+  ],
+);
+
+export const newsletterPlanAssets = pgTable(
+  "newsletter_plan_assets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    newsletterPlanId: uuid("newsletter_plan_id").notNull().references(() => newsletterPlans.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    label: text("label").notNull(),
+    url: text("url"),
+    blobPathname: text("blob_pathname"),
+    fileName: text("file_name"),
+    mimeType: text("mime_type"),
+    size: integer("size"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("newsletter_plan_assets_plan_idx").on(table.newsletterPlanId)],
 );
 
 export const aiInsights = pgTable("ai_insights", {
