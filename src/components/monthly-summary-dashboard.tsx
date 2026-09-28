@@ -2,19 +2,36 @@
 
 import {
   Archive,
+  ArrowDownLeft,
+  ArrowUpLeft,
   BarChart3,
   Check,
   CheckCircle2,
   Clipboard,
   Copy,
+  Donut,
   FileText,
+  LayoutList,
   Mail,
   RefreshCw,
   Send,
+  ShoppingBag,
   Sparkles,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { monthLabel, type MonthlySummaryManualInput, type MonthlySummarySnapshot } from "@/lib/monthly-summary";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { monthLabel, type MonthlySummaryLeader, type MonthlySummaryManualInput, type MonthlySummarySnapshot } from "@/lib/monthly-summary";
 import type { Client, FlashyAccount } from "@/lib/types";
 
 type SummaryRecord = {
@@ -62,18 +79,95 @@ function statusPresentation(status: SummaryRecord["status"]) {
   }[status];
 }
 
-function RevenueBar({ label, value, total, color, currency }: { label: string; value: number; total: number; color: string; currency: string }) {
-  const width = total > 0 ? Math.max(2, value / total * 100) : 0;
+type SummarySegment = {
+  label: string;
+  shortLabel: string;
+  revenue: number;
+  purchases: number;
+  conversionRate: number | null;
+  color: string;
+};
+
+function SummaryRevenueVisualization({ segments, currency }: { segments: SummarySegment[]; currency: string }) {
+  const [view, setView] = useState<"share" | "compare">("share");
+  const total = segments.reduce((sum, segment) => sum + segment.revenue, 0);
+  const chartData = segments.map((segment) => ({ ...segment, share: total > 0 ? segment.revenue / total : 0 }));
+
   return (
-    <div>
-      <div className="mb-1.5 flex items-center justify-between gap-3 text-sm">
-        <span className="font-medium text-[#344054]">{label}</span>
-        <span className="tabular-nums text-[#111318]">{money(value, currency)}</span>
+    <section className="overflow-hidden rounded-lg border border-[#e4e7ec] bg-white">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#eef1f4] px-4 py-4 md:px-5">
+        <div>
+          <h3 className="text-sm font-bold text-[#111318]">פירוק ההכנסות</h3>
+          <p className="mt-1 text-xs text-[#667085]">בחרו את התצוגה שהכי נוח לקרוא</p>
+        </div>
+        <div className="flex rounded-md bg-[#f2f4f7] p-1" role="group" aria-label="סוג תרשים הכנסות">
+          {([
+            ["share", "חלוקה", Donut],
+            ["compare", "השוואה", BarChart3],
+          ] as const).map(([value, label, Icon]) => (
+            <button key={value} type="button" aria-pressed={view === value} onClick={() => setView(value)} className={`inline-flex h-8 items-center gap-1.5 rounded px-2.5 text-xs transition ${view === value ? "bg-white font-bold text-[#111318] shadow-sm" : "text-[#667085]"}`}>
+              <Icon size={14} /> {label}
+            </button>
+          ))}
+        </div>
+      </header>
+      <div className="grid min-w-0 items-center gap-4 p-4 md:p-5 lg:grid-cols-[minmax(250px,0.85fr)_minmax(280px,1.15fr)]">
+        <div className="relative mx-auto h-[230px] w-full max-w-[300px]" dir="ltr" role="img" aria-label="פירוק הכנסות לפי מקור">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} initialDimension={{ width: 300, height: 230 }}>
+            {view === "share" ? (
+              <PieChart>
+                <Pie data={chartData} dataKey="revenue" nameKey="label" innerRadius={68} outerRadius={98} startAngle={90} endAngle={-270} paddingAngle={2} stroke="none" isAnimationActive={false}>
+                  {chartData.map((segment) => <Cell key={segment.label} fill={segment.color} />)}
+                </Pie>
+                <Tooltip formatter={(value) => money(Number(value), currency)} contentStyle={{ direction: "rtl", borderRadius: 8, borderColor: "#e4e7ec", fontSize: 12 }} />
+              </PieChart>
+            ) : (
+              <BarChart data={chartData} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
+                <CartesianGrid vertical={false} stroke="#eef1f4" />
+                <XAxis dataKey="shortLabel" axisLine={false} tickLine={false} tick={{ fill: "#667085", fontSize: 11 }} />
+                <YAxis width={44} axisLine={false} tickLine={false} tickFormatter={(value) => new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(Number(value))} tick={{ fill: "#667085", fontSize: 10 }} />
+                <Tooltip formatter={(value) => money(Number(value), currency)} contentStyle={{ direction: "rtl", borderRadius: 8, borderColor: "#e4e7ec", fontSize: 12 }} />
+                <Bar dataKey="revenue" name="הכנסה" radius={[4, 4, 0, 0]} isAnimationActive={false}>{chartData.map((segment) => <Cell key={segment.label} fill={segment.color} />)}</Bar>
+              </BarChart>
+            )}
+          </ResponsiveContainer>
+          {view === "share" && <div className="pointer-events-none absolute inset-0 grid place-content-center text-center" dir="rtl"><span className="text-xs text-[#667085]">סה״כ מיוחס</span><strong className="mt-1 text-xl tabular-nums text-[#080123]">{money(total, currency)}</strong></div>}
+        </div>
+        <div className="divide-y divide-[#eef1f4]">
+          {chartData.map((segment) => <div key={segment.label} className="py-3 first:pt-0 last:pb-0">
+            <div className="flex items-center justify-between gap-3">
+              <span className="flex items-center gap-2 text-sm font-bold"><i className="h-3 w-1 rounded-sm" style={{ backgroundColor: segment.color }} />{segment.label}</span>
+              <span className="text-base font-bold tabular-nums">{money(segment.revenue, currency)}</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between gap-3 pr-3 text-xs text-[#667085]">
+              <span>{number(segment.purchases)} מכירות · המרה {percent(segment.conversionRate)}</span>
+              <span className="tabular-nums">{percent(segment.share)}</span>
+            </div>
+          </div>)}
+        </div>
       </div>
-      <div className="h-2 overflow-hidden rounded-sm bg-[#eef1f4]">
-        <div className="h-full rounded-sm transition-[width] duration-500" style={{ width: `${width}%`, backgroundColor: color }} />
-      </div>
-    </div>
+    </section>
+  );
+}
+
+function SummaryLeaderboard({ title, items, currency, color }: { title: string; items: MonthlySummaryLeader[]; currency: string; color: string }) {
+  const max = Math.max(...items.map((item) => item.revenue), 0);
+  return (
+    <section className="rounded-lg border border-[#e4e7ec] bg-white p-4 md:p-5">
+      <div className="mb-4 flex items-center justify-between gap-3"><h3 className="text-sm font-bold">{title}</h3><span className="text-[11px] text-[#667085]">לפי הכנסה</span></div>
+      <ol className="space-y-4">
+        {items.map((item, index) => <li key={item.id}>
+          <div className="flex items-start gap-3">
+            <span className="grid size-7 shrink-0 place-items-center rounded bg-[#f2f4f7] text-xs font-bold">{index + 1}</span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-3"><span className="line-clamp-2 text-sm font-medium leading-5" title={item.name}>{item.name}</span><strong className="shrink-0 text-sm tabular-nums">{money(item.revenue, currency)}</strong></div>
+              <div className="mt-1.5 h-1.5 overflow-hidden rounded-sm bg-[#eef1f4]"><div className="h-full rounded-sm" style={{ width: `${max > 0 ? item.revenue / max * 100 : 0}%`, backgroundColor: color }} /></div>
+              <div className="mt-1 flex gap-3 text-[11px] text-[#667085]"><span>{number(item.purchases)} מכירות</span><span>המרה {percent(item.conversionRate)}</span></div>
+            </div>
+          </div>
+        </li>)}
+      </ol>
+    </section>
   );
 }
 
@@ -152,9 +246,9 @@ export function MonthlySummaryDashboard({
   }, [initialSummaryId, selectSummary]);
 
   const channels = useMemo(() => selected ? [
-    { label: "קמפיינים במייל", value: selected.snapshot.emailCampaigns.revenue, color: "#080123" },
-    { label: "קמפיינים ב־SMS", value: selected.snapshot.smsCampaigns.revenue, color: "#42dfcf" },
-    { label: "אוטומציות", value: selected.snapshot.automations.revenue, color: "#ffe045" },
+    { label: "קמפיינים במייל", shortLabel: "מייל", revenue: selected.snapshot.emailCampaigns.revenue, purchases: selected.snapshot.emailCampaigns.purchases, conversionRate: selected.snapshot.emailCampaigns.conversionRate, color: "#24282f" },
+    { label: "קמפיינים ב־SMS", shortLabel: "SMS", revenue: selected.snapshot.smsCampaigns.revenue, purchases: selected.snapshot.smsCampaigns.purchases, conversionRate: selected.snapshot.smsCampaigns.conversionRate, color: "#20b9a8" },
+    { label: "אוטומציות", shortLabel: "אוטומציות", revenue: selected.snapshot.automations.revenue, purchases: selected.snapshot.automations.purchases, conversionRate: selected.snapshot.automations.conversionRate, color: "#6389d9" },
   ] : [], [selected]);
 
   async function generate() {
@@ -327,38 +421,53 @@ export function MonthlySummaryDashboard({
                 </div>
               </div>
 
-              {tab === "report" && <div className="p-4 md:p-6">
+              {tab === "report" && <div className="bg-[#f8faf9] p-4 md:p-6">
                 {(selected.snapshot.completeness.missing.length > 0 || selected.snapshot.completeness.warnings.length > 0) && isStaff && <div className="mb-5 rounded-md border border-[#f1d786] bg-[#fff9d8] px-4 py-3 text-xs leading-5 text-[#6b5a00]">{[...selected.snapshot.completeness.warnings, ...selected.snapshot.completeness.missing.map((item) => `חסר: ${item}`)].join(" · ")}</div>}
-                <div className="grid gap-px overflow-hidden rounded-lg border border-[#e4e7ec] bg-[#e4e7ec] sm:grid-cols-2 lg:grid-cols-4">
-                  {[
-                    ["הכנסה מיוחסת", money(selected.snapshot.totals.attributedRevenue, selected.snapshot.currency)],
-                    ["חלק ממחזור האתר", percent(selected.snapshot.totals.attributedShare)],
-                    ["קמפיינים", money(selected.snapshot.totals.campaignRevenue, selected.snapshot.currency)],
-                    ["אוטומציות", money(selected.snapshot.totals.automationRevenue, selected.snapshot.currency)],
-                  ].map(([label, value]) => <div key={label} className="bg-white p-4"><span className="text-xs text-[#667085]">{label}</span><strong className="mt-2 block text-2xl font-bold tabular-nums text-[#080123]">{value}</strong></div>)}
-                </div>
-                <div className="mt-7 grid gap-8 lg:grid-cols-2">
-                  <div>
-                    <h3 className="mb-4 text-sm font-bold text-[#111318]">פירוק ההכנסות</h3>
-                    <div className="space-y-4">{channels.map((item) => <RevenueBar key={item.label} {...item} total={selected.snapshot.totals.attributedRevenue} currency={selected.snapshot.currency} />)}</div>
-                    {selected.snapshot.previousMonth && <div className="mt-5 flex items-center justify-between border-t border-[#e4e7ec] pt-4 text-sm"><span className="text-[#667085]">לעומת {monthLabel(selected.snapshot.previousMonth.month)}</span><strong className={selected.snapshot.previousMonth.revenueChange !== null && selected.snapshot.previousMonth.revenueChange >= 0 ? "text-[#087f72]" : "text-[#b42318]"}>{percent(selected.snapshot.previousMonth.revenueChange)}</strong></div>}
+                <section className="overflow-hidden rounded-lg bg-[#080123] text-white">
+                  <div className="grid gap-6 p-5 md:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.6fr)] md:p-7">
+                    <div>
+                      <p className="text-xs font-medium text-white/60">הכנסה שיוחסה לפעילות Flashy</p>
+                      <strong className="mt-2 block text-4xl font-bold tabular-nums sm:text-5xl">{money(selected.snapshot.totals.attributedRevenue, selected.snapshot.currency)}</strong>
+                      <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
+                        {selected.snapshot.previousMonth?.revenueChange !== null && selected.snapshot.previousMonth && <span className={`inline-flex items-center gap-1 rounded px-2 py-1 font-bold ${selected.snapshot.previousMonth.revenueChange >= 0 ? "bg-[#42dfcf] text-[#080123]" : "bg-[#ffe4e0] text-[#b42318]"}`}>
+                          {selected.snapshot.previousMonth.revenueChange >= 0 ? <ArrowUpLeft size={14} /> : <ArrowDownLeft size={14} />}{percent(Math.abs(selected.snapshot.previousMonth.revenueChange))}
+                        </span>}
+                        {selected.snapshot.previousMonth && <span className="text-white/60">לעומת {monthLabel(selected.snapshot.previousMonth.month)}</span>}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md bg-white/15">
+                      <div className="bg-white/8 p-3"><span className="text-[11px] text-white/60">מכירות</span><strong className="mt-1 block text-xl tabular-nums">{number(selected.snapshot.totals.purchases)}</strong></div>
+                      <div className="bg-white/8 p-3"><span className="text-[11px] text-white/60">מהמחזור באתר</span><strong className="mt-1 block text-xl tabular-nums">{percent(selected.snapshot.totals.attributedShare)}</strong></div>
+                      <div className="bg-white/8 p-3"><span className="text-[11px] text-white/60">קמפיינים</span><strong className="mt-1 block text-lg tabular-nums">{money(selected.snapshot.totals.campaignRevenue, selected.snapshot.currency)}</strong></div>
+                      <div className="bg-white/8 p-3"><span className="text-[11px] text-white/60">אוטומציות</span><strong className="mt-1 block text-lg tabular-nums">{money(selected.snapshot.totals.automationRevenue, selected.snapshot.currency)}</strong></div>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="mb-4 text-sm font-bold text-[#111318]">פעילות</h3>
-                    <dl className="grid grid-cols-2 gap-3">
-                      <div className="border-b border-[#e4e7ec] pb-3"><dt className="text-xs text-[#667085]">מכירות</dt><dd className="mt-1 text-xl font-bold">{number(selected.snapshot.totals.purchases)}</dd></div>
-                      <div className="border-b border-[#e4e7ec] pb-3"><dt className="text-xs text-[#667085]">דוחות שנכללו</dt><dd className="mt-1 text-xl font-bold">{number(selected.snapshot.source.emailReports + selected.snapshot.source.smsReports + selected.snapshot.source.automationReports)}</dd></div>
-                      <div className="border-b border-[#e4e7ec] pb-3"><dt className="text-xs text-[#667085]">נרשמי Popup</dt><dd className="mt-1 text-xl font-bold">{selected.snapshot.popup.signups === null ? "—" : number(selected.snapshot.popup.signups)}</dd></div>
-                      <div className="border-b border-[#e4e7ec] pb-3"><dt className="text-xs text-[#667085]">המרת Popup</dt><dd className="mt-1 text-xl font-bold">{percent(selected.snapshot.popup.conversionRate)}</dd></div>
+                </section>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  {channels.map((channel) => <div key={channel.label} className="rounded-lg border border-[#e4e7ec] bg-white p-4">
+                    <div className="flex items-center justify-between gap-3"><span className="flex items-center gap-2 text-xs font-bold text-[#475467]"><i className="size-2.5 rounded-sm" style={{ backgroundColor: channel.color }} />{channel.label}</span><span className="text-[11px] tabular-nums text-[#667085]">{percent(selected.snapshot.totals.attributedRevenue > 0 ? channel.revenue / selected.snapshot.totals.attributedRevenue : null)}</span></div>
+                    <strong className="mt-3 block text-2xl tabular-nums text-[#080123]">{money(channel.revenue, selected.snapshot.currency)}</strong>
+                    <div className="mt-2 flex items-center gap-3 text-xs text-[#667085]"><span>{number(channel.purchases)} מכירות</span><span>המרה {percent(channel.conversionRate)}</span></div>
+                  </div>)}
+                </div>
+
+                <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(260px,0.55fr)]">
+                  <SummaryRevenueVisualization segments={channels} currency={selected.snapshot.currency} />
+                  <section className="rounded-lg border border-[#e4e7ec] bg-white p-4 md:p-5">
+                    <h3 className="text-sm font-bold">תמונת פעילות</h3>
+                    <p className="mt-1 text-xs text-[#667085]">היקף הפעילות שנכלל בסיכום</p>
+                    <dl className="mt-5 space-y-4">
+                      <div className="flex items-center justify-between border-b border-[#eef1f4] pb-4"><dt className="flex items-center gap-2 text-sm text-[#667085]"><ShoppingBag size={16} /> מכירות</dt><dd className="text-xl font-bold tabular-nums">{number(selected.snapshot.totals.purchases)}</dd></div>
+                      <div className="flex items-center justify-between border-b border-[#eef1f4] pb-4"><dt className="flex items-center gap-2 text-sm text-[#667085]"><LayoutList size={16} /> דוחות שנכללו</dt><dd className="text-xl font-bold tabular-nums">{number(selected.snapshot.source.emailReports + selected.snapshot.source.smsReports + selected.snapshot.source.automationReports)}</dd></div>
+                      <div className="rounded-md bg-[#ecfdf9] p-3"><div className="flex items-center justify-between"><dt className="text-xs text-[#087f72]">נרשמי Popup</dt><dd className="text-lg font-bold tabular-nums text-[#065f55]">{selected.snapshot.popup.signups === null ? "—" : number(selected.snapshot.popup.signups)}</dd></div><div className="mt-2 flex items-center justify-between"><dt className="text-xs text-[#087f72]">יחס המרה</dt><dd className="text-sm font-bold tabular-nums text-[#065f55]">{percent(selected.snapshot.popup.conversionRate)}</dd></div></div>
                     </dl>
-                  </div>
+                  </section>
                 </div>
-                <div className="mt-8 grid gap-6 lg:grid-cols-3">
-                  {[
-                    ["מיילים מובילים", selected.snapshot.leaders.emailCampaigns],
-                    ["SMS מובילים", selected.snapshot.leaders.smsCampaigns],
-                    ["אוטומציות מובילות", selected.snapshot.leaders.automations],
-                  ].map(([title, items]) => <div key={title as string}><h3 className="mb-3 text-sm font-bold">{title as string}</h3><ol className="space-y-3">{(items as MonthlySummarySnapshot["leaders"]["emailCampaigns"]).map((item, index) => <li key={item.id} className="flex items-start gap-3 border-b border-[#eef1f4] pb-3"><span className="grid size-6 shrink-0 place-items-center rounded-sm bg-[#f2f4f7] text-xs font-bold">{index + 1}</span><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium" title={item.name}>{item.name}</span><span className="mt-1 block text-xs tabular-nums text-[#667085]">{money(item.revenue, selected.snapshot.currency)} · {number(item.purchases)} מכירות</span></span></li>)}</ol></div>)}
+                <div className="mt-4 grid gap-4 lg:grid-cols-3">
+                  <SummaryLeaderboard title="מיילים מובילים" items={selected.snapshot.leaders.emailCampaigns} currency={selected.snapshot.currency} color="#24282f" />
+                  <SummaryLeaderboard title="SMS מובילים" items={selected.snapshot.leaders.smsCampaigns} currency={selected.snapshot.currency} color="#20b9a8" />
+                  <SummaryLeaderboard title="אוטומציות מובילות" items={selected.snapshot.leaders.automations} currency={selected.snapshot.currency} color="#6389d9" />
                 </div>
                 <p className="mt-7 border-t border-[#e4e7ec] pt-4 text-[11px] leading-5 text-[#667085]">{selected.snapshot.source.attributionNote}</p>
               </div>}
