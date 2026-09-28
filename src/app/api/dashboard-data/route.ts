@@ -4,6 +4,7 @@ import { getAccessContext, isAdminRole, isOwnerRole } from "@/lib/auth/access";
 import { isOwnerEmail } from "@/lib/auth/owner";
 import { roleCanConnectAccounts } from "@/lib/auth/access-policy";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
+import { campaignEngagementMetrics, rawString } from "@/lib/flashy-normalize";
 import { mapNewsletterPlanRows } from "@/lib/newsletter-plan";
 import { latestCampaignReports, latestAutomationReports } from "@/lib/report-identity";
 import {
@@ -266,41 +267,48 @@ export async function GET() {
         },
       ),
       emailReports: currentEmails.map(
-        (report): EmailCampaignReport => ({
-          id: report.id,
-          accountId: report.flashyAccountId ?? "",
-          campaignId: report.campaignId,
-          campaignName: report.campaignName ?? "קמפיין אימייל",
-          subjectLine: report.subjectLine ?? "",
-          sentAt: report.sentAt.toISOString(),
-          totalRecipients: report.totalRecipients,
-          totalDelivered: report.totalDelivered,
-          totalOpens: report.totalOpens,
-          uniqueClicks: toNumber((report.raw as Record<string, unknown>)?.unique_clicks),
-          totalClicks: report.totalClicks,
-          purchases: report.purchases,
-          revenueGenerated: toNumber(report.revenueGenerated),
-          totalBounces: 0,
-          unsubscribed: 0,
-          spam: 0,
-        }),
+        (report): EmailCampaignReport => {
+          const engagement = campaignEngagementMetrics(report.raw as Record<string, unknown>);
+          return {
+            id: report.id,
+            accountId: report.flashyAccountId ?? "",
+            campaignId: report.campaignId,
+            campaignName: report.campaignName ?? "קמפיין אימייל",
+            subjectLine: report.subjectLine ?? "",
+            sentAt: report.sentAt.toISOString(),
+            totalRecipients: report.totalRecipients,
+            totalDelivered: report.totalDelivered,
+            totalOpens: report.totalOpens,
+            uniqueClicks: engagement.uniqueClicks,
+            totalClicks: report.totalClicks,
+            purchases: report.purchases,
+            revenueGenerated: toNumber(report.revenueGenerated),
+            totalBounces: engagement.totalBounces,
+            unsubscribed: engagement.unsubscribed,
+            spam: engagement.spam,
+          };
+        },
       ),
       smsReports: currentSms.map(
-        (report): SmsCampaignReport => ({
-          id: report.id,
-          accountId: report.flashyAccountId ?? "",
-          campaignId: report.campaignId,
-          campaignName: report.campaignName ?? "קמפיין SMS",
-          messageText: String((report.raw as Record<string, unknown>)?.campaign_message ?? ""),
-          sentAt: report.sentAt.toISOString(),
-          totalRecipients: report.totalRecipients,
-          totalDelivered: report.totalDelivered,
-          uniqueClicks: toNumber((report.raw as Record<string, unknown>)?.unique_clicks),
-          totalClicks: report.totalClicks,
-          purchases: report.purchases,
-          revenueGenerated: toNumber(report.revenueGenerated),
-          unsubscribed: 0,
-        }),
+        (report): SmsCampaignReport => {
+          const raw = report.raw as Record<string, unknown>;
+          const engagement = campaignEngagementMetrics(raw);
+          return {
+            id: report.id,
+            accountId: report.flashyAccountId ?? "",
+            campaignId: report.campaignId,
+            campaignName: report.campaignName ?? "קמפיין SMS",
+            messageText: rawString(raw, ["campaign_message", "message", "message_text", "content", "body"]),
+            sentAt: report.sentAt.toISOString(),
+            totalRecipients: report.totalRecipients,
+            totalDelivered: report.totalDelivered,
+            uniqueClicks: engagement.uniqueClicks,
+            totalClicks: report.totalClicks,
+            purchases: report.purchases,
+            revenueGenerated: toNumber(report.revenueGenerated),
+            unsubscribed: engagement.unsubscribed,
+          };
+        },
       ),
       automationReports: currentAutomations.map(
         (report): AutomationReport => ({

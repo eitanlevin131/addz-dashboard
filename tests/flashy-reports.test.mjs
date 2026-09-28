@@ -12,7 +12,12 @@ const flashySource = (await readFile(new URL("../src/lib/flashy.ts", import.meta
 const { monthWindows, getFlashyReports } = await import(moduleUrl(flashySource));
 const timeUrl = moduleUrl(await readFile(new URL("../src/lib/report-time.ts", import.meta.url), "utf8"));
 const normalizeSource = (await readFile(new URL("../src/lib/flashy-normalize.ts", import.meta.url), "utf8")).replace('"@/lib/metrics"', JSON.stringify(metricsUrl)).replace('"@/lib/report-time"', JSON.stringify(timeUrl));
-const { normalizeAutomationReports, normalizeSmsReports } = await import(moduleUrl(normalizeSource));
+const {
+  campaignEngagementMetrics,
+  normalizeAutomationReports,
+  normalizeEmailReports,
+  normalizeSmsReports,
+} = await import(moduleUrl(normalizeSource));
 
 test("90-day windows cover every second once and no more than 30 calendar days", () => {
   const from = new Date("2026-06-09T12:45:00Z"), to = new Date("2026-09-07T12:45:00Z");
@@ -76,4 +81,36 @@ test("SMS message content survives report normalization", () => {
   }], "account", "Asia/Jerusalem");
 
   assert.equal(row.messageText, "הטקסט המלא שנשלח ללקוח");
+});
+
+test("campaign unsubscribe and engagement counters survive raw report mapping", () => {
+  const common = {
+    campaign_id: 42,
+    campaign_name: "מבצע בדיקה",
+    sent_date: "2026-09-24",
+    sent_time: "12:01:00",
+    total_recipients: 10_830,
+    total_delivered: 10_500,
+    unique_clicks: 320,
+    purchases: 15,
+    revenue_generated: 4_200,
+    unsubscribed: 15,
+    unsubscribe_rate: "0.14%",
+  };
+
+  assert.deepEqual(campaignEngagementMetrics({
+    ...common,
+    total_bounces: 12,
+    total_spam: 3,
+  }), {
+    uniqueClicks: 320,
+    totalBounces: 12,
+    unsubscribed: 15,
+    spam: 3,
+  });
+
+  const [email] = normalizeEmailReports([{ ...common, subject_line: "בדיקה" }], "account-1", "Asia/Jerusalem");
+  const [sms] = normalizeSmsReports([{ ...common, campaign_message: "בדיקה" }], "account-1", "Asia/Jerusalem");
+  assert.equal(email.unsubscribed, 15);
+  assert.equal(sms.unsubscribed, 15);
 });

@@ -30,6 +30,15 @@ export function rawNumber(row: RawFlashyRow, keys: string[]) {
   return 0;
 }
 
+export function campaignEngagementMetrics(row: RawFlashyRow) {
+  return {
+    uniqueClicks: rawNumber(row, ["unique_clicks"]),
+    totalBounces: rawNumber(row, ["total_bounces", "bounces"]),
+    unsubscribed: rawNumber(row, ["unsubscribed", "unsubscribes", "total_unsubscribed"]),
+    spam: rawNumber(row, ["total_spam", "spam"]),
+  };
+}
+
 export function rawDate(row: RawFlashyRow, _fallbackIndex: number, timezone = "UTC") {
   const timestamp = rawNumber(row, ["created_at", "timestamp", "sent_at"]);
   if (timestamp > 1_000_000_000) return new Date(timestamp * 1000).toISOString();
@@ -64,24 +73,27 @@ export function normalizeEmailReports(
   accountId: string,
   timezone = "UTC",
 ): EmailCampaignReport[] {
-  return rows.map((row, index) => ({
-    id: `${accountId}-email-${rawString(row, ["campaign_id"], String(index))}-${index}`,
-    accountId,
-    campaignId: rawNumber(row, ["campaign_id", "id"]) || index + 1,
-    campaignName: rawString(row, ["campaign_name", "name", "title"], `קמפיין אימייל ${index + 1}`),
-    subjectLine: rawString(row, ["subject_line", "subject"], "ללא שורת נושא"),
-    sentAt: rawDate(row, index, timezone),
-    totalRecipients: rawNumber(row, ["total_recipients", "recipients", "sent"]),
-    totalDelivered: rawNumber(row, ["total_delivered", "delivered"]),
-    totalOpens: rawNumber(row, ["total_opens", "opens"]),
-    uniqueClicks: rawNumber(row, ["unique_clicks"]),
-    totalClicks: rawNumber(row, ["total_clicks", "clicks"]),
-    purchases: rawNumber(row, ["purchases", "orders"]),
-    revenueGenerated: rawNumber(row, ["revenue_generated", "revenue"]),
-    totalBounces: rawNumber(row, ["total_bounces", "bounces"]),
-    unsubscribed: rawNumber(row, ["unsubscribed", "unsubscribes"]),
-    spam: rawNumber(row, ["total_spam", "spam"]),
-  }));
+  return rows.map((row, index) => {
+    const engagement = campaignEngagementMetrics(row);
+    return {
+      id: `${accountId}-email-${rawString(row, ["campaign_id"], String(index))}-${index}`,
+      accountId,
+      campaignId: rawNumber(row, ["campaign_id", "id"]) || index + 1,
+      campaignName: rawString(row, ["campaign_name", "name", "title"], `קמפיין אימייל ${index + 1}`),
+      subjectLine: rawString(row, ["subject_line", "subject"], "ללא שורת נושא"),
+      sentAt: rawDate(row, index, timezone),
+      totalRecipients: rawNumber(row, ["total_recipients", "recipients", "sent"]),
+      totalDelivered: rawNumber(row, ["total_delivered", "delivered"]),
+      totalOpens: rawNumber(row, ["total_opens", "opens"]),
+      uniqueClicks: engagement.uniqueClicks,
+      totalClicks: rawNumber(row, ["total_clicks", "clicks"]),
+      purchases: rawNumber(row, ["purchases", "orders"]),
+      revenueGenerated: rawNumber(row, ["revenue_generated", "revenue"]),
+      totalBounces: engagement.totalBounces,
+      unsubscribed: engagement.unsubscribed,
+      spam: engagement.spam,
+    };
+  });
 }
 
 export function normalizeSmsReports(
@@ -89,21 +101,24 @@ export function normalizeSmsReports(
   accountId: string,
   timezone = "UTC",
 ): SmsCampaignReport[] {
-  return rows.map((row, index) => ({
-    id: `${accountId}-sms-${rawString(row, ["campaign_id"], String(index))}-${index}`,
-    accountId,
-    campaignId: rawNumber(row, ["campaign_id", "id"]) || index + 1,
-    campaignName: rawString(row, ["campaign_name", "name", "title"], `קמפיין SMS ${index + 1}`),
-    messageText: rawString(row, ["campaign_message", "message", "message_text", "content", "body"]),
-    sentAt: rawDate(row, index, timezone),
-    totalRecipients: rawNumber(row, ["total_recipients", "recipients", "sent"]),
-    totalDelivered: rawNumber(row, ["total_delivered", "delivered"]),
-    uniqueClicks: rawNumber(row, ["unique_clicks"]),
-    totalClicks: rawNumber(row, ["total_clicks", "clicks"]),
-    purchases: rawNumber(row, ["purchases", "orders"]),
-    revenueGenerated: rawNumber(row, ["revenue_generated", "revenue"]),
-    unsubscribed: rawNumber(row, ["unsubscribed", "unsubscribes"]),
-  }));
+  return rows.map((row, index) => {
+    const engagement = campaignEngagementMetrics(row);
+    return {
+      id: `${accountId}-sms-${rawString(row, ["campaign_id"], String(index))}-${index}`,
+      accountId,
+      campaignId: rawNumber(row, ["campaign_id", "id"]) || index + 1,
+      campaignName: rawString(row, ["campaign_name", "name", "title"], `קמפיין SMS ${index + 1}`),
+      messageText: rawString(row, ["campaign_message", "message", "message_text", "content", "body"]),
+      sentAt: rawDate(row, index, timezone),
+      totalRecipients: rawNumber(row, ["total_recipients", "recipients", "sent"]),
+      totalDelivered: rawNumber(row, ["total_delivered", "delivered"]),
+      uniqueClicks: engagement.uniqueClicks,
+      totalClicks: rawNumber(row, ["total_clicks", "clicks"]),
+      purchases: rawNumber(row, ["purchases", "orders"]),
+      revenueGenerated: rawNumber(row, ["revenue_generated", "revenue"]),
+      unsubscribed: engagement.unsubscribed,
+    };
+  });
 }
 
 export function normalizeAutomationReports(
