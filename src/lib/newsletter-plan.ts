@@ -1,5 +1,5 @@
 import { newsletterPlanAssets, newsletterPlanCampaignMatches, newsletterPlans } from "@/lib/schema";
-import type { CampaignKind, Channel, NewsletterPlan, NewsletterPlanAsset, NewsletterPlanCampaignMatch, PlanStatus, PlannerChannel } from "@/lib/types";
+import type { CampaignKind, CampaignObjective, Channel, NewsletterPlan, NewsletterPlanAsset, NewsletterPlanCampaignMatch, PlanStatus, PlannerChannel } from "@/lib/types";
 
 export function mapNewsletterPlanAsset(asset: typeof newsletterPlanAssets.$inferSelect): NewsletterPlanAsset {
   return {
@@ -59,6 +59,9 @@ export function mapNewsletterPlanRow(
     audience: plan.audience ?? "",
     offer: plan.offer ?? "",
     cta: plan.cta ?? "",
+    objective: plan.objective as CampaignObjective | undefined,
+    learning: plan.learning ?? "",
+    learningUpdatedAt: plan.learningUpdatedAt?.toISOString(),
     couponCode: plan.couponCode ?? undefined,
     flashyUrl: plan.flashyUrl ?? undefined,
     assetUrl: plan.assetUrl ?? undefined,

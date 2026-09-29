@@ -316,6 +316,19 @@ test.describe("agency dashboard critical journey", () => {
     await expect(page.getByLabel("מתאריך", { exact: true })).toHaveValue("");
     await expect(page.getByLabel("עד תאריך", { exact: true })).toHaveValue("");
 
+    await page.getByRole("button", { name: "E2E launch campaign", exact: true }).click();
+    const actualResults = page.locator("section").filter({ hasText: "תוצאות בפועל" }).last();
+    await expect(actualResults.getByText("תוצאות בפועל", { exact: true })).toBeVisible();
+    await expect(actualResults).toContainText("8,400");
+    await page.getByLabel("מטרת הקמפיין", { exact: true }).selectOption("launch");
+    await page.getByLabel("מה למדנו", { exact: true }).fill("הצעה ישירה לקהל חוזר עבדה טוב יותר.");
+    await page.getByRole("button", { name: "שמור שינויים", exact: true }).click();
+    await expect(page.getByText("למידה שמורה", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "E2E launch campaign", exact: true }).click();
+    await expect(page.getByLabel("מטרת הקמפיין", { exact: true })).toHaveValue("launch");
+    await expect(page.getByLabel("מה למדנו", { exact: true })).toHaveValue("הצעה ישירה לקהל חוזר עבדה טוב יותר.");
+    await page.getByRole("button", { name: "סגירה", exact: true }).click();
+
     await page.getByRole("button", { name: "שאל את ה־AI", exact: true }).click();
     await page.getByPlaceholder("שאל שאלה על הנתונים...").fill("מה הנתון המרכזי בטווח?");
     const aiResponsePromise = page.waitForResponse((response) =>

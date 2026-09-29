@@ -114,6 +114,43 @@ test("AI summary exposes weighted campaign unsubscribe health", () => {
   assert.equal(source?.metrics.find((item) => item.key === "unsubscribeRate")?.value, 15 / 3000);
 });
 
+test("planner learning stays labeled as team interpretation beside measured campaign results", () => {
+  const plan = {
+    id: "plan-1",
+    clientId: "client-1",
+    accountId: account.id,
+    date: "2026-09-10",
+    channel: "email",
+    kind: "campaign",
+    status: "planned",
+    title: "Holiday launch",
+    owner: "",
+    notes: "",
+    brief: "Introduce the seasonal collection",
+    objective: "launch",
+    learning: "לקוחות חוזרים הגיבו טוב יותר להצעה הישירה.",
+    campaignMatches: [{ channel: "email", campaignId: 11, matchingDisabled: false }],
+  };
+  const catalog = buildAiEvidenceCatalog({
+    account,
+    summary,
+    emails: [email],
+    sms: [],
+    automations: [],
+    plans: [plan],
+    question: "מה למדנו מהגאנט?",
+    currentView: "planner",
+  });
+  const source = catalog.find((item) => item.id === "plan:plan-1");
+
+  assert.ok(source);
+  assert.match(source.subtitle, /השקה/);
+  assert.match(source.content, /למידת צוות לאחר הביצוע/);
+  assert.equal(source.metrics.find((item) => item.key === "revenue")?.value, 2500);
+  assert.equal(source.metrics.find((item) => item.key === "purchases")?.value, 5);
+  assert.equal(source.metrics.find((item) => item.key === "openRate")?.value, 500 / 980);
+});
+
 test("grounded AI output cannot cite a source that is not in the catalog", () => {
   const catalog = buildAiEvidenceCatalog({
     account,

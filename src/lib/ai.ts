@@ -15,6 +15,11 @@ import type {
   NewsletterPlan,
   SmsCampaignReport,
 } from "./types";
+import {
+  campaignObjectiveLabel,
+  matchedReportsForPlan,
+  summarizePlannerReports,
+} from "./planner-learning";
 import { findUnsupportedSubjectClaims, isCausalSubjectPattern, type SubjectLineEvidence } from "./subject-line-analysis";
 import { preservesMonthlyCopyNumbers } from "./monthly-summary";
 
@@ -74,6 +79,13 @@ export type AiContextPack = {
   planning: {
     total: number;
     next: { date: string | null; title: string; channel: string; status: string }[];
+    learned: {
+      title: string;
+      objective: string;
+      learning: string;
+      revenue: number;
+      purchases: number;
+    }[];
   };
   memory: AiAccountMemory;
 };
@@ -355,6 +367,20 @@ export function buildAiContextPack(input: {
           channel: plan.channel,
           status: plan.status,
         })),
+      learned: plans
+        .filter((plan) => Boolean(plan.learning))
+        .sort((left, right) => (right.learningUpdatedAt ?? right.date ?? "").localeCompare(left.learningUpdatedAt ?? left.date ?? ""))
+        .slice(0, 12)
+        .map((plan) => {
+          const results = summarizePlannerReports(matchedReportsForPlan(plan, emails, sms));
+          return {
+            title: plan.title,
+            objective: campaignObjectiveLabel(plan.objective),
+            learning: plan.learning ?? "",
+            revenue: results.revenue,
+            purchases: results.purchases,
+          };
+        }),
     },
     memory: {
       ...memory,

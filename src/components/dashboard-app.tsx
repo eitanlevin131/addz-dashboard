@@ -73,6 +73,11 @@ import {
   type PlanCampaignMatch,
   type PlannerCampaignReport,
 } from "@/lib/planner-match";
+import {
+  campaignObjectiveLabel,
+  campaignObjectives,
+  summarizePlannerReports,
+} from "@/lib/planner-learning";
 import { accountDate, accountLocalTimestamp, reportRange, reportDateInstant } from "@/lib/report-time";
 import { canonicalPortfolioAccounts } from "@/lib/portfolio";
 import {
@@ -113,6 +118,7 @@ import {
 } from "@/lib/flashy-normalize";
 import type {
   AutomationReport,
+  CampaignObjective,
   Channel,
   Client,
   EmailCampaignReport,
@@ -3726,6 +3732,11 @@ function PlannerTableSection({
                         {row.confidence > 0 ? ` · ${formatPercent(row.confidence)}` : ""}
                       </span>
                     )}
+                    {row.plan?.learning && (
+                      <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-[#6b5b00]">
+                        <Lightbulb size={12} />למידה שמורה
+                      </span>
+                    )}
                   </td>
                   <td className="whitespace-nowrap border-l border-[#e8ebef] px-3 py-3">
                     <span className={classNames(
@@ -3818,6 +3829,8 @@ function Planner({
     audience: "",
     offer: "",
     cta: "",
+    objective: "" as CampaignObjective | "",
+    learning: "",
     couponCode: "",
   };
   const [draft, setDraft] = useState({
@@ -3852,6 +3865,8 @@ function Planner({
     ? planMatching.matches.filter((item) => item.plan.id === editingPlanId)
     : [];
   const editingPlan = editingPlanId ? plans.find((item) => item.id === editingPlanId) : undefined;
+  const editingReports = editingMatches.flatMap((item) => item.report ? [item.report] : []);
+  const editingResults = summarizePlannerReports(editingReports);
   const editingSlotStored = editingPlan?.campaignMatches?.find((item) => item.channel === editingMatchChannel);
   const schedulingConflicts = draft.date
     ? plans.filter((item) => item.id !== editingPlanId && item.date === draft.date)
@@ -3977,6 +3992,8 @@ function Planner({
       audience: plan.audience ?? "",
       offer: plan.offer ?? "",
       cta: plan.cta ?? "",
+      objective: plan.objective ?? "",
+      learning: plan.learning ?? "",
       couponCode: plan.couponCode ?? "",
     });
     setEditingMatchChannel(plan.channel === "sms" ? "sms" : "email");
@@ -4023,6 +4040,7 @@ function Planner({
       time: "",
       status: "draft",
       title: `${current.title} - עותק`,
+      learning: "",
     }));
     setPendingFiles([]);
     setPendingLinks([]);
@@ -4138,6 +4156,8 @@ function Planner({
       audience: draft.audience.trim(),
       offer: draft.offer.trim(),
       cta: draft.cta.trim(),
+      objective: draft.objective || undefined,
+      learning: draft.learning.trim() || undefined,
       time: draft.date && draft.time ? draft.time : undefined,
       couponCode: draft.couponCode.trim() || undefined,
       assets: editingPlanId ? plans.find((item) => item.id === editingPlanId)?.assets ?? [] : [],
@@ -4531,6 +4551,12 @@ function Planner({
               <section className="space-y-4">
                 <label className="block text-sm font-bold text-[#344054]">שם הקמפיין<input autoFocus value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="לדוגמה: מבצע ראש השנה" className="mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] px-3 text-sm outline-none focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20" /></label>
                 <label className="block text-sm font-bold text-[#344054]">בריף<textarea value={draft.brief} onChange={(event) => setDraft((current) => ({ ...current, brief: event.target.value }))} placeholder="מה המסר, מה מציעים ומה חשוב שיופיע בקמפיין?" className="mt-2 min-h-32 w-full rounded-lg border border-[#d0d5dd] p-3 text-sm leading-6 outline-none focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20" /></label>
+                <label className="block text-sm font-bold text-[#344054]">מטרת הקמפיין
+                  <select aria-label="מטרת הקמפיין" value={draft.objective} onChange={(event) => setDraft((current) => ({ ...current, objective: event.target.value as CampaignObjective | "" }))} className="mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] bg-white px-3 text-sm outline-none focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20">
+                    <option value="">בחרו מטרה</option>
+                    {campaignObjectives.map((objective) => <option key={objective.value} value={objective.value}>{objective.label}</option>)}
+                  </select>
+                </label>
                 <div><p className="text-sm font-bold text-[#344054]">ערוץ</p><div className="mt-2 grid grid-cols-3 gap-2">{([['email','אימייל'],['sms','SMS'],['mixed','מייל + SMS']] as const).map(([value,label]) => <button key={value} type="button" aria-pressed={draft.channel === value} onClick={() => { setDraft((current) => ({ ...current, channel: value })); setEditingMatchChannel(value === 'sms' ? 'sms' : 'email'); }} className={classNames("h-10 rounded-lg border text-xs font-bold transition", draft.channel === value ? "border-[#080123] bg-[#080123] text-white" : "border-[#d0d5dd] bg-white text-[#475467] hover:border-[#98a2b3]")}>{label}</button>)}</div></div>
               </section>
 
@@ -4574,11 +4600,39 @@ function Planner({
                 </section>
               )}
 
+              {editingReports.length > 0 && (
+                <section className="overflow-hidden rounded-xl border border-[#b7eadf] bg-white">
+                  <header className="flex items-start justify-between gap-3 border-b border-[#d9f3ed] bg-[#f1fbf8] px-4 py-3">
+                    <div>
+                      <div className="flex items-center gap-2 text-sm font-bold text-[#111318]"><TrendingUp size={16} className="text-[#087f72]" />תוצאות בפועל</div>
+                      <p className="mt-1 text-xs text-[#667085]">{campaignObjectiveLabel(draft.objective || undefined)} · {editingResults.reportCount} {editingResults.reportCount === 1 ? "קמפיין מחובר" : "קמפיינים מחוברים"}</p>
+                    </div>
+                    <span className="rounded-sm bg-white px-2 py-1 text-[11px] font-bold text-[#087f72]">Flashy API</span>
+                  </header>
+                  <div className="grid grid-cols-2 gap-px bg-[#e4e7ec] sm:grid-cols-3">
+                    {[
+                      ["הכנסה", formatCurrency(editingResults.revenue, account.currency)],
+                      ["רכישות", formatNumber(editingResults.purchases)],
+                      ["יחס המרה", editingResults.conversionRate === null ? "—" : formatPercent(editingResults.conversionRate)],
+                      ["פתיחה", editingResults.openRate === null ? "—" : formatPercent(editingResults.openRate)],
+                      ["הקלקה", editingResults.clickRate === null ? "—" : formatPercent(editingResults.clickRate)],
+                      ["הסרה", editingResults.unsubscribeRate === null ? "—" : formatPercent(editingResults.unsubscribeRate)],
+                    ].map(([label, value]) => <div key={label} className="bg-white px-3 py-3"><p className="text-[11px] text-[#667085]">{label}</p><p className="mt-1 text-base font-black tabular-nums text-[#111318]">{value}</p></div>)}
+                  </div>
+                  <div className="p-4">
+                    <label className="block text-sm font-bold text-[#344054]">מה למדנו
+                      <textarea aria-label="מה למדנו" value={draft.learning} onChange={(event) => setDraft((current) => ({ ...current, learning: event.target.value }))} maxLength={4000} placeholder="לדוגמה: המבצע עבד טוב יותר לקהל חוזר; בפעם הבאה נשמור את אותה הצעה ונבדוק שורת נושא ישירה יותר." className="mt-2 min-h-28 w-full rounded-lg border border-[#d0d5dd] p-3 text-sm leading-6 outline-none focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20" />
+                    </label>
+                    <p className="mt-2 text-[11px] leading-5 text-[#667085]">הלמידה נשמרת כפרשנות צוות בנפרד מנתוני Flashy, ונכנסת להקשר של סוכן ה־AI יחד עם המספרים שמעל.</p>
+                  </div>
+                </section>
+              )}
+
               {saveState && <p role="status" className="rounded-lg bg-[#f2f4f7] px-3 py-2 text-xs font-semibold text-[#475467]">{saveState}</p>}
               <div className="flex flex-col gap-2 border-t border-[#e4e7ec] pt-4 sm:flex-row sm:flex-wrap">
                 <button type="button" disabled={assetBusy} onClick={() => void savePlan(false)} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#080123] px-5 text-sm font-bold text-white disabled:opacity-50"><CheckCircle2 size={16} />{editingPlanId ? 'שמור שינויים' : draft.date ? 'שמור בגאנט' : 'שמור כבריף'}</button>
                 {!editingPlanId && <button type="button" disabled={assetBusy} onClick={() => void savePlan(true)} className="h-11 rounded-lg border border-[#d0d5dd] px-4 text-sm font-bold text-[#344054]">שמור והוסף נוסף</button>}
-                {editingPlanId && <button type="button" onClick={duplicatePlan} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-[#d0d5dd] px-4 text-sm font-bold text-[#344054]"><Copy size={15} />שכפל כבריף</button>}
+                {editingPlanId && <button type="button" onClick={duplicatePlan} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-[#d0d5dd] px-4 text-sm font-bold text-[#344054]"><Copy size={15} />{editingResults.revenue > 0 ? "צור וריאציה חדשה" : "שכפל כבריף"}</button>}
                 {editingPlanId && !editingMatches.some((item) => item.report) && <button type="button" onClick={deletePlan} className="mr-auto inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-red-200 px-4 text-sm font-bold text-red-700"><Trash2 size={15} />מחק</button>}
               </div>
             </div>

@@ -8,6 +8,11 @@ import type {
 } from "./types";
 import { campaignTiming, weekdayLabels } from "./report-chart-data.ts";
 import { summarizeCampaignListHealth } from "./metrics.ts";
+import {
+  campaignObjectiveLabel,
+  matchedReportsForPlan,
+  summarizePlannerReports,
+} from "./planner-learning.ts";
 
 export type AiReportView = "overview" | "campaigns" | "sms" | "automations" | "planner" | "ai";
 
@@ -232,16 +237,30 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
       ],
     };
   });
-  const planSources = input.plans.map((item): AiEvidenceSource => ({
-    id: `plan:${item.id}`,
-    kind: "plan",
-    entityId: item.id,
-    reportView: "planner",
-    title: item.title,
-    subtitle: `גאנט · ${item.channel.toUpperCase()} · ${item.status}`,
-    date: item.date ?? undefined,
-    metrics: [],
-  }));
+  const planSources = input.plans.map((item): AiEvidenceSource => {
+    const results = summarizePlannerReports(matchedReportsForPlan(item, input.emails, input.sms));
+    return {
+      id: `plan:${item.id}`,
+      kind: "plan",
+      entityId: item.id,
+      reportView: "planner",
+      title: item.title,
+      subtitle: `גאנט · ${campaignObjectiveLabel(item.objective)} · ${item.channel.toUpperCase()} · ${item.status}`,
+      content: [
+        item.brief ? `בריף מתוכנן: ${item.brief}` : "",
+        item.learning ? `למידת צוות לאחר הביצוע: ${item.learning}` : "",
+      ].filter(Boolean).join("\n") || undefined,
+      date: item.date ?? undefined,
+      metrics: results.reportCount ? [
+        metric("revenue", "הכנסה בפועל", results.revenue, money(results.revenue, currency)),
+        metric("purchases", "רכישות בפועל", results.purchases, number(results.purchases)),
+        metric("conversionRate", "יחס המרה", results.conversionRate, results.conversionRate === null ? "לא זמין" : percent(results.conversionRate)),
+        metric("openRate", "שיעור פתיחה", results.openRate, results.openRate === null ? "לא זמין" : percent(results.openRate)),
+        metric("clickRate", "שיעור הקלקה", results.clickRate, results.clickRate === null ? "לא זמין" : percent(results.clickRate)),
+        metric("unsubscribeRate", "שיעור הסרה", results.unsubscribeRate, results.unsubscribeRate === null ? "לא זמין" : percent(results.unsubscribeRate)),
+      ] : [],
+    };
+  });
   const documentSources = (input.documents ?? []).map((item, index): AiEvidenceSource => ({
     id: `document:${index}`,
     kind: "document",

@@ -4,6 +4,8 @@ export type Channel = "email" | "sms";
 
 export type PlannerChannel = Channel | "mixed";
 
+export type CampaignObjective = "revenue" | "launch" | "restock" | "content" | "retention" | "other";
+
 export type CampaignKind = "campaign" | "automation";
 
 export type PlanStatus = "planned" | "postponed" | "draft" | "ready" | "approved" | "sent";
@@ -188,6 +190,9 @@ export interface NewsletterPlan {
   audience?: string;
   offer?: string;
   cta?: string;
+  objective?: CampaignObjective;
+  learning?: string;
+  learningUpdatedAt?: string;
   couponCode?: string;
   flashyUrl?: string;
   assetUrl?: string;

@@ -6,6 +6,7 @@ import { assertClientAccess, getAccessContext, isAdminRole } from "@/lib/auth/ac
 import { newsletterPlans as demoNewsletterPlans } from "@/lib/demo-data";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { mapNewsletterPlanRow, mapNewsletterPlanRows } from "@/lib/newsletter-plan";
+import { isCampaignObjective } from "@/lib/planner-learning";
 import { emailCampaignReports, newsletterPlanAssets, newsletterPlanCampaignMatches, newsletterPlans, smsCampaignReports } from "@/lib/schema";
 
 const matchActions = new Set(["match", "confirm", "unmatch", "resume"]);
@@ -70,6 +71,9 @@ export async function POST(request: Request) {
     audience: String(body.audience ?? "").trim(),
     offer: String(body.offer ?? "").trim(),
     cta: String(body.cta ?? "").trim(),
+    objective: isCampaignObjective(body.objective) ? body.objective : null,
+    learning: null,
+    learningUpdatedAt: null,
     couponCode: body.couponCode ? String(body.couponCode).trim() : null,
     flashyUrl: body.flashyUrl ? String(body.flashyUrl) : null,
     assetUrl: body.assetUrl ? String(body.assetUrl) : null,
@@ -268,6 +272,8 @@ export async function PATCH(request: Request) {
     audience: String(body.audience ?? "").trim(),
     offer: String(body.offer ?? "").trim(),
     cta: String(body.cta ?? "").trim(),
+    objective: isCampaignObjective(body.objective) ? body.objective : null,
+    learning: String(body.learning ?? "").trim().slice(0, 4000) || null,
     couponCode: body.couponCode ? String(body.couponCode).trim() : null,
     flashyUrl: body.flashyUrl ? String(body.flashyUrl) : null,
     assetUrl: body.assetUrl ? String(body.assetUrl) : null,
@@ -283,13 +289,40 @@ export async function PATCH(request: Request) {
   if (!["email", "sms", "mixed"].includes(plan.channel)) {
     return NextResponse.json({ success: false, message: "ערוץ הקמפיין אינו תקין." }, { status: 400 });
   }
+  if (plan.learning && existing.channel !== plan.channel) {
+    return NextResponse.json(
+      { success: false, message: "שינוי ערוץ מבטל את ההתאמה הקיימת. מחקו קודם את הלמידה או שמרו את הערוץ הנוכחי." },
+      { status: 409 },
+    );
+  }
+
+  if (plan.learning && existing.matchedCampaignId === null) {
+    const savedMatch = await db.select({ id: newsletterPlanCampaignMatches.id })
+      .from(newsletterPlanCampaignMatches)
+      .where(and(
+        eq(newsletterPlanCampaignMatches.newsletterPlanId, existing.id),
+        isNotNull(newsletterPlanCampaignMatches.campaignId),
+      ))
+      .limit(1)
+      .then((rows) => rows[0]);
+    if (!savedMatch) {
+      return NextResponse.json({ success: false, message: "אפשר לשמור למידה רק אחרי התאמה לקמפיין שנשלח." }, { status: 409 });
+    }
+  }
+
   if (existing.channel !== plan.channel) {
     await db.delete(newsletterPlanCampaignMatches).where(eq(newsletterPlanCampaignMatches.newsletterPlanId, existing.id));
   }
 
+  const learningChanged = (existing.learning ?? "") !== (plan.learning ?? "");
+
   const [updated] = await db
     .update(newsletterPlans)
-    .set({ ...plan, updatedAt: new Date() })
+    .set({
+      ...plan,
+      learningUpdatedAt: learningChanged ? new Date() : existing.learningUpdatedAt,
+      updatedAt: new Date(),
+    })
     .where(eq(newsletterPlans.id, id))
     .returning();
 
@@ -304,6 +337,15 @@ export async function PATCH(request: Request) {
     db.select().from(newsletterPlanCampaignMatches).where(eq(newsletterPlanCampaignMatches.newsletterPlanId, updated.id)),
     db.select().from(newsletterPlanAssets).where(eq(newsletterPlanAssets.newsletterPlanId, updated.id)),
   ]);
+  if (learningChanged) {
+    await recordAudit({
+      actorUserId: accessContext.access.userId,
+      action: "planner.learning.updated",
+      entityType: "newsletter_plan",
+      entityId: id,
+      metadata: { objective: plan.objective, hasLearning: Boolean(plan.learning) },
+    });
+  }
   return NextResponse.json({
     success: true,
     data: mapNewsletterPlanRow(updated, matches, assets),
