@@ -1,10 +1,9 @@
 import { inflateRawSync } from "node:zlib";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/access";
+import { DOCUMENT_UPLOAD_MAX_BYTES, DOCUMENT_UPLOAD_MAX_LABEL } from "@/lib/document-upload";
 
 export const runtime = "nodejs";
-
-const MAX_FILE_SIZE = 5 * 1024 * 1024;
 
 function cleanText(text: string) {
   return text
@@ -116,15 +115,24 @@ function extractPdf(buffer: Buffer) {
 export async function POST(request: Request) {
   const context = await requireAdmin();
   if (!context.ok) return context.response;
-  const formData = await request.formData();
+  const formData = await request.formData().catch(() => null);
+  if (!formData) {
+    return NextResponse.json(
+      { success: false, message: "הבקשה להעלאת המסמך אינה תקינה." },
+      { status: 400 },
+    );
+  }
   const file = formData.get("file");
 
   if (!(file instanceof File)) {
     return NextResponse.json({ success: false, message: "לא התקבל קובץ." }, { status: 400 });
   }
 
-  if (file.size > MAX_FILE_SIZE) {
-    return NextResponse.json({ success: false, message: "הקובץ גדול מדי. עד 5MB." }, { status: 413 });
+  if (file.size > DOCUMENT_UPLOAD_MAX_BYTES) {
+    return NextResponse.json(
+      { success: false, message: `המסמך גדול מדי. אפשר להעלות קובץ עד ${DOCUMENT_UPLOAD_MAX_LABEL}.` },
+      { status: 413 },
+    );
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
