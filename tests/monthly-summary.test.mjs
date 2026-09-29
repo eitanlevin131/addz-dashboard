@@ -84,6 +84,7 @@ test("monthly summary separates channels, groups automations and compares prior 
   assert.equal(snapshot.listHealth?.total.unsubscribeRate, 15 / 1500);
   assert.equal(snapshot.listHealth?.previousMonthRate, 2 / 1000);
   assert.deepEqual(snapshot.completeness.missing, []);
+  assert.equal(snapshot.completeness.ready, true);
 });
 
 test("WhatsApp copy uses only available facts and can include the protected link", () => {
@@ -97,6 +98,7 @@ test("WhatsApp copy uses only available facts and can include the protected link
   assert.match(text, /https:\/\/dashboard\.example\/summaries\/123/);
   assert.doesNotMatch(text, /פופ אפ/);
   assert.ok(snapshot.completeness.missing.includes("מחזור אתר"));
+  assert.equal(snapshot.completeness.ready, false);
 });
 
 test("share links are replaced per environment instead of freezing localhost", () => {

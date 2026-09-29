@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { syncPersistedFlashyAccount } from "@/lib/flashy-sync";
 import { flashyAccounts } from "@/lib/schema";
+import { sendSyncAlertEmail, type SyncAlertAccount } from "@/lib/sync-alert";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -44,6 +45,7 @@ export async function GET(request: Request) {
     success: boolean;
     skipped?: boolean;
     message: string;
+    warnings?: string[];
     imported?: { emailCampaigns: number; smsCampaigns: number; automations: number };
   }> = [];
 
@@ -56,6 +58,7 @@ export async function GET(request: Request) {
         success: true,
         skipped: result.skipped,
         message: result.message,
+        warnings: result.completeness?.warnings ?? [],
         imported: result.imported,
       });
     } catch (error) {
@@ -69,6 +72,18 @@ export async function GET(request: Request) {
   }
 
   const failed = results.filter((result) => !result.success);
+  const alertAccounts: SyncAlertAccount[] = [];
+  for (const result of results) {
+    if (!result.success) {
+      alertAccounts.push({ accountName: result.accountName, status: "failed", message: result.message, warnings: [] });
+      continue;
+    }
+    if (result.warnings?.length) {
+      alertAccounts.push({ accountName: result.accountName, status: "warning", message: result.message, warnings: result.warnings });
+    }
+  }
+  const origin = (process.env.AUTH_URL || process.env.NEXTAUTH_URL || new URL(request.url).origin).replace(/\/$/, "");
+  const alert = await sendSyncAlertEmail(alertAccounts, origin);
   return NextResponse.json(
     {
       success: failed.length === 0,
@@ -77,6 +92,8 @@ export async function GET(request: Request) {
       lookbackDays,
       accounts: accounts.length,
       failed: failed.length,
+      warnings: alertAccounts.filter((account) => account.status === "warning").length,
+      alert,
       results,
     },
     { status: failed.length ? 500 : 200 },

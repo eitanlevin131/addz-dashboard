@@ -1,15 +1,16 @@
 # Product Backlog
 
-## Monthly summaries - closure before broad client rollout
+## Monthly summaries - production validation
 
-- Validate one complete month against Flashy for revenue, purchases, campaigns, automations, and leaders.
-- Make missing site revenue and Popup inputs explicit before approval or delivery.
-- Tighten the workflow from draft to preview, approval, and delivery, including editable client copy.
-- Verify real email delivery, WhatsApp copy, and the client-facing interactive share link.
-- Add end-to-end coverage for generation, persistence, approval, sharing, permissions, and delivery.
-- Complete responsive RTL QA for desktop and mobile, including long campaign names and sparse-data accounts.
+The release-hardening workflow is implemented: required inputs block approval, drafts stay private,
+approved reports are available to assigned clients, email subject and opening copy are editable, and
+generation, approval, WhatsApp sharing, email delivery, permissions, list-health data, and mobile RTL
+rendering are covered by end-to-end tests.
 
-These items are release-hardening work. They do not block improving the planner first.
+Remaining operational checks:
+
+- Validate one complete production month against Flashy for revenue, purchases, campaigns, automations, and leaders.
+- Send one production email through the verified Resend domain and open its interactive report link as the assigned client.
 
 ## Planner - campaign creation workflow
 

@@ -7,6 +7,8 @@ import {
   BarChart3,
   Check,
   CheckCircle2,
+  CircleAlert,
+  CircleCheck,
   Clipboard,
   Copy,
   Donut,
@@ -192,6 +194,7 @@ export function MonthlySummaryDashboard({
   const [selected, setSelected] = useState<SummaryRecord | null>(null);
   const [tab, setTab] = useState<"report" | "whatsapp" | "email">("report");
   const [whatsappText, setWhatsappText] = useState("");
+  const [emailSubject, setEmailSubject] = useState("");
   const [recipientText, setRecipientText] = useState("");
   const [suggestedRecipients, setSuggestedRecipients] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -207,6 +210,7 @@ export function MonthlySummaryDashboard({
       : String(summary.manualInputs.popupConversionRate * 100));
     setNote(summary.internalNote);
     setWhatsappText(summary.whatsappText);
+    setEmailSubject(summary.emailSubject);
   }, []);
 
   const loadSummaries = useCallback(async () => {
@@ -252,6 +256,30 @@ export function MonthlySummaryDashboard({
     { label: "אוטומציות", shortLabel: "אוטומציות", revenue: selected.snapshot.automations.revenue, purchases: selected.snapshot.automations.purchases, conversionRate: selected.snapshot.automations.conversionRate, color: "#6389d9" },
   ] : [], [selected]);
 
+  const approvalChecks = useMemo(() => {
+    if (!selected) return [];
+    const snapshot = selected.snapshot;
+    return [
+      {
+        label: "נתוני Flashy עדכניים",
+        ready: snapshot.completeness.warnings.length === 0,
+        detail: snapshot.completeness.warnings.join(" ") || `${snapshot.source.emailReports + snapshot.source.smsReports + snapshot.source.automationReports} דוחות נכללו`,
+      },
+      {
+        label: "מחזור האתר",
+        ready: snapshot.totals.siteRevenue !== null,
+        detail: snapshot.totals.siteRevenue === null ? "נדרש כדי לחשב את חלק Flashy מהמחזור" : money(snapshot.totals.siteRevenue, snapshot.currency),
+      },
+      {
+        label: "נתוני Popup",
+        ready: snapshot.popup.signups !== null && snapshot.popup.conversionRate !== null,
+        detail: snapshot.popup.signups === null || snapshot.popup.conversionRate === null
+          ? "נדרשים מספר נרשמים ויחס המרה"
+          : `${number(snapshot.popup.signups)} נרשמים · ${percent(snapshot.popup.conversionRate)} המרה`,
+      },
+    ];
+  }, [selected]);
+
   async function generate() {
     setBusy(true);
     setMessage("מחשב ומכין את הסיכום...");
@@ -289,7 +317,7 @@ export function MonthlySummaryDashboard({
       const response = await fetch(`/api/monthly-summaries/${selected.id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action, whatsappText, internalNote: note }),
+        body: JSON.stringify({ action, whatsappText, emailSubject, internalNote: note }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.message || "שמירת הסיכום נכשלה.");
@@ -424,6 +452,18 @@ export function MonthlySummaryDashboard({
 
               {tab === "report" && <div className="bg-[#f8faf9] p-4 md:p-6">
                 {(selected.snapshot.completeness.missing.length > 0 || selected.snapshot.completeness.warnings.length > 0) && isStaff && <div className="mb-5 rounded-md border border-[#f1d786] bg-[#fff9d8] px-4 py-3 text-xs leading-5 text-[#6b5a00]">{[...selected.snapshot.completeness.warnings, ...selected.snapshot.completeness.missing.map((item) => `חסר: ${item}`)].join(" · ")}</div>}
+                {isStaff && selected.status === "draft" && <section className="mb-5 overflow-hidden rounded-lg border border-[#e4e7ec] bg-white" aria-label="בדיקות לפני אישור">
+                  <header className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eef1f4] px-4 py-3">
+                    <div><h3 className="text-sm font-bold">מוכנות לאישור</h3><p className="mt-0.5 text-[11px] text-[#667085]">הסיכום ייפתח ללקוח רק אחרי שכל הבדיקות הושלמו</p></div>
+                    <span className={`text-xs font-bold ${selected.snapshot.completeness.ready ? "text-[#087f72]" : "text-[#b45309]"}`}>{approvalChecks.filter((item) => item.ready).length}/{approvalChecks.length} הושלמו</span>
+                  </header>
+                  <div className="grid divide-y divide-[#eef1f4] sm:grid-cols-3 sm:divide-x sm:divide-x-reverse sm:divide-y-0">
+                    {approvalChecks.map((item) => <div key={item.label} className="flex gap-2.5 p-4">
+                      {item.ready ? <CircleCheck size={18} className="mt-0.5 shrink-0 text-[#087f72]" /> : <CircleAlert size={18} className="mt-0.5 shrink-0 text-[#b45309]" />}
+                      <div><p className="text-xs font-bold text-[#344054]">{item.label}</p><p className="mt-1 text-[11px] leading-4 text-[#667085]">{item.detail}</p></div>
+                    </div>)}
+                  </div>
+                </section>}
                 <section className="overflow-hidden rounded-lg bg-[#080123] text-white">
                   <div className="grid gap-6 p-5 md:grid-cols-[minmax(0,1.4fr)_minmax(260px,0.6fr)] md:p-7">
                     <div>
@@ -498,16 +538,20 @@ export function MonthlySummaryDashboard({
 
               {tab === "email" && <div className="p-4 md:p-6">
                 <div className="mx-auto max-w-2xl">
-                  <p className="text-sm font-bold text-[#111318]">{selected.emailSubject}</p>
+                  <p className="text-sm font-bold text-[#111318]">תצוגת מייל</p>
                   <p className="mt-2 text-sm leading-6 text-[#667085]">המייל כולל את נתוני הסיכום וכפתור מאובטח לצפייה בגרסה האינטראקטיבית.</p>
                   {isStaff && <>
+                    <label className="mt-5 block text-xs font-medium text-[#667085]">נושא המייל
+                      <input value={emailSubject} onChange={(event) => setEmailSubject(event.target.value)} readOnly={selected.status !== "draft"} maxLength={180} className="mt-1 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm read-only:bg-[#f8faf9]" />
+                    </label>
                     <label className="mt-5 block text-xs font-medium text-[#667085]">נמענים
                       <textarea value={recipientText} onChange={(event) => setRecipientText(event.target.value)} rows={3} placeholder="client@example.com" className="mt-1 w-full rounded-md border border-[#d0d5dd] bg-white p-3 text-sm" />
                     </label>
                     {suggestedRecipients.length > 0 && <p className="mt-1 text-[11px] text-[#667085]">נמצאו {suggestedRecipients.length} כתובות שמשויכות ללקוח.</p>}
                     <label className="mt-4 block text-xs font-medium text-[#667085]">פתיח אישי, אופציונלי
-                      <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} className="mt-1 w-full rounded-md border border-[#d0d5dd] bg-white p-3 text-sm" />
+                      <textarea value={note} onChange={(event) => setNote(event.target.value)} readOnly={selected.status !== "draft"} rows={3} className="mt-1 w-full rounded-md border border-[#d0d5dd] bg-white p-3 text-sm read-only:bg-[#f8faf9]" />
                     </label>
+                    {selected.status === "draft" && <button type="button" onClick={() => patchSummary("save")} disabled={busy || !emailSubject.trim()} className="mt-4 inline-flex h-9 items-center gap-2 rounded-md border border-[#d0d5dd] bg-white px-4 text-sm font-bold disabled:opacity-50"><Check size={15} /> שמור נושא ופתיח</button>}
                     {selected.status === "draft" ? <div className="mt-5 rounded-md bg-[#fff9d8] p-4 text-sm text-[#6b5a00]">לפני השליחה צריך לאשר ולנעול את הסיכום.</div> : <button type="button" onClick={sendEmail} disabled={busy} className="mt-5 inline-flex h-10 items-center gap-2 rounded-md bg-[#080123] px-5 text-sm font-bold text-white disabled:opacity-50"><Send size={16} /> שלח סיכום במייל</button>}
                   </>}
                 </div>
@@ -515,7 +559,7 @@ export function MonthlySummaryDashboard({
 
               {isStaff && <div className="flex flex-col gap-3 border-t border-[#e4e7ec] bg-[#fbfcfc] px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-6">
                 <div className="text-xs text-[#667085]">{selected.status === "draft" ? "אישור נועל את המספרים והנוסח לצפיית הלקוח." : selected.status === "approved" ? "הסיכום מאושר ומוכן לשליחה." : `נשלח ${selected.sentAt ? new Date(selected.sentAt).toLocaleString("he-IL") : ""}`}</div>
-                {selected.status === "draft" && <button type="button" onClick={() => patchSummary("approve")} disabled={busy} className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#FFE045] px-4 text-sm font-bold text-[#080123] disabled:opacity-50"><CheckCircle2 size={16} /> אשר ופרסם ללקוח</button>}
+                {selected.status === "draft" && <button type="button" onClick={() => patchSummary("approve")} disabled={busy || !selected.snapshot.completeness.ready} title={selected.snapshot.completeness.ready ? undefined : "יש להשלים את בדיקות המוכנות לפני האישור"} className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-[#FFE045] px-4 text-sm font-bold text-[#080123] disabled:cursor-not-allowed disabled:opacity-45"><CheckCircle2 size={16} /> אשר ופרסם ללקוח</button>}
               </div>}
             </>
           )}

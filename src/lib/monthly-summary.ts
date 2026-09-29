@@ -328,7 +328,7 @@ export function buildMonthlySummary(input: BuildMonthlySummaryInput): MonthlySum
       revenueChange: percentChange(attributedRevenue, previousAttributedRevenue),
     },
     completeness: {
-      ready: warnings.length === 0,
+      ready: warnings.length === 0 && missing.length === 0,
       missing,
       warnings,
     },

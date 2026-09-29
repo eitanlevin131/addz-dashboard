@@ -107,6 +107,7 @@ const server = createServer(async (request, response) => {
         total_clicks: 130,
         purchases: 14,
         revenue_generated: "8400",
+        unsubscribed: 4,
       },
       {
         campaign_id: 990102,
@@ -120,6 +121,7 @@ const server = createServer(async (request, response) => {
         total_clicks: 70,
         purchases: 7,
         revenue_generated: "3500",
+        unsubscribed: 3,
       },
     ] : [];
     return json(response, 200, { success: true, data });
@@ -135,6 +137,7 @@ const server = createServer(async (request, response) => {
       total_clicks: 92,
       purchases: 9,
       revenue_generated: "4200",
+      unsubscribed: 5,
     }] : [];
     return json(response, 200, { success: true, data });
   }

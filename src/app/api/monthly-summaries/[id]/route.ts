@@ -79,9 +79,11 @@ export async function PATCH(request: Request, context: RouteContext<"/api/monthl
       return NextResponse.json({ success: false, message: "סיכום שאושר נעול לעריכה. אפשר ליצור גרסה חדשה." }, { status: 409 });
     }
     const whatsappText = withoutMonthlySummaryShareLink(String(body.whatsappText ?? "").trim()).slice(0, 30000);
+    const emailSubject = String(body.emailSubject ?? authorization.row.emailSubject).trim().slice(0, 180);
     const internalNote = String(body.internalNote ?? "").trim().slice(0, 4000);
     if (!whatsappText) return NextResponse.json({ success: false, message: "נוסח WhatsApp לא יכול להיות ריק." }, { status: 400 });
-    const [saved] = await getDb().update(monthlySummaries).set({ whatsappText, internalNote: internalNote || null, updatedAt: now })
+    if (!emailSubject) return NextResponse.json({ success: false, message: "נושא המייל לא יכול להיות ריק." }, { status: 400 });
+    const [saved] = await getDb().update(monthlySummaries).set({ whatsappText, emailSubject, internalNote: internalNote || null, updatedAt: now })
       .where(eq(monthlySummaries.id, id)).returning();
     await recordAudit({ actorUserId: authorization.access.userId, action: "monthly_summary.edited", entityType: "monthly_summary", entityId: id });
     return NextResponse.json({ success: true, data: monthlySummaryResponse(saved, new URL(request.url).origin) });

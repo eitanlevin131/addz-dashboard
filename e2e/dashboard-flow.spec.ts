@@ -11,6 +11,10 @@ const db = neon(databaseUrl);
 const suffix = randomUUID().slice(0, 8);
 const userId = `e2e-admin-${suffix}`;
 const email = `e2e-admin-${suffix}@example.test`;
+const summaryUserId = `e2e-summary-${suffix}`;
+const summaryEmail = `e2e-summary-${suffix}@example.test`;
+const summaryClientUserId = `e2e-summary-client-${suffix}`;
+const summaryClientEmail = `e2e-summary-client-${suffix}@example.test`;
 const ownerUserId = `e2e-owner-${suffix}`;
 const ownerEmail = "e2e-owner@example.test";
 const clientUserId = `e2e-client-${suffix}`;
@@ -34,10 +38,14 @@ function dateOffset(days: number) {
   return value.toISOString().slice(0, 10);
 }
 
+function currentMonth() {
+  return dateOffset(0).slice(0, 7);
+}
+
 async function cleanup() {
-  await db`delete from audit_logs where actor_user_id in (${userId}, ${ownerUserId}, ${clientUserId}) or entity_id in (${primaryAccountId}, ${secondaryAccountId}, ${inactiveAccountId}, ${userId}, ${ownerUserId}, ${clientUserId})`;
+  await db`delete from audit_logs where actor_user_id in (${userId}, ${summaryUserId}, ${summaryClientUserId}, ${ownerUserId}, ${clientUserId}) or entity_id in (${primaryAccountId}, ${secondaryAccountId}, ${inactiveAccountId}, ${userId}, ${summaryUserId}, ${summaryClientUserId}, ${ownerUserId}, ${clientUserId})`;
   await db`delete from clients where id in (${primaryClientId}, ${secondaryClientId}, ${inactiveClientId})`;
-  await db`delete from users where id in (${userId}, ${ownerUserId}, ${clientUserId}) or email in (${email}, ${ownerEmail}, ${clientEmail})`;
+  await db`delete from users where id in (${userId}, ${summaryUserId}, ${summaryClientUserId}, ${ownerUserId}, ${clientUserId}) or email in (${email}, ${summaryEmail}, ${summaryClientEmail}, ${ownerEmail}, ${clientEmail})`;
 }
 
 async function loginWithCode(page: import("@playwright/test").Page, targetEmail: string) {
@@ -59,6 +67,8 @@ test.describe("agency dashboard critical journey", () => {
     await db`insert into users (id, name, email, role, status, must_change_password)
       values
         (${userId}, ${"E2E Agency Manager"}, ${email}, ${"admin"}, ${"active"}, false),
+        (${summaryUserId}, ${"E2E Summary Manager"}, ${summaryEmail}, ${"admin"}, ${"active"}, false),
+        (${summaryClientUserId}, ${"E2E Summary Client"}, ${summaryClientEmail}, ${"client"}, ${"active"}, false),
         (${ownerUserId}, ${"E2E Owner"}, ${ownerEmail}, ${"owner"}, ${"active"}, false),
         (${clientUserId}, ${"E2E Client"}, ${clientEmail}, ${"client"}, ${"active"}, false)`;
     await db`insert into clients (id, name, owner, industry, visible_modules)
@@ -72,7 +82,7 @@ test.describe("agency dashboard critical journey", () => {
         (${primaryAccountId}, ${primaryClientId}, 990001, ${primaryAccountName}, ${"https://example.test"}, ${"ILS"}, ${"Asia/Jerusalem"}, ${encryptSecret("e2e-flashy-primary")}, ${"3.7"}, ${"0.01"}, ${"100"}, ${"1500"}, true),
         (${secondaryAccountId}, ${secondaryClientId}, 990002, ${secondaryAccountName}, ${"https://example.test"}, ${"ILS"}, ${"Asia/Jerusalem"}, ${encryptSecret("e2e-flashy-secondary")}, ${"3.7"}, ${"0.01"}, ${"100"}, ${"1500"}, true),
         (${inactiveAccountId}, ${inactiveClientId}, 990003, ${"E2E Inactive Account"}, ${"https://example.test"}, ${"ILS"}, ${"Asia/Jerusalem"}, ${encryptSecret("e2e-flashy-inactive")}, ${"3.7"}, ${"0.01"}, ${"100"}, ${"1500"}, false)`;
-    await db`insert into client_users (client_id, user_id) values (${primaryClientId}, ${clientUserId})`;
+    await db`insert into client_users (client_id, user_id) values (${primaryClientId}, ${clientUserId}), (${primaryClientId}, ${summaryClientUserId})`;
     const plannedDate = new Date();
     plannedDate.setUTCDate(plannedDate.getUTCDate() - 2);
     await db`insert into newsletter_plans
@@ -192,7 +202,10 @@ test.describe("agency dashboard critical journey", () => {
     await expect(page.getByText("הכנסות פעילות SMS", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "פעילות SMS לאורך התקופה", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "יעילות פעילות SMS", exact: true })).toBeVisible();
+    await expect(page.getByText("הסרות", { exact: true }).first()).toBeVisible();
     const smsTrendMetric = page.getByRole("group", { name: "מדד בגרף פעילות SMS" });
+    await smsTrendMetric.getByRole("button", { name: "הסרות", exact: true }).click();
+    await expect(smsTrendMetric.getByRole("button", { name: "הסרות", exact: true })).toHaveAttribute("aria-pressed", "true");
     await smsTrendMetric.getByRole("button", { name: "רכישות", exact: true }).click();
     await expect(smsTrendMetric.getByRole("button", { name: "רכישות", exact: true })).toHaveAttribute("aria-pressed", "true");
     const smsActivityFilter = page.getByRole("group", { name: "סינון פעילות SMS" });
@@ -230,6 +243,7 @@ test.describe("agency dashboard critical journey", () => {
     await expect(page.getByRole("heading", { name: "קמפייני אימייל מובילים", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "קמפייני SMS מובילים", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "תזמון שעובד", exact: true })).toBeVisible();
+    await expect(page.getByText("12 הסרות מתוך 3,100 נמענים", { exact: true })).toBeVisible();
     const campaignTrendFilter = page.getByRole("group", { name: "ערוץ בגרף ההכנסות" });
     await campaignTrendFilter.getByRole("button", { name: "SMS", exact: true }).click();
     await expect(campaignTrendFilter.getByRole("button", { name: "SMS", exact: true })).toHaveAttribute("aria-pressed", "true");
@@ -267,6 +281,64 @@ test.describe("agency dashboard critical journey", () => {
     await expect(page.getByText("בדיקת E2E הושלמה: הנתונים, החישוב והמקור זמינים.", { exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "נתונים", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "מקורות", exact: true })).toBeVisible();
+  });
+
+  test("monthly summary requires complete inputs, publishes, shares and sends", async ({ page, browser }) => {
+    await loginWithCode(page, summaryEmail);
+    await expect(page.getByRole("heading", { name: "סקירת סוכנות" })).toBeVisible();
+    const clientSelector = page.locator("#client-select");
+    await clientSelector.selectOption(primaryClientId);
+    await expect(page.getByRole("heading", { name: primaryAccountName, exact: true })).toBeVisible();
+
+    const navigation = page.getByRole("navigation", { name: "ניווט ראשי" });
+    await navigation.getByRole("button", { name: "סיכומים", exact: true }).click();
+    await expect(page.getByText("יצירת סיכום חודשי", { exact: true })).toBeVisible();
+    await page.getByLabel("חודש", { exact: true }).fill(currentMonth());
+    await page.getByRole("button", { name: "הפק סיכום", exact: true }).click();
+    await expect(page.getByText("הסיכום נוצר כטיוטה. אפשר לבדוק, לערוך ולאשר אותו.", { exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "בדיקות לפני אישור" })).toContainText("1/3 הושלמו");
+    await expect(page.getByRole("button", { name: "אשר ופרסם ללקוח", exact: true })).toBeDisabled();
+
+    const summaryId = await page.evaluate(async (accountId) => {
+      const response = await fetch(`/api/monthly-summaries?accountId=${encodeURIComponent(accountId)}`);
+      const payload = await response.json();
+      return payload.data[0].id as string;
+    }, primaryAccountId);
+    const clientContext = await browser.newContext({ locale: "he-IL", timezoneId: "Asia/Jerusalem" });
+    const clientPage = await clientContext.newPage();
+    await loginWithCode(clientPage, summaryClientEmail);
+    await expect(clientPage.getByRole("heading", { name: primaryAccountName, exact: true })).toBeVisible();
+    const draftStatus = await clientPage.evaluate(async (id) => (await fetch(`/api/monthly-summaries/${id}`)).status, summaryId);
+    expect(draftStatus).toBe(403);
+
+    await page.getByLabel("מחזור האתר", { exact: true }).fill("50000");
+    await page.getByLabel("נרשמי Popup", { exact: true }).fill("250");
+    await page.getByLabel(/המרת Popup/).fill("5");
+    await page.getByRole("button", { name: "הפק סיכום", exact: true }).click();
+    await expect(page.getByRole("region", { name: "בדיקות לפני אישור" })).toContainText("3/3 הושלמו");
+    await expect(page.getByText("12 הסרות מתוך 3,100 נמענים", { exact: true })).toBeVisible();
+    const approve = page.getByRole("button", { name: "אשר ופרסם ללקוח", exact: true });
+    await expect(approve).toBeEnabled();
+    await approve.click();
+    await expect(page.getByText("הסיכום אושר וזמין עכשיו ללקוח.", { exact: true })).toBeVisible();
+
+    const approvedStatus = await clientPage.evaluate(async (id) => (await fetch(`/api/monthly-summaries/${id}`)).status, summaryId);
+    expect(approvedStatus).toBe(200);
+    await clientPage.setViewportSize({ width: 390, height: 844 });
+    await clientPage.goto(`/summaries/${summaryId}`);
+    await expect(clientPage.getByText("הכנסה שיוחסה לפעילות Flashy", { exact: true })).toBeVisible();
+    await expect(clientPage.getByText("בריאות הרשימה", { exact: true })).toBeVisible();
+    expect(await clientPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+    await page.getByRole("button", { name: "WhatsApp", exact: true }).click();
+    await expect(page.locator('textarea[rows="22"]')).toHaveValue(new RegExp(`/summaries/${summaryId}$`));
+    await page.getByRole("button", { name: "מייל", exact: true }).click();
+    await page.getByLabel(/^נמענים/).fill(summaryClientEmail);
+    await page.getByRole("button", { name: "שלח סיכום במייל", exact: true }).click();
+    await expect(page.getByText("הסיכום נשלח בהצלחה ל־1 כתובות.", { exact: true })).toBeVisible();
+    const delivered = await fetch(`${mockBaseURL}/test/resend-latest?to=${encodeURIComponent(summaryClientEmail)}`).then((response) => response.json());
+    expect(delivered.data.subject).toContain("סיכום");
+    expect(delivered.data.text).toContain(`/summaries/${summaryId}`);
+    await clientContext.close();
   });
 
   test("owner controls access and a client sees only assigned data", async ({ page, browser }) => {
