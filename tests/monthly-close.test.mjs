@@ -45,3 +45,37 @@ test("monthly close reports data and cost gaps without inventing conclusions", (
   assert.deepEqual(result.dataIssues, ["הסנכרון אינו עדכני", "אין snapshot יומי"]);
   assert.deepEqual(result.costIssues, ["מחיר SMS", "מנוי Flashy", "ריטיינר"]);
 });
+
+test("approved summaries are ready rather than marked as requiring attention", () => {
+  const result = assessMonthlyClose({
+    summaryStatus: "approved",
+    syncStatus: "healthy",
+    emailReports: 5,
+    smsReports: 2,
+    automationReports: 4,
+    missingInputs: [],
+    smsCreditPriceUsd: 0.01,
+    monthlySubscriptionCostUsd: 100,
+    agencyRetainerCostIls: 3000,
+    hasMetricSnapshot: true,
+  });
+  assert.equal(result.stage, "approved");
+  assert.equal(result.needsAttention, false);
+});
+
+test("a complete draft still requires review before it is ready to send", () => {
+  const result = assessMonthlyClose({
+    summaryStatus: "draft",
+    syncStatus: "healthy",
+    emailReports: 5,
+    smsReports: 2,
+    automationReports: 4,
+    missingInputs: [],
+    smsCreditPriceUsd: 0.01,
+    monthlySubscriptionCostUsd: 100,
+    agencyRetainerCostIls: 3000,
+    hasMetricSnapshot: true,
+  });
+  assert.equal(result.stage, "draft");
+  assert.equal(result.needsAttention, true);
+});

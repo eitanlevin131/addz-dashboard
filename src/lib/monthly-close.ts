@@ -52,6 +52,7 @@ export function assessMonthlyClose(input: MonthlyCloseAssessmentInput): MonthlyC
       dataIssues.length > 0 ||
       costIssues.length > 0 ||
       input.missingInputs.length > 0 ||
-      stage !== "sent",
+      stage === "not_started" ||
+      stage === "draft",
   };
 }

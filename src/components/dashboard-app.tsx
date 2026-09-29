@@ -6235,6 +6235,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
     useState<NewsletterPlan[]>(newsletterPlans);
   const [localSyncHistory, setLocalSyncHistory] = useState<SyncHistoryEntry[]>([]);
   const [selectedClientId, setSelectedClientId] = useState(localClients[0].id);
+  const [selectedMonthlySummaryId, setSelectedMonthlySummaryId] = useState<string | undefined>(initialSummaryId);
   const [view, setView] = useState<ViewKey>(initialSummaryId ? "monthly" : "overview");
   const [timeRange, setTimeRange] = useState<TimeRangeKey>("30d");
   const [customStartDate, setCustomStartDate] = useState("");
@@ -6678,6 +6679,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
 
   const selectClient = (clientId: string) => {
     setSelectedClientId(clientId);
+    setSelectedMonthlySummaryId(undefined);
     setRefreshState("");
     setView("overview");
   };
@@ -6867,8 +6869,9 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
             />
           )}
           {activeView === "close" && viewerIsStaff && (
-            <MonthlyCloseCenter onOpenClient={(clientId) => {
+            <MonthlyCloseCenter onOpenSummary={(clientId, summaryId) => {
               setSelectedClientId(clientId);
+              setSelectedMonthlySummaryId(summaryId);
               setRefreshState("");
               setView("monthly");
             }} />
@@ -6945,11 +6948,11 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
           )}
           {activeView === "monthly" && (
             <MonthlySummaryDashboard
-              key={`${account.id}-${initialSummaryId ?? "archive"}`}
+              key={`${account.id}-${selectedMonthlySummaryId ?? "archive"}`}
               client={selectedClient}
               account={account}
               isStaff={viewerIsStaff}
-              initialSummaryId={initialSummaryId}
+              initialSummaryId={selectedMonthlySummaryId}
             />
           )}
           {activeView === "ai" && (

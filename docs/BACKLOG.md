@@ -20,8 +20,10 @@ Remaining operational check:
 ## Agency monthly close
 
 - Staff-only monthly close center is implemented with per-client summary status, missing manual inputs, source counts, sync health, metric snapshot status, and cost configuration QA.
+- The close workflow supports creating a safe draft per account, opening the exact saved version, filtering accounts that need attention / are ready / were sent, and showing the latest recipients and delivery time.
+- Approval and email sending remain explicit actions inside the selected summary; the close center never sends automatically.
 - Client users cannot access the cross-account close center.
-- Desktop and mobile behavior are covered by the critical E2E journey.
+- Draft creation, direct opening, approval, delivery history, permissions, desktop, and mobile behavior are covered by the critical E2E journey.
 
 ## Planner - campaign creation workflow
 

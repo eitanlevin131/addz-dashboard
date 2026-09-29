@@ -397,16 +397,16 @@ export function MonthlySummaryDashboard({
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[150px_170px_150px_150px_auto]">
               <label className="text-xs font-medium text-[#667085]">חודש
-                <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#111318]" />
+                <input type="month" value={month} disabled={busy} onChange={(event) => setMonth(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#111318] disabled:bg-[#f2f4f7] disabled:text-[#98a2b3]" />
               </label>
               <label className="text-xs font-medium text-[#667085]">מחזור האתר
-                <input type="number" min="0" value={siteRevenue} onChange={(event) => setSiteRevenue(event.target.value)} placeholder="₪" className="mt-1 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm" />
+                <input type="number" min="0" value={siteRevenue} disabled={busy} onChange={(event) => setSiteRevenue(event.target.value)} placeholder="₪" className="mt-1 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm disabled:bg-[#f2f4f7] disabled:text-[#98a2b3]" />
               </label>
               <label className="text-xs font-medium text-[#667085]">נרשמי Popup
-                <input type="number" min="0" value={popupSignups} onChange={(event) => setPopupSignups(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm" />
+                <input type="number" min="0" value={popupSignups} disabled={busy} onChange={(event) => setPopupSignups(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm disabled:bg-[#f2f4f7] disabled:text-[#98a2b3]" />
               </label>
               <label className="text-xs font-medium text-[#667085]">המרת Popup
-                <div className="relative mt-1"><input type="number" min="0" max="100" step="0.01" value={popupConversionRate} onChange={(event) => setPopupConversionRate(event.target.value)} className="h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 pl-8 text-sm" /><span className="absolute left-3 top-2.5 text-sm text-[#667085]">%</span></div>
+                <div className="relative mt-1"><input type="number" min="0" max="100" step="0.01" value={popupConversionRate} disabled={busy} onChange={(event) => setPopupConversionRate(event.target.value)} className="h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 pl-8 text-sm disabled:bg-[#f2f4f7] disabled:text-[#98a2b3]" /><span className="absolute left-3 top-2.5 text-sm text-[#667085]">%</span></div>
               </label>
               <button type="button" onClick={generate} disabled={busy || !month} className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-[#080123] px-4 text-sm font-bold text-white transition hover:bg-[#21174c] disabled:opacity-50">
                 <RefreshCw size={16} className={busy ? "animate-spin" : ""} /> הפק סיכום

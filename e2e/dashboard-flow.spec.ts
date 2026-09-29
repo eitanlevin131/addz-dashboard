@@ -193,6 +193,19 @@ test.describe("agency dashboard critical journey", () => {
     await expect(page.getByRole("heading", { name: primaryClientName, exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: secondaryClientName, exact: true })).toBeVisible();
     await expect(page.getByText(inactiveClientName, { exact: true })).toHaveCount(0);
+    const primaryCloseRow = page.locator("article").filter({ has: page.getByRole("heading", { name: primaryClientName, exact: true }) });
+    await primaryCloseRow.getByRole("button", { name: "צור טיוטה", exact: true }).click();
+    await expect(page.getByText(`הטיוטה של ${primaryClientName} נוצרה. אפשר לפתוח אותה ולהשלים את הנתונים החסרים.`, { exact: true })).toBeVisible();
+    await expect(primaryCloseRow.getByText("טיוטה", { exact: true })).toBeVisible();
+    await page.getByRole("group", { name: "סינון חשבונות" }).getByRole("button", { name: "מוכן", exact: true }).click();
+    await expect(page.getByText("אין חשבונות בסינון הזה.", { exact: true })).toBeVisible();
+    await page.getByRole("group", { name: "סינון חשבונות" }).getByRole("button", { name: "דורש טיפול", exact: true }).click();
+    await expect(page.getByRole("heading", { name: primaryClientName, exact: true })).toBeVisible();
+    await page.getByRole("group", { name: "סינון חשבונות" }).getByRole("button", { name: "הכל", exact: true }).click();
+    await primaryCloseRow.getByRole("button", { name: "פתח טיוטה", exact: true }).click();
+    await expect(page.getByText("יצירת סיכום חודשי", { exact: true })).toBeVisible();
+    await openNavigationGroup(navigation, "ניהול");
+    await navigation.getByRole("button", { name: "סגירת חודש", exact: true }).click();
     await page.getByRole("group", { name: "תצוגת מרכז תפעול" }).getByRole("button", { name: "איכות נתונים", exact: true }).click();
     await expect(page.getByText("Snapshot", { exact: true })).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
@@ -322,6 +335,17 @@ test.describe("agency dashboard critical journey", () => {
     const clientSelector = page.locator("#client-select");
     await clientSelector.selectOption(primaryClientId);
     await expect(page.getByRole("heading", { name: primaryAccountName, exact: true })).toBeVisible();
+    const summarySyncStatus = await page.evaluate(async (accountId) => {
+      const response = await fetch("/api/flashy/sync", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accountId }),
+      });
+      return response.status;
+    }, primaryAccountId);
+    expect(summarySyncStatus).toBe(200);
+    const storedCampaigns = await db`select sent_at from email_campaign_reports where flashy_account_id = ${primaryAccountId}`;
+    expect(storedCampaigns.length).toBeGreaterThan(0);
 
     const navigation = page.getByRole("navigation", { name: "ניווט ראשי" });
     await openNavigationGroup(navigation, "עבודה");
@@ -369,9 +393,29 @@ test.describe("agency dashboard critical journey", () => {
     await page.getByLabel(/^נמענים/).fill(summaryClientEmail);
     await page.getByRole("button", { name: "שלח סיכום במייל", exact: true }).click();
     await expect(page.getByText("הסיכום נשלח בהצלחה ל־1 כתובות.", { exact: true })).toBeVisible();
+    const [sentSummaryRecord] = await db`select status, period_start::text as period_start, sent_at from monthly_summaries where id = ${summaryId}`;
+    expect(sentSummaryRecord.status).toBe("sent");
+    expect(String(sentSummaryRecord.period_start)).toBe(`${currentMonth()}-01`);
+    expect(sentSummaryRecord.sent_at).toBeTruthy();
     const delivered = await fetch(`${mockBaseURL}/test/resend-latest?to=${encodeURIComponent(summaryClientEmail)}`).then((response) => response.json());
     expect(delivered.data.subject).toContain("סיכום");
     expect(delivered.data.text).toContain(`/summaries/${summaryId}`);
+
+    await openNavigationGroup(navigation, "ניהול");
+    await navigation.getByRole("button", { name: "סגירת חודש", exact: true }).click();
+    await page.getByLabel("חודש", { exact: true }).fill(currentMonth());
+    const closeRow = await page.evaluate(async ({ month, accountId }) => {
+      const response = await fetch(`/api/monthly-close?month=${encodeURIComponent(month)}`, { cache: "no-store" });
+      const payload = await response.json();
+      return payload.data.rows.find((row: { accountId: string }) => row.accountId === accountId);
+    }, { month: currentMonth(), accountId: primaryAccountId });
+    expect(closeRow.summary.id).toBe(summaryId);
+    expect(closeRow.summary.status).toBe("sent");
+    expect(closeRow.summary.latestDelivery.recipients).toContain(summaryClientEmail);
+    await page.getByRole("group", { name: "סינון חשבונות" }).getByRole("button", { name: "נשלח", exact: true }).click();
+    const sentCloseRow = page.locator("article").filter({ has: page.getByRole("heading", { name: primaryClientName, exact: true }) });
+    await expect(sentCloseRow.getByText("נשלח", { exact: true })).toBeVisible();
+    await expect(sentCloseRow).toContainText(summaryClientEmail);
     await clientContext.close();
   });
 

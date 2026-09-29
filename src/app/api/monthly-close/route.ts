@@ -12,6 +12,7 @@ import {
   emailCampaignReports,
   flashyAccounts,
   monthlySummaries,
+  monthlySummaryDeliveries,
   siteRevenueBenchmarks,
   smsCampaignReports,
   syncRuns,
@@ -74,11 +75,26 @@ export async function GET(request: Request) {
   const broadEnd = new Date(`${period.end}T23:59:59.999Z`);
   broadEnd.setUTCDate(broadEnd.getUTCDate() + 1);
 
-  const [summaryRows, benchmarkRows, emailRows, smsRows, automationRows, runRows, snapshotRows] = await Promise.all([
+  const [summaryRows, deliveryRows, benchmarkRows, emailRows, smsRows, automationRows, runRows, snapshotRows] = await Promise.all([
     db.select().from(monthlySummaries).where(and(
       inArray(monthlySummaries.flashyAccountId, accountIds),
       eq(monthlySummaries.periodStart, period.start),
     )).orderBy(desc(monthlySummaries.version)),
+    db.select({
+      summaryId: monthlySummaryDeliveries.monthlySummaryId,
+      recipients: monthlySummaryDeliveries.recipients,
+      status: monthlySummaryDeliveries.status,
+      errorMessage: monthlySummaryDeliveries.errorMessage,
+      sentAt: monthlySummaryDeliveries.sentAt,
+      createdAt: monthlySummaryDeliveries.createdAt,
+    })
+      .from(monthlySummaryDeliveries)
+      .innerJoin(monthlySummaries, eq(monthlySummaryDeliveries.monthlySummaryId, monthlySummaries.id))
+      .where(and(
+        inArray(monthlySummaries.flashyAccountId, accountIds),
+        eq(monthlySummaries.periodStart, period.start),
+      ))
+      .orderBy(desc(monthlySummaryDeliveries.createdAt)),
     db.select().from(siteRevenueBenchmarks).where(and(
       inArray(siteRevenueBenchmarks.flashyAccountId, accountIds),
       eq(siteRevenueBenchmarks.rangeStart, period.start),
@@ -99,6 +115,8 @@ export async function GET(request: Request) {
 
   const latestSummaryByAccount = new Map<string, (typeof summaryRows)[number]>();
   for (const row of summaryRows) if (!latestSummaryByAccount.has(row.flashyAccountId)) latestSummaryByAccount.set(row.flashyAccountId, row);
+  const latestDeliveryBySummary = new Map<string, (typeof deliveryRows)[number]>();
+  for (const row of deliveryRows) if (!latestDeliveryBySummary.has(row.summaryId)) latestDeliveryBySummary.set(row.summaryId, row);
   const latestRunByAccount = new Map<string, (typeof runRows)[number]>();
   for (const row of runRows) if (row.flashyAccountId && !latestRunByAccount.has(row.flashyAccountId)) latestRunByAccount.set(row.flashyAccountId, row);
   const latestSnapshotByAccount = new Map<string, (typeof snapshotRows)[number]>();
@@ -107,6 +125,7 @@ export async function GET(request: Request) {
 
   const rows = accountRows.map((account) => {
     const latestSummary = latestSummaryByAccount.get(account.accountId) ?? null;
+    const latestDelivery = latestSummary ? latestDeliveryBySummary.get(latestSummary.id) ?? null : null;
     const snapshot = latestSummary?.snapshot as MonthlySummarySnapshot | undefined;
     const emailReports = emailRows.filter((row) => row.accountId === account.accountId && accountDate(row.sentAt, account.timezone) >= period.start && accountDate(row.sentAt, account.timezone) <= period.end).length;
     const smsReports = smsRows.filter((row) => row.accountId === account.accountId && accountDate(row.sentAt, account.timezone) >= period.start && accountDate(row.sentAt, account.timezone) <= period.end).length;
@@ -147,7 +166,16 @@ export async function GET(request: Request) {
         id: latestSummary.id,
         status: assessment.stage,
         version: latestSummary.version,
+        approvedAt: latestSummary.approvedAt?.toISOString() ?? null,
+        sentAt: latestSummary.sentAt?.toISOString() ?? null,
         updatedAt: latestSummary.updatedAt.toISOString(),
+        latestDelivery: latestDelivery ? {
+          recipients: latestDelivery.recipients,
+          status: latestDelivery.status,
+          errorMessage: latestDelivery.errorMessage,
+          sentAt: latestDelivery.sentAt?.toISOString() ?? null,
+          createdAt: latestDelivery.createdAt.toISOString(),
+        } : null,
       } : null,
       missingInputs,
       costs: {
