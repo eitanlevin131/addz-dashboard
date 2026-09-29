@@ -2,6 +2,7 @@ import { inflateRawSync } from "node:zlib";
 import { del, get } from "@vercel/blob";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/access";
+import { documentBlobToken } from "@/lib/document-blob-server";
 import {
   DOCUMENT_DIRECT_UPLOAD_MAX_BYTES,
   DOCUMENT_UPLOAD_MAX_BYTES,
@@ -168,7 +169,11 @@ export async function POST(request: Request) {
     }
 
     try {
-      const result = await get(pathname, { access: "private", useCache: false });
+      const result = await get(pathname, {
+        access: "private",
+        useCache: false,
+        token: documentBlobToken(),
+      });
       if (!result || result.statusCode !== 200) {
         return NextResponse.json({ success: false, message: "המסמך שהועלה לא נמצא." }, { status: 404 });
       }
@@ -191,7 +196,7 @@ export async function POST(request: Request) {
         { status: 500 },
       );
     } finally {
-      await del(pathname).catch(() => undefined);
+      await del(pathname, { token: documentBlobToken() }).catch(() => undefined);
     }
   }
 

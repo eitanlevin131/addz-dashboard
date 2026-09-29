@@ -2,6 +2,7 @@ import { del } from "@vercel/blob";
 import { handleUpload, type HandleUploadBody } from "@vercel/blob/client";
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth/access";
+import { documentBlobToken } from "@/lib/document-blob-server";
 import {
   DOCUMENT_UPLOAD_CONTENT_TYPES,
   DOCUMENT_UPLOAD_MAX_BYTES,
@@ -18,6 +19,7 @@ export async function POST(request: Request) {
 
   try {
     const response = await handleUpload({
+      token: documentBlobToken(),
       request,
       body,
       onBeforeGenerateToken: async (pathname) => {
@@ -60,6 +62,6 @@ export async function DELETE(request: Request) {
   if (!isDocumentUploadPath(pathname)) {
     return NextResponse.json({ success: false, message: "נתיב המסמך אינו תקין." }, { status: 400 });
   }
-  await del(pathname).catch(() => undefined);
+  await del(pathname, { token: documentBlobToken() }).catch(() => undefined);
   return NextResponse.json({ success: true });
 }
