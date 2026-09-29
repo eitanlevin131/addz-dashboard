@@ -72,6 +72,8 @@ BLOB_READ_WRITE_TOKEN=vercel_blob_rw_...
 
 הקבצים אינם ציבוריים: ההורדה עוברת דרך נתיב מאומת במערכת ורק משתמש בעל גישה ללקוח יכול לפתוח אותם. קישורים חיצוניים שמצורפים לבריף אינם מועתקים ל־Blob.
 
+מסמכי האפיון של ה־AI עולים ישירות מהדפדפן ל־Blob פרטי כדי לעקוף את מגבלת גוף הבקשה של Vercel Functions. המערכת מאפשרת מסמכי PDF, DOCX, TXT, MD, CSV ו־JSON עד 20MB, מחלצת מהם טקסט ומוחקת את קובץ המקור מה־Blob מיד לאחר העיבוד.
+
 ב־Preview/Production, הערכים של `AUTH_URL` ו־`NEXTAUTH_URL` צריכים להיות הכתובת של Vercel, לא localhost.
 
 לא להגדיר `AUTH_DEV_BYPASS=true` ב־Vercel Production.

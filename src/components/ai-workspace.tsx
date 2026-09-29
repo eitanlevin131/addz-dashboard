@@ -23,8 +23,8 @@ import type { AiGroundedResponse, AiReportView } from "@/lib/ai-grounding";
 import {
   DOCUMENT_UPLOAD_MAX_LABEL,
   documentUploadSizeError,
-  readDocumentUploadResponse,
 } from "@/lib/document-upload";
+import { uploadClientDocument } from "@/lib/document-upload-client";
 import { formatCurrency, formatNumber, formatPercent } from "@/lib/metrics";
 import type {
   AutomationReport,
@@ -363,12 +363,13 @@ export function AiWorkspace({ clientId, account, summary, emails, sms, automatio
     const sizeError = documentUploadSizeError(file);
     if (sizeError) return setMemoryState(sizeError);
     if (!file.name.match(/\.(txt|md|csv|json|pdf|docx)$/i)) return setMemoryState("אפשר להעלות TXT / Markdown / CSV / JSON / PDF / DOCX.");
-    setMemoryState(`מחלץ טקסט מתוך "${file.name}"...`);
+    setMemoryState(`מעלה את "${file.name}"...`);
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-      const response = await fetch("/api/ai/documents/parse", { method: "POST", body: formData });
-      const document = await readDocumentUploadResponse(response);
+      const document = await uploadClientDocument(file, (percentage) => {
+        setMemoryState(percentage < 100
+          ? `מעלה את "${file.name}" · ${percentage}%`
+          : `מחלץ טקסט מתוך "${file.name}"...`);
+      });
       setMemory((current) => ({ ...current, documents: [document, ...(current.documents ?? [])].slice(0, 8) }));
       setMemoryState(`המסמך "${file.name}" נוסף. לחץ שמור.`);
     } catch (error) {

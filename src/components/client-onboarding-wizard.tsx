@@ -5,9 +5,9 @@ import { useState } from "react";
 import {
   DOCUMENT_UPLOAD_MAX_LABEL,
   documentUploadSizeError,
-  readDocumentUploadResponse,
   type ParsedClientDocument,
 } from "@/lib/document-upload";
+import { uploadClientDocument } from "@/lib/document-upload-client";
 
 type OnboardingProfile = {
   summary: string;
@@ -84,12 +84,13 @@ export function ClientOnboardingWizard() {
     const sizeError = documentUploadSizeError(file);
     if (sizeError) return setMessage(sizeError);
     setBusy("file");
-    setMessage(`קורא את ${file.name}...`);
+    setMessage(`מעלה את ${file.name}...`);
     try {
-      const formData = new FormData();
-      formData.set("file", file);
-      const response = await fetch("/api/ai/documents/parse", { method: "POST", body: formData });
-      const document = await readDocumentUploadResponse(response);
+      const document = await uploadClientDocument(file, (percentage) => {
+        setMessage(percentage < 100
+          ? `מעלה את ${file.name} · ${percentage}%`
+          : `קורא את ${file.name}...`);
+      });
       setDocuments((current) => [...current.filter((item) => item.name !== document.name), document].slice(0, 8));
       setOnboarding(null);
       setMessage("המסמך נקרא ונוסף לפרופיל הלקוח.");
