@@ -9,10 +9,20 @@ const baseURL = `http://127.0.0.1:${appPort}`;
 const mockBaseURL = `http://127.0.0.1:${mockPort}`;
 const testDatabaseUrl = process.env.E2E_DATABASE_URL;
 
+function databaseTarget(value: string) {
+  const url = new URL(value);
+  const port = url.port || "5432";
+  const database = decodeURIComponent(url.pathname).replace(/\/+$/, "");
+  return `${url.hostname.toLowerCase()}:${port}${database}`;
+}
+
 if (!testDatabaseUrl) {
   throw new Error("E2E_DATABASE_URL is required. E2E tests must never run against the application DATABASE_URL.");
 }
-if (testDatabaseUrl === process.env.DATABASE_URL) {
+if (
+  process.env.DATABASE_URL
+  && databaseTarget(testDatabaseUrl) === databaseTarget(process.env.DATABASE_URL)
+) {
   throw new Error("E2E_DATABASE_URL must point to a database that is separate from DATABASE_URL.");
 }
 

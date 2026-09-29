@@ -17,6 +17,7 @@
 /.playwright-cli/
 /.cache/
 /.tmp/
+/scratch/
 
 # next.js
 /.next/
