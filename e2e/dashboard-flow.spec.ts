@@ -176,6 +176,17 @@ test.describe("agency dashboard critical journey", () => {
     expect(syncPayload.imported).toEqual({ emailCampaigns: 2, smsCampaigns: 1, automations: 1 });
     await expect(page.getByText(/סונכרן: 2 אימייל, 1 SMS, 1 רשומות אוטומציה/)).toBeVisible();
 
+    await navigation.getByRole("button", { name: "סגירת חודש", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "סגירת חודש", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: primaryClientName, exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: secondaryClientName, exact: true })).toBeVisible();
+    await expect(page.getByText(inactiveClientName, { exact: true })).toHaveCount(0);
+    await page.getByRole("group", { name: "תצוגת מרכז תפעול" }).getByRole("button", { name: "איכות נתונים", exact: true }).click();
+    await expect(page.getByText("Snapshot", { exact: true })).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+    await page.setViewportSize({ width: 1280, height: 720 });
+
     await navigation.getByRole("button", { name: "כללי", exact: true }).click();
     await expect(page.getByText("הכנסה מיוחסת לפעילות", { exact: true })).toBeVisible();
     await expect(page.getByText("הכנסה ממוצעת לרכישה", { exact: true })).toBeVisible();
@@ -394,8 +405,11 @@ test.describe("agency dashboard critical journey", () => {
     expect(visibleClientIds).toEqual([primaryClientId]);
     const clientNavigation = clientPage.getByRole("navigation", { name: "ניווט ראשי" });
     await expect(clientNavigation.getByRole("button", { name: "סוכנות", exact: true })).toHaveCount(0);
+    await expect(clientNavigation.getByRole("button", { name: "סגירת חודש", exact: true })).toHaveCount(0);
     await expect(clientNavigation.getByRole("button", { name: "הגדרות", exact: true })).toHaveCount(0);
     await expect(clientNavigation.getByRole("button", { name: "ניהול", exact: true })).toHaveCount(0);
+    const monthlyCloseStatus = await clientPage.evaluate(async () => (await fetch("/api/monthly-close")).status);
+    expect(monthlyCloseStatus).toBe(403);
 
     const revokeStatus = await page.evaluate(async (targetUserId) => {
       const response = await fetch("/api/admin/users", {

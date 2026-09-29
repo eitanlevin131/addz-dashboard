@@ -63,6 +63,7 @@ import { ClientOnboardingWizard } from "@/components/client-onboarding-wizard";
 import { BrandLogo } from "@/components/brand-logo";
 import { AgencyPortfolio, type AgencyPortfolioRow } from "@/components/agency-portfolio";
 import { AiWorkspace } from "@/components/ai-workspace";
+import { MonthlyCloseCenter } from "@/components/monthly-close-center";
 import { MonthlySummaryDashboard } from "@/components/monthly-summary-dashboard";
 import { campaignTiming, measuredRate } from "@/lib/report-chart-data";
 import {
@@ -127,6 +128,7 @@ import type {
 
 type ViewKey =
   | "portfolio"
+  | "close"
   | "overview"
   | "sms"
   | "automations"
@@ -342,6 +344,7 @@ function LiveDataIssue({ message }: { message: string }) {
 
 const views: { key: ViewKey; label: string; icon: typeof Activity; module?: ModuleKey }[] = [
   { key: "portfolio", label: "סוכנות", icon: Building2 },
+  { key: "close", label: "סגירת חודש", icon: CheckCircle2 },
   { key: "overview", label: "כללי", icon: LineChart, module: "reports" },
   { key: "sms", label: "SMS", icon: MessageSquareText, module: "reports" },
   { key: "automations", label: "אוטומציות", icon: RefreshCw, module: "reports" },
@@ -4407,6 +4410,7 @@ function FloatingAiChat({
   const [conversation, setConversation] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; createdAt: string }>>([]);
   const viewLabels: Record<ViewKey, string> = {
     portfolio: "סוכנות",
+    close: "סגירת חודש",
     overview: "כללי",
     sms: "SMS",
     automations: "אוטומציות",
@@ -6213,12 +6217,13 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
 
   const visibleViews = views.filter((item) => {
     if (item.key === "portfolio" && !viewerIsStaff) return false;
+    if (item.key === "close" && !viewerIsStaff) return false;
     if (item.key === "admin" && !canConnectAccounts) return false;
     if (isRestrictedUser && item.key === "settings") return false;
     return !item.module || selectedClient.visibleModules.includes(item.module) || item.key === "admin";
   });
   const effectiveShowDeepAnalysis = showDeepAnalysis;
-  const activeView = isRestrictedUser && (view === "portfolio" || view === "settings" || view === "admin") ? "overview" : view;
+  const activeView = isRestrictedUser && (view === "portfolio" || view === "close" || view === "settings" || view === "admin") ? "overview" : view;
   const showTimeRange = activeView === "portfolio" || costViewKeys.includes(activeView);
 
   useEffect(() => {
@@ -6522,7 +6527,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
       </div>
 
       <main className="dashboard-content relative min-w-0 p-3 text-[#111318] md:p-5 lg:p-6">
-        {localClients.length > 1 && activeView !== "portfolio" && (
+        {localClients.length > 1 && activeView !== "portfolio" && activeView !== "close" && (
           <ClientSelector
             clients={localClients}
             selectedClientId={selectedClientId}
@@ -6532,7 +6537,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
         )}
         <header className="mb-4 flex flex-col items-start justify-between gap-3 border-b border-[#e4e7ec] pb-4 lg:flex-row lg:items-end">
           <div>
-            {!isRestrictedUser && activeView !== "portfolio" && (
+            {!isRestrictedUser && activeView !== "portfolio" && activeView !== "close" && (
               <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-[#667085]">
                 <span>Flashy Account #{account.flashyAccountId}</span>
                 <button
@@ -6553,17 +6558,20 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
               </div>
             )}
             <h1 className="m-0 text-[clamp(26px,3vw,38px)] font-bold leading-tight tracking-normal text-[#111318]">
-              {activeView === "portfolio" ? "סקירת סוכנות" : account.name}
+              {activeView === "portfolio" ? "סקירת סוכנות" : activeView === "close" ? "סגירת חודש" : account.name}
             </h1>
             {activeView === "portfolio" && (
               <p className="mt-1 text-xs text-[#667085]">{formatNumber(portfolioRows.length)} לקוחות · תמונת ביצועים מרוכזת</p>
+            )}
+            {activeView === "close" && (
+              <p className="mt-1 text-xs text-[#667085]">סיכומים חודשיים ואיכות נתונים לכל החשבונות</p>
             )}
             {isRestrictedUser && (
               <p className="mt-1 text-xs text-[#667085]">ביצועים · {timeRanges.find((range) => range.key === timeRange)?.label}</p>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {!isRestrictedUser && activeView !== "portfolio" && <button
+            {!isRestrictedUser && activeView !== "portfolio" && activeView !== "close" && <button
               onClick={refreshDashboardData}
               disabled={isRefreshing}
               className="h-9 rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#344054] transition hover:bg-[#f8fafb] disabled:cursor-wait disabled:opacity-60"
@@ -6663,6 +6671,13 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
               mixedCurrencies={portfolioHasMixedCurrencies}
               onOpenClient={selectClient}
             />
+          )}
+          {activeView === "close" && viewerIsStaff && (
+            <MonthlyCloseCenter onOpenClient={(clientId) => {
+              setSelectedClientId(clientId);
+              setRefreshState("");
+              setView("monthly");
+            }} />
           )}
           {activeView === "overview" && (
             <Overview
@@ -6792,7 +6807,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
           )}
         </div>
       </main>
-      {!isRestrictedUser && activeView !== "portfolio" && !plannerEditorOpen && (
+      {!isRestrictedUser && activeView !== "portfolio" && activeView !== "close" && !plannerEditorOpen && (
         <FloatingAiChat
           key={selectedClient.id}
           clientId={selectedClient.id}

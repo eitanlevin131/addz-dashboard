@@ -7,10 +7,21 @@ approved reports are available to assigned clients, email subject and opening co
 generation, approval, WhatsApp sharing, email delivery, permissions, list-health data, and mobile RTL
 rendering are covered by end-to-end tests.
 
-Remaining operational checks:
+Completed production checks:
 
-- Validate one complete production month against Flashy for revenue, purchases, campaigns, automations, and leaders.
-- Send one production email through the verified Resend domain and open its interactive report link as the assigned client.
+- August 2026 was validated against Flashy for revenue, purchases, campaigns, automations, and leaders. The remaining Sales Overview difference is the documented Flashy attribution-window behavior.
+- A production summary email was delivered through the verified Resend domain and its interactive report link opened successfully.
+- Daily cron sync and metric snapshots were verified for every active account on September 29, 2026.
+
+Remaining operational check:
+
+- Complete one login and report review with an actual client user on their own device.
+
+## Agency monthly close
+
+- Staff-only monthly close center is implemented with per-client summary status, missing manual inputs, source counts, sync health, metric snapshot status, and cost configuration QA.
+- Client users cannot access the cross-account close center.
+- Desktop and mobile behavior are covered by the critical E2E journey.
 
 ## Planner - campaign creation workflow
 
