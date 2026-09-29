@@ -196,7 +196,7 @@ test.describe("agency dashboard critical journey", () => {
     await page.getByRole("group", { name: "תצוגת מרכז תפעול" }).getByRole("button", { name: "איכות נתונים", exact: true }).click();
     await expect(page.getByText("Snapshot", { exact: true })).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
-    const mobileNavigationTrigger = page.getByRole("button", { name: "פתיחת ניווט, מסך נוכחי: סגירת חודש", exact: true });
+    const mobileNavigationTrigger = page.getByRole("button", { name: "פתיחת תפריט", exact: true });
     await mobileNavigationTrigger.click();
     const mobileNavigation = page.getByRole("navigation", { name: "ניווט ראשי במובייל" });
     await expect(mobileNavigation.getByRole("heading", { name: "ביצועים", exact: true })).toBeVisible();
@@ -436,7 +436,7 @@ test.describe("agency dashboard critical journey", () => {
     expect(monthlyCloseStatus).toBe(403);
 
     await clientPage.setViewportSize({ width: 390, height: 844 });
-    await clientPage.getByRole("button", { name: "פתיחת ניווט, מסך נוכחי: כללי", exact: true }).click();
+    await clientPage.getByRole("button", { name: "פתיחת תפריט", exact: true }).click();
     const clientMobileNavigation = clientPage.getByRole("navigation", { name: "ניווט ראשי במובייל" });
     await expect(clientMobileNavigation.getByRole("heading", { name: "ביצועים", exact: true })).toBeVisible();
     await expect(clientMobileNavigation.getByRole("heading", { name: "עבודה", exact: true })).toBeVisible();

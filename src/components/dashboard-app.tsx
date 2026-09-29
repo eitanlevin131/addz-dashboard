@@ -1961,81 +1961,107 @@ function MobileNavigation({
 }) {
   const [open, setOpen] = useState(false);
   const activeItem = visibleViews.find((item) => item.key === view) ?? visibleViews[0];
-  const ActiveIcon = activeItem?.icon ?? Menu;
 
   useEffect(() => {
     if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     function closeOnEscape(event: KeyboardEvent) {
       if (event.key === "Escape") setOpen(false);
     }
     window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
   }, [open]);
 
   return (
     <div className="relative lg:hidden">
       <div className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-white/10 bg-[#090024] px-3 py-2.5 text-white">
-        <BrandLogo compact showProductName={false} />
         <button
           type="button"
-          aria-label={`פתיחת ניווט, מסך נוכחי: ${activeItem?.label ?? "תפריט"}`}
+          aria-label="פתיחת תפריט"
           aria-expanded={open}
           aria-controls="mobile-navigation-menu"
           onClick={() => setOpen((current) => !current)}
-          className="flex min-h-9 min-w-0 max-w-[72vw] items-center gap-2 rounded-md border border-white/15 bg-white/5 px-3 text-sm font-bold text-white transition hover:bg-white/10"
+          className="grid size-10 shrink-0 place-items-center rounded-md border border-white/15 bg-white/5 text-white transition hover:bg-white/10"
+          title="פתיחת תפריט"
         >
-          <ActiveIcon className="shrink-0 text-[#FFE045]" size={17} />
-          <span className="truncate">{activeItem?.label ?? "תפריט"}</span>
-          <ChevronDown className={classNames("shrink-0 transition-transform", open && "rotate-180")} size={16} />
+          <Menu size={21} />
         </button>
+        <BrandLogo compact showProductName={false} />
       </div>
       {open && (
-        <div className="fixed inset-x-0 bottom-0 top-[58px] z-40 bg-[#090024]/35 backdrop-blur-[2px]" onClick={() => setOpen(false)}>
-          <nav
-            id="mobile-navigation-menu"
-            aria-label="ניווט ראשי במובייל"
-            className="max-h-[calc(100vh-74px)] overflow-y-auto border-b border-white/10 bg-[#090024] px-3 pb-4 pt-2 text-white shadow-[0_18px_35px_rgba(9,0,36,0.28)]"
+        <div className="fixed inset-0 z-40 bg-[#090024]/45 backdrop-blur-[2px]" onClick={() => setOpen(false)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="תפריט ניווט"
+            className="flex h-full w-[min(86vw,340px)] flex-col border-l border-white/10 bg-[#090024] text-white shadow-[-18px_0_40px_rgba(9,0,36,0.25)]"
             onClick={(event) => event.stopPropagation()}
           >
-            {navigationGroups.map((group) => {
-              const groupViews = visibleViews.filter((item) => group.views.includes(item.key));
-              if (!groupViews.length) return null;
-              const GroupIcon = group.icon;
-              return (
-                <section key={group.key} className="border-b border-white/10 py-2 last:border-b-0">
-                  <h2 className="flex items-center gap-2 px-2.5 py-1.5 text-[11px] font-bold text-white/45">
-                    <GroupIcon size={14} />
-                    <span>{group.label}</span>
-                  </h2>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {groupViews.map((item) => {
-                      const Icon = item.icon;
-                      return (
-                        <button
-                          key={item.key}
-                          type="button"
-                          aria-current={view === item.key ? "page" : undefined}
-                          onClick={() => {
-                            onSelectView(item.key);
-                            setOpen(false);
-                          }}
-                          className={classNames(
-                            "flex min-h-10 min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-right text-sm transition",
-                            view === item.key
-                              ? "bg-[#FFE045] font-bold text-[#080123]"
-                              : "bg-white/[0.04] text-white/70 hover:bg-white/10 hover:text-white",
-                          )}
-                        >
-                          <Icon className="shrink-0" size={16} />
-                          <span className="truncate">{item.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </section>
-              );
-            })}
-          </nav>
+            <div className="flex min-h-[61px] items-center justify-between border-b border-white/10 px-4">
+              <button
+                type="button"
+                aria-label="סגירת תפריט"
+                onClick={() => setOpen(false)}
+                className="grid size-9 place-items-center rounded-md text-white/65 transition hover:bg-white/10 hover:text-white"
+                title="סגירת תפריט"
+              >
+                <X size={20} />
+              </button>
+              <BrandLogo compact />
+            </div>
+            <div className="border-b border-white/10 px-4 py-3 text-xs text-white/45">
+              מסך נוכחי: <span className="font-bold text-white">{activeItem?.label ?? "כללי"}</span>
+            </div>
+            <nav
+              id="mobile-navigation-menu"
+              aria-label="ניווט ראשי במובייל"
+              className="min-h-0 flex-1 overflow-y-auto px-3 py-2"
+            >
+              {navigationGroups.map((group) => {
+                const groupViews = visibleViews.filter((item) => group.views.includes(item.key));
+                if (!groupViews.length) return null;
+                const GroupIcon = group.icon;
+                return (
+                  <section key={group.key} className="border-b border-white/10 py-2 last:border-b-0">
+                    <h2 className="flex items-center gap-2 px-2.5 py-1.5 text-[11px] font-bold text-white/45">
+                      <GroupIcon size={14} />
+                      <span>{group.label}</span>
+                    </h2>
+                    <div className="grid gap-1">
+                      {groupViews.map((item) => {
+                        const Icon = item.icon;
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            aria-current={view === item.key ? "page" : undefined}
+                            onClick={() => {
+                              onSelectView(item.key);
+                              setOpen(false);
+                            }}
+                            className={classNames(
+                              "flex min-h-10 min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-right text-sm transition",
+                              view === item.key
+                                ? "bg-[#FFE045] font-bold text-[#080123]"
+                                : "text-white/70 hover:bg-white/10 hover:text-white",
+                            )}
+                          >
+                            <Icon className="shrink-0" size={17} />
+                            <span className="truncate">{item.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })}
+            </nav>
+            <div className="border-t border-white/10 px-4 py-3 text-[11px] text-white/35">addz.digital · Growth OS</div>
+          </div>
         </div>
       )}
     </div>
