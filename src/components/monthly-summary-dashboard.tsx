@@ -17,6 +17,7 @@ import {
   Send,
   ShoppingBag,
   Sparkles,
+  Users,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -464,6 +465,19 @@ export function MonthlySummaryDashboard({
                     </dl>
                   </section>
                 </div>
+                {selected.snapshot.listHealth && selected.snapshot.listHealth.total.recipients > 0 && <section className="mt-4 overflow-hidden rounded-lg border border-[#e4e7ec] bg-white">
+                  <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#eef1f4] px-4 py-3 md:px-5">
+                    <div className="flex items-center gap-2"><span className="grid size-8 place-items-center rounded-md bg-[#ecfdf9] text-[#087f72]"><Users size={16} /></span><div><h3 className="text-sm font-bold">בריאות הרשימה</h3><p className="mt-0.5 text-[11px] text-[#667085]">הסרות מקמפיינים · שיעור משוקלל לפי נמענים</p></div></div>
+                    {selected.snapshot.listHealth.rateChange !== null && <span className={`rounded-sm px-2 py-1 text-[11px] font-bold ${selected.snapshot.listHealth.rateChange <= 0 ? "bg-[#ecfdf9] text-[#087f72]" : "bg-[#fff4e8] text-[#b45309]"}`}>{selected.snapshot.listHealth.rateChange > 0 ? "+" : ""}{percent(selected.snapshot.listHealth.rateChange)} נק׳ לעומת החודש הקודם</span>}
+                  </header>
+                  <div className="grid divide-y divide-[#eef1f4] sm:grid-cols-3 sm:divide-x sm:divide-x-reverse sm:divide-y-0">
+                    {([
+                      ["סה״כ", selected.snapshot.listHealth.total],
+                      ["אימייל", selected.snapshot.listHealth.email],
+                      ["SMS", selected.snapshot.listHealth.sms],
+                    ] as const).map(([label, health]) => <div key={label} className="p-4 md:px-5"><div className="flex items-baseline justify-between gap-3"><span className="text-xs font-bold text-[#475467]">{label}</span><strong className="text-xl tabular-nums text-[#080123]">{percent(health.unsubscribeRate)}</strong></div><p className="mt-1 text-[11px] text-[#667085]">{number(health.unsubscribed)} הסרות מתוך {number(health.recipients)} נמענים</p></div>)}
+                  </div>
+                </section>}
                 <div className="mt-4 grid gap-4 lg:grid-cols-3">
                   <SummaryLeaderboard title="מיילים מובילים" items={selected.snapshot.leaders.emailCampaigns} currency={selected.snapshot.currency} color="#24282f" />
                   <SummaryLeaderboard title="SMS מובילים" items={selected.snapshot.leaders.smsCampaigns} currency={selected.snapshot.currency} color="#20b9a8" />

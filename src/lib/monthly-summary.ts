@@ -1,4 +1,5 @@
 import { accountDate, reportDateInstant } from "./report-time.ts";
+import { summarizeCampaignListHealth, type CampaignListHealth } from "./metrics.ts";
 import type {
   AutomationReport,
   EmailCampaignReport,
@@ -62,6 +63,13 @@ export type MonthlySummarySnapshot = {
   popup: {
     signups: number | null;
     conversionRate: number | null;
+  };
+  listHealth?: {
+    total: CampaignListHealth;
+    email: CampaignListHealth;
+    sms: CampaignListHealth;
+    previousMonthRate: number | null;
+    rateChange: number | null;
   };
   previousMonth: {
     month: string;
@@ -230,6 +238,13 @@ export function buildMonthlySummary(input: BuildMonthlySummaryInput): MonthlySum
   const smsLeaders = campaignLeaders(monthSms, 3);
   const remainingSms = [...monthSms].sort((a, b) => b.revenueGenerated - a.revenueGenerated).slice(1);
   const priorMonth = previousMonth(month);
+  const listHealth = summarizeCampaignListHealth([...monthEmails, ...monthSms]);
+  const emailListHealth = summarizeCampaignListHealth(monthEmails);
+  const smsListHealth = summarizeCampaignListHealth(monthSms);
+  const previousListHealth = summarizeCampaignListHealth([
+    ...input.emails.filter((item) => isInMonth(item.sentAt, priorMonth, account.timezone)),
+    ...input.sms.filter((item) => isInMonth(item.sentAt, priorMonth, account.timezone)),
+  ]);
   const previousAttributedRevenue = summaryRevenue(
     priorMonth,
     account.timezone,
@@ -297,6 +312,15 @@ export function buildMonthlySummary(input: BuildMonthlySummaryInput): MonthlySum
     popup: {
       signups: finite(input.manual.popupSignups),
       conversionRate: finite(input.manual.popupConversionRate),
+    },
+    listHealth: {
+      total: listHealth,
+      email: emailListHealth,
+      sms: smsListHealth,
+      previousMonthRate: previousListHealth.unsubscribeRate,
+      rateChange: listHealth.unsubscribeRate !== null && previousListHealth.unsubscribeRate !== null
+        ? listHealth.unsubscribeRate - previousListHealth.unsubscribeRate
+        : null,
     },
     previousMonth: {
       month: priorMonth,
@@ -389,6 +413,14 @@ export function buildMonthlyWhatsappText(snapshot: MonthlySummarySnapshot, share
     lines.push("פופ אפ:", popupParts.join(" ב־"), "");
   }
 
+  if (snapshot.listHealth && snapshot.listHealth.total.recipients > 0) {
+    lines.push(
+      "בריאות הרשימה:",
+      `${number(snapshot.listHealth.total.unsubscribed)} הסרות · ${percent(snapshot.listHealth.total.unsubscribeRate)} מהנמענים בקמפיינים`,
+      "",
+    );
+  }
+
   if (shareUrl) lines.push("לצפייה בסיכום המלא והאינטראקטיבי:", shareUrl);
   return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -427,5 +459,8 @@ export function buildMonthlySummaryEmailHtml(snapshot: MonthlySummarySnapshot, s
     ["קמפיינים ב־SMS", snapshot.smsCampaigns.revenue, snapshot.smsCampaigns.purchases],
     ["אוטומציות", snapshot.automations.revenue, snapshot.automations.purchases],
   ] as const;
-  return `<div dir="rtl" style="margin:0;background:#f5f7f8;padding:32px 16px;font-family:Arial,sans-serif;color:#080123"><div style="max-width:680px;margin:auto;background:#fff;border:1px solid #e4e7ec;border-radius:10px;overflow:hidden"><div style="background:#080123;color:#fff;padding:22px 28px"><strong style="font-size:24px">addz <span style="color:#FFE045">Growth OS</span></strong><div style="margin-top:6px;color:#c8c4d3">סיכום ${escapeHtml(monthLabel(snapshot.month))}</div></div><div style="padding:28px"><h1 style="margin:0;font-size:28px">${escapeHtml(snapshot.accountName)}</h1>${note ? `<p style="line-height:1.7;color:#475467">${escapeHtml(note)}</p>` : ""}<div style="margin:24px 0;padding:20px;background:#fff9d8;border-right:4px solid #FFE045"><div style="font-size:13px;color:#667085">סה״כ הכנסה מיוחסת לפעילות Flashy</div><strong style="display:block;margin-top:6px;font-size:34px">${escapeHtml(money(snapshot.totals.attributedRevenue, snapshot.currency))}</strong>${snapshot.totals.attributedShare === null ? "" : `<span style="color:#667085">${escapeHtml(percent(snapshot.totals.attributedShare))} ממחזור האתר</span>`}</div><table style="width:100%;border-collapse:collapse">${rows.map(([label, revenue, purchases]) => `<tr><td style="padding:12px 0;border-bottom:1px solid #e4e7ec">${escapeHtml(label)}</td><td dir="ltr" style="padding:12px 0;border-bottom:1px solid #e4e7ec;text-align:left;font-weight:700">${escapeHtml(money(revenue, snapshot.currency))}</td><td style="padding:12px 12px;border-bottom:1px solid #e4e7ec;color:#667085">${number(purchases)} מכירות</td></tr>`).join("")}</table><a href="${escapeHtml(shareUrl)}" style="display:block;margin-top:28px;padding:14px 20px;background:#FFE045;color:#080123;text-decoration:none;text-align:center;font-weight:700;border-radius:6px">לצפייה בסיכום האינטראקטיבי</a><p style="margin:22px 0 0;font-size:12px;line-height:1.6;color:#667085">${escapeHtml(snapshot.source.attributionNote)}</p></div></div></div>`;
+  const listHealth = snapshot.listHealth && snapshot.listHealth.total.recipients > 0
+    ? `<div style="margin-top:18px;padding:14px 16px;background:#f7f9fa;border-right:3px solid #20b9a8"><strong>בריאות הרשימה</strong><div style="margin-top:5px;color:#667085">${number(snapshot.listHealth.total.unsubscribed)} הסרות · ${escapeHtml(percent(snapshot.listHealth.total.unsubscribeRate))} מהנמענים בקמפיינים</div></div>`
+    : "";
+  return `<div dir="rtl" style="margin:0;background:#f5f7f8;padding:32px 16px;font-family:Arial,sans-serif;color:#080123"><div style="max-width:680px;margin:auto;background:#fff;border:1px solid #e4e7ec;border-radius:10px;overflow:hidden"><div style="background:#080123;color:#fff;padding:22px 28px"><strong style="font-size:24px">addz <span style="color:#FFE045">Growth OS</span></strong><div style="margin-top:6px;color:#c8c4d3">סיכום ${escapeHtml(monthLabel(snapshot.month))}</div></div><div style="padding:28px"><h1 style="margin:0;font-size:28px">${escapeHtml(snapshot.accountName)}</h1>${note ? `<p style="line-height:1.7;color:#475467">${escapeHtml(note)}</p>` : ""}<div style="margin:24px 0;padding:20px;background:#fff9d8;border-right:4px solid #FFE045"><div style="font-size:13px;color:#667085">סה״כ הכנסה מיוחסת לפעילות Flashy</div><strong style="display:block;margin-top:6px;font-size:34px">${escapeHtml(money(snapshot.totals.attributedRevenue, snapshot.currency))}</strong>${snapshot.totals.attributedShare === null ? "" : `<span style="color:#667085">${escapeHtml(percent(snapshot.totals.attributedShare))} ממחזור האתר</span>`}</div><table style="width:100%;border-collapse:collapse">${rows.map(([label, revenue, purchases]) => `<tr><td style="padding:12px 0;border-bottom:1px solid #e4e7ec">${escapeHtml(label)}</td><td dir="ltr" style="padding:12px 0;border-bottom:1px solid #e4e7ec;text-align:left;font-weight:700">${escapeHtml(money(revenue, snapshot.currency))}</td><td style="padding:12px 12px;border-bottom:1px solid #e4e7ec;color:#667085">${number(purchases)} מכירות</td></tr>`).join("")}</table>${listHealth}<a href="${escapeHtml(shareUrl)}" style="display:block;margin-top:28px;padding:14px 20px;background:#FFE045;color:#080123;text-decoration:none;text-align:center;font-weight:700;border-radius:6px">לצפייה בסיכום האינטראקטיבי</a><p style="margin:22px 0 0;font-size:12px;line-height:1.6;color:#667085">${escapeHtml(snapshot.source.attributionNote)}</p></div></div></div>`;
 }

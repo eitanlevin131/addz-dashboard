@@ -11,6 +11,25 @@ const sum = <T>(items: T[], getter: (item: T) => number) =>
 
 const safeRate = (value: number, base: number) => (base > 0 ? value / base : 0);
 
+export type CampaignListHealth = {
+  unsubscribed: number;
+  recipients: number;
+  unsubscribeRate: number | null;
+};
+
+export function summarizeCampaignListHealth(
+  reports: Array<EmailCampaignReport | SmsCampaignReport>,
+): CampaignListHealth {
+  const unsubscribed = sum(reports, (report) => report.unsubscribed);
+  const recipients = sum(reports, (report) => report.totalRecipients);
+
+  return {
+    unsubscribed,
+    recipients,
+    unsubscribeRate: recipients > 0 ? unsubscribed / recipients : null,
+  };
+}
+
 export function getAutomationSmsRecipients(report: AutomationReport) {
   const sentSms = report.sentSms ?? 0;
   if (sentSms > 0) return sentSms;

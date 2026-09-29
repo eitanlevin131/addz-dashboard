@@ -64,6 +64,8 @@ export type SmsTrendPoint = {
   cost: number;
   purchases: number;
   roas: number | null;
+  unsubscribed: number;
+  unsubscribeRate: number | null;
 };
 
 export function SmsPerformanceTrendChart({
@@ -73,11 +75,11 @@ export function SmsPerformanceTrendChart({
 }: {
   points: SmsTrendPoint[];
   currency: string;
-  onSelect?: (point: SmsTrendPoint, metric: "revenue" | "cost" | "purchases" | "roas") => void;
+  onSelect?: (point: SmsTrendPoint, metric: "revenue" | "cost" | "purchases" | "roas" | "unsubscribes") => void;
 }) {
-  const [metric, setMetric] = useState<"revenue" | "purchases" | "roas">("revenue");
-  const hasData = points.some((point) => point.revenue || point.cost || point.purchases || point.roas);
-  const selectPoint = (selectedMetric: "revenue" | "cost" | "purchases" | "roas") => (entry: unknown) => {
+  const [metric, setMetric] = useState<"revenue" | "purchases" | "roas" | "unsubscribes">("revenue");
+  const hasData = points.some((point) => point.revenue || point.cost || point.purchases || point.roas || point.unsubscribed);
+  const selectPoint = (selectedMetric: "revenue" | "cost" | "purchases" | "roas" | "unsubscribes") => (entry: unknown) => {
     const point = (entry as { payload?: SmsTrendPoint }).payload;
     if (point) onSelect?.(point, selectedMetric);
   };
@@ -91,13 +93,14 @@ export function SmsPerformanceTrendChart({
   return (
     <ChartFrame
       title="פעילות SMS לאורך התקופה"
-      detail={metric === "revenue" ? "הכנסה מיוחסת מול עלות ההודעות · אותו ציר כספי" : metric === "purchases" ? "רכישות מיוחסות לפי יום" : "הכנסה ברת־השוואה חלקי עלות SMS"}
+      detail={metric === "revenue" ? "הכנסה מיוחסת מול עלות ההודעות · אותו ציר כספי" : metric === "purchases" ? "רכישות מיוחסות לפי יום" : metric === "roas" ? "הכנסה ברת־השוואה חלקי עלות SMS" : "מספר הסרות מקמפייני SMS לפי יום"}
       controls={(
         <div className="flex rounded-md bg-[#f1f4f5] p-0.5" role="group" aria-label="מדד בגרף פעילות SMS">
           {([
             { value: "revenue", label: "הכנסה ועלות" },
             { value: "purchases", label: "רכישות" },
             { value: "roas", label: "ROAS" },
+            { value: "unsubscribes", label: "הסרות" },
           ] as const).map((option) => (
             <button
               key={option.value}
@@ -116,7 +119,7 @@ export function SmsPerformanceTrendChart({
         <div className="px-4 pb-1 sm:px-5">
           <Legend items={metric === "revenue"
             ? [{ label: "הכנסה", color: chartColors.sms }, { label: "עלות SMS", color: chartColors.cost }]
-            : [{ label: metric === "purchases" ? "רכישות" : "ROAS", color: chartColors.sms }]}
+            : [{ label: metric === "purchases" ? "רכישות" : metric === "roas" ? "ROAS" : "הסרות", color: chartColors.sms }]}
           />
         </div>
         <div className="h-[280px] min-w-0 px-2 pb-3 pl-0 sm:h-[320px] sm:px-4 sm:pb-4" dir="ltr" role="img" aria-label="מגמת ביצועי SMS לאורך התקופה">
@@ -135,6 +138,7 @@ export function SmsPerformanceTrendChart({
                 <ReferenceLine y={1} stroke="#7b8491" strokeDasharray="5 4" />
                 <Area type="monotone" dataKey="roas" name="ROAS" connectNulls stroke={chartColors.sms} fill={chartColors.sms} fillOpacity={0.13} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("roas")} />
               </>}
+              {metric === "unsubscribes" && <Area type="monotone" dataKey="unsubscribed" name="הסרות" stroke={chartColors.sms} fill={chartColors.sms} fillOpacity={0.18} strokeWidth={2.25} dot={false} activeDot={{ r: 4 }} isAnimationActive={false} cursor={onSelect ? "pointer" : undefined} onClick={selectPoint("unsubscribes")} />}
             </ComposedChart>
           </ResponsiveContainer>
         </div>

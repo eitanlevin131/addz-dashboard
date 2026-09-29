@@ -7,6 +7,7 @@ import type {
   SmsCampaignReport,
 } from "./types";
 import { campaignTiming, weekdayLabels } from "./report-chart-data.ts";
+import { summarizeCampaignListHealth } from "./metrics.ts";
 
 export type AiReportView = "overview" | "campaigns" | "sms" | "automations" | "planner" | "ai";
 
@@ -114,6 +115,7 @@ function queryArea(question: string, currentView = "") {
   const value = `${question} ${currentView}`.toLowerCase();
   if (isTimingQuestion(value)) return "timing";
   if (value.includes("אוטומ") || value.includes("automation")) return "automation";
+  if (/הסר|נטיש|unsubscribe/.test(value)) return "campaign";
   if (value.includes("sms") || value.includes("סמס")) return "sms";
   if (value.includes("גאנט") || value.includes("תכנ") || value.includes("planner")) return "plan";
   if (value.includes("קמפיין") || value.includes("אימייל") || value.includes("email")) return "campaign";
@@ -146,6 +148,7 @@ function relevantReportSources(sources: AiEvidenceSource[], question: string, cu
 export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[] {
   const { account, summary } = input;
   const currency = account.currency;
+  const listHealth = summarizeCampaignListHealth([...input.emails, ...input.sms]);
   const summarySource: AiEvidenceSource = {
     id: "summary:current-range",
     kind: "summary",
@@ -161,6 +164,8 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
       metric("totalCost", "סך עלויות", summary.smsCost + summary.fixedCosts, money(summary.smsCost + summary.fixedCosts, currency)),
       metric("roas", "ROAS", summary.roas, summary.roas === null ? "לא זמין" : `${number(summary.roas)}x`),
       metric("purchases", "רכישות", summary.purchases, number(summary.purchases)),
+      metric("unsubscribed", "הסרות מקמפיינים", listHealth.unsubscribed, number(listHealth.unsubscribed)),
+      metric("unsubscribeRate", "שיעור הסרה משוקלל", listHealth.unsubscribeRate, listHealth.unsubscribeRate === null ? "לא זמין" : percent(listHealth.unsubscribeRate)),
     ],
   };
   const emailSources = input.emails.map((item): AiEvidenceSource => ({
@@ -179,6 +184,8 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
       metric("clicks", "קליקים", item.uniqueClicks, number(item.uniqueClicks)),
       metric("openRate", "אחוז פתיחה", item.totalDelivered > 0 ? item.totalOpens / item.totalDelivered : null, item.totalDelivered > 0 ? percent(item.totalOpens / item.totalDelivered) : "לא זמין"),
       metric("clickRate", "אחוז הקלקה", item.totalDelivered > 0 ? item.uniqueClicks / item.totalDelivered : null, item.totalDelivered > 0 ? percent(item.uniqueClicks / item.totalDelivered) : "לא זמין"),
+      metric("unsubscribed", "הסרות", item.unsubscribed, number(item.unsubscribed)),
+      metric("unsubscribeRate", "שיעור הסרה", item.totalRecipients > 0 ? item.unsubscribed / item.totalRecipients : null, item.totalRecipients > 0 ? percent(item.unsubscribed / item.totalRecipients) : "לא זמין"),
     ],
   }));
   const smsSources = input.sms.map((item): AiEvidenceSource => {
@@ -200,6 +207,8 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
         metric("purchases", "רכישות", item.purchases, number(item.purchases)),
         metric("recipients", "נמענים", item.totalRecipients, number(item.totalRecipients)),
         metric("clicks", "קליקים", item.totalClicks, number(item.totalClicks)),
+        metric("unsubscribed", "הסרות", item.unsubscribed, number(item.unsubscribed)),
+        metric("unsubscribeRate", "שיעור הסרה", item.totalRecipients > 0 ? item.unsubscribed / item.totalRecipients : null, item.totalRecipients > 0 ? percent(item.unsubscribed / item.totalRecipients) : "לא זמין"),
       ],
     };
   });
@@ -408,7 +417,7 @@ export function buildFallbackGroundedResponse(answer: string, catalog: AiEvidenc
   const summary = catalog.find((source) => source.kind === "summary");
   const selected = reportSources.length ? reportSources : summary ? [summary] : catalog.slice(0, 1);
   const facts = selected.map((source) => {
-    const visibleMetrics = source.metrics.filter((item) => ["revenue", "purchases", "smsCost", "roas"].includes(item.key)).slice(0, 3);
+    const visibleMetrics = source.metrics.filter((item) => ["revenue", "purchases", "smsCost", "roas", "unsubscribed", "unsubscribeRate"].includes(item.key)).slice(0, 5);
     return {
       text: visibleMetrics.length
         ? `${source.title}: ${visibleMetrics.map((item) => `${item.label} ${item.display}`).join(" · ")}`

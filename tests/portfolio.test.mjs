@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { combineMetricSummaries } from "../src/lib/metrics.ts";
+import { combineMetricSummaries, summarizeCampaignListHealth } from "../src/lib/metrics.ts";
 import { canonicalPortfolioAccounts } from "../src/lib/portfolio.ts";
 
 const summary = (overrides = {}) => ({
@@ -37,6 +37,19 @@ test("portfolio totals sum accounts and calculate weighted ratios", () => {
 test("portfolio without costs keeps ROAS unavailable", () => {
   const result = combineMetricSummaries([summary({ revenue: 1_000, profit: 1_000 })]);
   assert.equal(result.roas, null);
+});
+
+test("campaign list health uses a weighted recipient rate", () => {
+  const result = summarizeCampaignListHealth([
+    { totalRecipients: 100, unsubscribed: 10 },
+    { totalRecipients: 900, unsubscribed: 9 },
+  ]);
+
+  assert.deepEqual(result, {
+    recipients: 1_000,
+    unsubscribed: 19,
+    unsubscribeRate: 0.019,
+  });
 });
 
 test("portfolio counts the newest connection once when a Flashy account was added twice", () => {

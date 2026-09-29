@@ -55,7 +55,7 @@ const email = {
   purchases: 5,
   revenueGenerated: 2500,
   totalBounces: 20,
-  unsubscribed: 0,
+  unsubscribed: 5,
   spam: 0,
 };
 
@@ -72,7 +72,7 @@ const sms = {
   totalClicks: 25,
   purchases: 2,
   revenueGenerated: 500,
-  unsubscribed: 0,
+  unsubscribed: 10,
 };
 
 test("evidence catalog keeps measured SMS values and a direct report target", () => {
@@ -92,7 +92,26 @@ test("evidence catalog keeps measured SMS values and a direct report target", ()
   assert.equal(source.reportView, "sms");
   assert.equal(source.metrics.find((item) => item.key === "revenue")?.value, 500);
   assert.equal(source.metrics.find((item) => item.key === "smsCost")?.value, 74);
+  assert.equal(source.metrics.find((item) => item.key === "unsubscribed")?.value, 10);
+  assert.equal(source.metrics.find((item) => item.key === "unsubscribeRate")?.value, 0.005);
   assert.equal(source.content, "הזדמנות אחרונה להצעה שביקשת לבדוק");
+});
+
+test("AI summary exposes weighted campaign unsubscribe health", () => {
+  const catalog = buildAiEvidenceCatalog({
+    account,
+    summary,
+    emails: [email],
+    sms: [sms],
+    automations: [],
+    plans: [],
+    question: "מה מצב ההסרות?",
+    currentView: "overview",
+  });
+  const source = catalog.find((item) => item.id === "summary:current-range");
+
+  assert.equal(source?.metrics.find((item) => item.key === "unsubscribed")?.value, 15);
+  assert.equal(source?.metrics.find((item) => item.key === "unsubscribeRate")?.value, 15 / 3000);
 });
 
 test("grounded AI output cannot cite a source that is not in the catalog", () => {

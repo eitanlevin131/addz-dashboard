@@ -59,8 +59,8 @@ test("monthly summary separates channels, groups automations and compares prior 
     account,
     month: "2026-08",
     manual: { siteRevenue: 3600, popupSignups: 200, popupConversionRate: 0.05, note: "" },
-    emails: [email(), email({ campaignId: 10, sentAt: "2026-07-12T08:00:00.000Z", revenueGenerated: 400, purchases: 4 })],
-    sms: [sms()],
+    emails: [email({ unsubscribed: 10 }), email({ campaignId: 10, sentAt: "2026-07-12T08:00:00.000Z", revenueGenerated: 400, purchases: 4, unsubscribed: 2 })],
+    sms: [sms({ unsubscribed: 5 })],
     automations: [
       automation(),
       automation({ id: crypto.randomUUID(), date: "2026-08-13", revenueGenerated: 200, purchases: 2, totalClicks: 20 }),
@@ -80,6 +80,9 @@ test("monthly summary separates channels, groups automations and compares prior 
   assert.equal(snapshot.leaders.automations[0].revenue, 500);
   assert.equal(snapshot.previousMonth?.attributedRevenue, 500);
   assert.equal(snapshot.previousMonth?.revenueChange, 3);
+  assert.equal(snapshot.listHealth?.total.unsubscribed, 15);
+  assert.equal(snapshot.listHealth?.total.unsubscribeRate, 15 / 1500);
+  assert.equal(snapshot.listHealth?.previousMonthRate, 2 / 1000);
   assert.deepEqual(snapshot.completeness.missing, []);
 });
 

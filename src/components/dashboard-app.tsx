@@ -87,6 +87,7 @@ import {
   formatPercent,
   combineMetricSummaries,
   getAutomationSmsRecipients,
+  summarizeCampaignListHealth,
   summarizeAccount,
 } from "@/lib/metrics";
 import {
@@ -1636,6 +1637,39 @@ type TopCampaignRow = {
   item: PerformanceItem;
 };
 
+function CampaignListHealthStrip({
+  emails,
+  sms,
+  compact = false,
+}: {
+  emails: EmailCampaignReport[];
+  sms: SmsCampaignReport[];
+  compact?: boolean;
+}) {
+  const groups = [
+    { label: "כל הקמפיינים", ...summarizeCampaignListHealth([...emails, ...sms]), color: "#111318" },
+    { label: "אימייל", ...summarizeCampaignListHealth(emails), color: chartColors.email },
+    { label: "SMS", ...summarizeCampaignListHealth(sms), color: chartColors.sms },
+  ];
+
+  return (
+    <section dir="rtl" className="col-span-12 overflow-hidden rounded-lg border border-[#e4e7ec] bg-white">
+      <div className={classNames("grid divide-y divide-[#eef0f2]", compact ? "md:grid-cols-[minmax(220px,1.15fr)_repeat(3,minmax(0,1fr))] md:divide-x md:divide-x-reverse md:divide-y-0" : "md:grid-cols-3 md:divide-x md:divide-x-reverse md:divide-y-0")}>
+        {compact && <header className="p-4 sm:p-5"><h2 className="text-sm font-bold text-[#111318]">בריאות הקהל</h2><p className="mt-1 text-xs leading-5 text-[#667085]">הסרות מקמפיינים בלבד · שיעור משוקלל לפי נמענים</p></header>}
+        {groups.map((group) => (
+          <div key={group.label} className="p-4 sm:px-5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="inline-flex items-center gap-2 text-xs font-bold text-[#475467]"><i className="h-3 w-1 rounded-sm" style={{ background: group.color }} />{group.label}</span>
+              <strong className="text-base tabular-nums text-[#111318]">{group.unsubscribeRate === null ? "—" : formatPercent(group.unsubscribeRate)}</strong>
+            </div>
+            <p className="mt-1 pr-3 text-[11px] text-[#667085]">{group.recipients > 0 ? `${formatNumber(group.unsubscribed)} הסרות מתוך ${formatNumber(group.recipients)} נמענים` : "אין קמפיינים בטווח"}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function TopCampaignsPanel({
   rows,
   currency,
@@ -2062,6 +2096,8 @@ function Overview({
         })}
       />
 
+      <CampaignListHealthStrip emails={emails} sms={sms} compact />
+
       <TopCampaignsPanel
         rows={campaignLeaderRows}
         currency={account.currency}
@@ -2159,6 +2195,7 @@ type SmsActivityRow = {
   delivered: number;
   clicks: number;
   purchases: number;
+  unsubscribed: number | null;
   messageText: string;
 };
 
@@ -2182,6 +2219,7 @@ function buildSmsActivityRows(
       delivered: item.totalDelivered,
       clicks: item.uniqueClicks,
       purchases: item.purchases,
+      unsubscribed: item.unsubscribed,
       messageText: item.messageText,
     })),
     ...smsAutomations.map((item) => {
@@ -2200,6 +2238,7 @@ function buildSmsActivityRows(
         delivered: recipients,
         clicks: item.clickedSms ?? item.totalClicks,
         purchases: item.purchases,
+        unsubscribed: null,
         messageText: "",
       };
     }),
@@ -2238,6 +2277,8 @@ function SmsKpiStrip({
       cost: items.reduce((sum, item) => sum + item.cost, 0),
       purchases: items.reduce((sum, item) => sum + item.purchases, 0),
       recipients: items.reduce((sum, item) => sum + item.recipients, 0),
+      unsubscribed: items.reduce((sum, item) => sum + (item.unsubscribed ?? 0), 0),
+      unsubscribeRecipients: items.reduce((sum, item) => sum + (item.unsubscribed === null ? 0 : item.recipients), 0),
       roas: comparableCost > 0 ? comparableRevenue / comparableCost : null,
     };
   };
@@ -2247,12 +2288,13 @@ function SmsKpiStrip({
     { key: "cost", label: "עלות SMS", value: formatCurrency(current.cost, account.currency), raw: current.cost, previous: previous?.cost ?? null, detail: `${formatNumber(current.recipients)} הודעות`, icon: MessageSquareText, increaseIsGood: false },
     { key: "roas", label: "ROAS בר־השוואה", value: formatRoas(current.roas), raw: current.roas, previous: previous?.roas ?? null, detail: "קמפיינים ואוטומציות SMS בלבד", icon: LineChart, increaseIsGood: true },
     { key: "purchases", label: "רכישות", value: formatNumber(current.purchases), raw: current.purchases, previous: previous?.purchases ?? null, detail: "מכל פעילות ה־SMS", icon: CheckCircle2, increaseIsGood: true },
+    { key: "unsubscribed", label: "הסרות", value: current.unsubscribeRecipients > 0 ? formatNumber(current.unsubscribed) : "—", raw: current.unsubscribeRecipients > 0 ? current.unsubscribed / current.unsubscribeRecipients : null, previous: previous && previous.unsubscribeRecipients > 0 ? previous.unsubscribed / previous.unsubscribeRecipients : null, detail: current.unsubscribeRecipients > 0 ? `${formatPercent(current.unsubscribed / current.unsubscribeRecipients)} · ${formatNumber(current.unsubscribeRecipients)} נמעני קמפיינים` : "לא זמין בדוחות אוטומציה", icon: Users, increaseIsGood: false },
   ];
   const revenueComparison = comparisonChange(current.revenue, previous?.revenue ?? null);
   const RevenueIcon = revenueComparison?.direction === "up" ? ArrowUpRight : revenueComparison?.direction === "down" ? ArrowDownRight : Minus;
 
-  return <section dir="rtl" className="grid overflow-hidden rounded-xl border border-[#dfe3e7] bg-[#dfe3e7] sm:grid-cols-3 lg:grid-cols-[minmax(310px,1.4fr)_repeat(3,minmax(0,1fr))]">
-    <article className="relative min-w-0 overflow-hidden bg-[#111318] p-5 text-white sm:col-span-3 lg:col-span-1 lg:p-6">
+  return <section dir="rtl" className="grid overflow-hidden rounded-xl border border-[#dfe3e7] bg-[#dfe3e7] sm:grid-cols-2 xl:grid-cols-[minmax(300px,1.35fr)_repeat(4,minmax(0,1fr))]">
+    <article className="relative min-w-0 overflow-hidden bg-[#111318] p-5 text-white sm:col-span-2 xl:col-span-1 xl:p-6">
       <div className="absolute inset-y-0 right-0 w-1 bg-[#42dfcf]" />
       <p className="text-xs font-medium text-white/60">הכנסות פעילות SMS</p>
       <p className="mt-3 text-right text-4xl font-bold leading-none tabular-nums sm:text-5xl">{formatCurrency(current.revenue, account.currency)}</p>
@@ -2336,7 +2378,7 @@ function SmsEfficiencyOverview({
   </section>;
 }
 
-type SmsActivitySort = "revenue" | "cost" | "roas" | "recipients" | "clickRate" | "purchases" | "conversion";
+type SmsActivitySort = "revenue" | "cost" | "roas" | "recipients" | "clickRate" | "purchases" | "conversion" | "unsubscribes";
 
 function SmsActivityTable({
   rows,
@@ -2360,6 +2402,7 @@ function SmsActivityTable({
     if (metric === "roas") return row.comparable && row.cost > 0 ? row.revenue / row.cost : Number.NEGATIVE_INFINITY;
     if (metric === "clickRate") return row.delivered > 0 ? row.clicks / row.delivered : 0;
     if (metric === "conversion") return row.comparable && row.clicks > 0 ? row.purchases / row.clicks : Number.NEGATIVE_INFINITY;
+    if (metric === "unsubscribes") return row.unsubscribed === null || row.recipients <= 0 ? Number.NEGATIVE_INFINITY : row.unsubscribed / row.recipients;
     return row[metric];
   };
   const normalizedQuery = query.trim().toLocaleLowerCase("he");
@@ -2395,6 +2438,7 @@ function SmsActivityTable({
     { key: "clickRate", label: "הקלקה" },
     { key: "purchases", label: "רכישות" },
     { key: "conversion", label: "המרה" },
+    { key: "unsubscribes", label: "% הסרה" },
   ];
   const rate = (value: number, base: number) => base > 0 ? formatPercent(value / base) : "—";
 
@@ -2421,12 +2465,12 @@ function SmsActivityTable({
     </header>
     {visible.length === 0 ? <div className="grid min-h-40 place-content-center text-sm text-[#667085]">אין פעילות להצגה בסינון הזה</div> : <>
       <div className="hidden overflow-x-auto xl:block">
-        <table className="w-full min-w-[1040px] border-collapse text-right text-xs">
+        <table className="w-full min-w-[1120px] border-collapse text-right text-xs">
           <thead className="bg-[#f8fafb] text-[#667085]"><tr><th className="px-4 py-3 font-medium">פעילות</th>{headers.map((header) => <th key={header.key} className="px-3 py-3 font-medium"><button type="button" onClick={() => selectSort(header.key)} className={classNames("inline-flex items-center gap-1 hover:text-[#111318]", sortBy === header.key && "font-bold text-[#111318]")}>{header.label}{sortBy === header.key && <ArrowDownWideNarrow size={13} className={direction === "asc" ? "rotate-180" : ""} />}</button></th>)}</tr></thead>
-          <tbody className="divide-y divide-[#eef0f2]">{visible.map((row) => <tr key={row.id} tabIndex={0} role="button" onClick={() => onSelect(row)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelect(row); }} className="cursor-pointer transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"><td className="max-w-[330px] px-4 py-3"><b className="block truncate text-sm text-[#111318]">{row.name}</b><span className={classNames("mt-1 inline-block rounded-sm px-1.5 py-0.5 text-[10px] font-bold", row.kind === "campaign" ? "bg-[#e8fbf8] text-[#087f72]" : row.kind === "automation" ? "bg-[#eef3fd] text-[#4668ad]" : "bg-[#f2f4f7] text-[#667085]")}>{row.typeLabel}</span></td><td className="px-3 py-3 font-bold tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</td><td className="px-3 py-3 tabular-nums" dir="ltr">{formatCurrency(row.cost, currency)}</td><td className="px-3 py-3 font-bold tabular-nums" dir="ltr">{row.comparable ? formatRoas(row.cost > 0 ? row.revenue / row.cost : null) : "—"}</td><td className="px-3 py-3 tabular-nums">{formatNumber(row.recipients)}</td><td className="px-3 py-3 tabular-nums">{rate(row.clicks, row.delivered)}</td><td className="px-3 py-3 tabular-nums">{formatNumber(row.purchases)}</td><td className="px-3 py-3 tabular-nums">{row.comparable ? rate(row.purchases, row.clicks) : "—"}</td></tr>)}</tbody>
+          <tbody className="divide-y divide-[#eef0f2]">{visible.map((row) => <tr key={row.id} tabIndex={0} role="button" onClick={() => onSelect(row)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelect(row); }} className="cursor-pointer transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"><td className="max-w-[330px] px-4 py-3"><b className="block truncate text-sm text-[#111318]">{row.name}</b><span className={classNames("mt-1 inline-block rounded-sm px-1.5 py-0.5 text-[10px] font-bold", row.kind === "campaign" ? "bg-[#e8fbf8] text-[#087f72]" : row.kind === "automation" ? "bg-[#eef3fd] text-[#4668ad]" : "bg-[#f2f4f7] text-[#667085]")}>{row.typeLabel}</span></td><td className="px-3 py-3 font-bold tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</td><td className="px-3 py-3 tabular-nums" dir="ltr">{formatCurrency(row.cost, currency)}</td><td className="px-3 py-3 font-bold tabular-nums" dir="ltr">{row.comparable ? formatRoas(row.cost > 0 ? row.revenue / row.cost : null) : "—"}</td><td className="px-3 py-3 tabular-nums">{formatNumber(row.recipients)}</td><td className="px-3 py-3 tabular-nums">{rate(row.clicks, row.delivered)}</td><td className="px-3 py-3 tabular-nums">{formatNumber(row.purchases)}</td><td className="px-3 py-3 tabular-nums">{row.comparable ? rate(row.purchases, row.clicks) : "—"}</td><td className="px-3 py-3 tabular-nums">{row.unsubscribed === null ? "—" : `${rate(row.unsubscribed, row.recipients)} · ${formatNumber(row.unsubscribed)}`}</td></tr>)}</tbody>
         </table>
       </div>
-      <div className="divide-y divide-[#eef0f2] xl:hidden">{visible.map((row) => <button key={row.id} type="button" onClick={() => onSelect(row)} className="block w-full p-4 text-right transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><b className="block text-sm leading-5 text-[#111318] [overflow-wrap:anywhere]">{row.name}</b><span className="mt-1 block text-[10px] font-bold text-[#667085]">{row.typeLabel}</span></div><b className="shrink-0 text-sm tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</b></div><div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-[#667085]"><span>עלות <b className="block text-[#111318]" dir="ltr">{formatCurrency(row.cost, currency)}</b></span><span>ROAS <b className="block text-[#111318]" dir="ltr">{row.comparable ? formatRoas(row.cost > 0 ? row.revenue / row.cost : null) : "מעורב"}</b></span><span>רכישות <b className="block text-[#111318]">{formatNumber(row.purchases)}</b></span><span>נמענים <b className="block text-[#111318]">{formatNumber(row.recipients)}</b></span><span>הקלקה <b className="block text-[#111318]">{rate(row.clicks, row.delivered)}</b></span><span>המרה <b className="block text-[#111318]">{row.comparable ? rate(row.purchases, row.clicks) : "—"}</b></span></div></button>)}</div>
+      <div className="divide-y divide-[#eef0f2] xl:hidden">{visible.map((row) => <button key={row.id} type="button" onClick={() => onSelect(row)} className="block w-full p-4 text-right transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8]"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><b className="block text-sm leading-5 text-[#111318] [overflow-wrap:anywhere]">{row.name}</b><span className="mt-1 block text-[10px] font-bold text-[#667085]">{row.typeLabel}</span></div><b className="shrink-0 text-sm tabular-nums" dir="ltr">{formatCurrency(row.revenue, currency)}</b></div><div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-[#667085]"><span>עלות <b className="block text-[#111318]" dir="ltr">{formatCurrency(row.cost, currency)}</b></span><span>ROAS <b className="block text-[#111318]" dir="ltr">{row.comparable ? formatRoas(row.cost > 0 ? row.revenue / row.cost : null) : "מעורב"}</b></span><span>רכישות <b className="block text-[#111318]">{formatNumber(row.purchases)}</b></span><span>נמענים <b className="block text-[#111318]">{formatNumber(row.recipients)}</b></span><span>הקלקה <b className="block text-[#111318]">{rate(row.clicks, row.delivered)}</b></span><span>המרה <b className="block text-[#111318]">{row.comparable ? rate(row.purchases, row.clicks) : "—"}</b></span><span>הסרה <b className="block text-[#111318]">{row.unsubscribed === null ? "—" : `${rate(row.unsubscribed, row.recipients)} · ${formatNumber(row.unsubscribed)}`}</b></span></div></button>)}</div>
       {sorted.length > 8 && !showDeepAnalysis && <button type="button" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)} className="flex min-h-10 w-full items-center justify-center gap-1.5 border-t border-[#eef0f2] text-xs font-bold hover:bg-[#f5f8f7]">{expanded ? <ChevronDown size={14} className="rotate-180" /> : <ChevronDown size={14} />}{expanded ? "הצג פחות" : `כל הפעילויות (${sorted.length})`}</button>}
     </>}
   </section>;
@@ -2504,6 +2548,13 @@ function SmsDashboard({ account, sms, automations, automationTimeline, previousS
       cost: items.reduce((sum, row) => sum + row.cost, 0),
       purchases: items.reduce((sum, row) => sum + row.purchases, 0),
       roas: comparableCost > 0 ? comparableRevenue / comparableCost : null,
+      unsubscribed: items.reduce((sum, row) => sum + (row.unsubscribed ?? 0), 0),
+      unsubscribeRate: (() => {
+        const eligibleRecipients = items.reduce((sum, row) => sum + (row.unsubscribed === null ? 0 : row.recipients), 0);
+        return eligibleRecipients > 0
+          ? items.reduce((sum, row) => sum + (row.unsubscribed ?? 0), 0) / eligibleRecipients
+          : null;
+      })(),
     };
   });
   const campaignStages = [
@@ -2516,8 +2567,8 @@ function SmsDashboard({ account, sms, automations, automationTimeline, previousS
     <SmsKpiStrip account={account} rows={rows} previousRows={previousRows} />
     <SmsPerformanceTrendChart points={trendPoints} currency={account.currency} onSelect={(point, metric) => setDrilldown({
       title: `פעילות SMS ב־${point.label}`,
-      context: metric === "cost" ? "הפעילויות שמרכיבות את עלות ה־SMS ביום הזה" : metric === "purchases" ? "הפעילויות שיצרו רכישות ביום הזה" : metric === "roas" ? "הפעילויות שנכללות בחישוב ה־ROAS ביום הזה" : "הפעילויות שמרכיבות את ההכנסה ביום הזה",
-      items: trendRows.filter((row) => row.date === point.date && (metric !== "roas" || row.comparable)).map(smsRowToDrilldown),
+      context: metric === "cost" ? "הפעילויות שמרכיבות את עלות ה־SMS ביום הזה" : metric === "purchases" ? "הפעילויות שיצרו רכישות ביום הזה" : metric === "roas" ? "הפעילויות שנכללות בחישוב ה־ROAS ביום הזה" : metric === "unsubscribes" ? "קמפייני SMS שעבורם Flashy דיווח על הסרות ביום הזה" : "הפעילויות שמרכיבות את ההכנסה ביום הזה",
+      items: trendRows.filter((row) => row.date === point.date && (metric !== "roas" || row.comparable) && (metric !== "unsubscribes" || row.unsubscribed !== null)).map(smsRowToDrilldown),
     })} />
     <SmsEfficiencyOverview rows={rows} campaignStages={campaignStages} currency={account.currency} onSelectGroup={(kind, label) => setDrilldown({
       title: label,
@@ -2908,6 +2959,8 @@ type CampaignLeaderboardRow = {
   clickRate: number | null;
   revenuePerThousand: number | null;
   roas: number | null;
+  unsubscribed: number;
+  unsubscribeRate: number | null;
   item: DrilldownItem;
 };
 
@@ -2925,8 +2978,25 @@ function CampaignLeaderboard({
   onSelect: (row: CampaignLeaderboardRow) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const visible = showAll || expanded ? rows : rows.slice(0, 6);
+  const [sortBy, setSortBy] = useState<"revenue" | "unsubscribeRate">("revenue");
+  const [direction, setDirection] = useState<"asc" | "desc">("desc");
+  const sortedRows = [...rows].sort((a, b) => {
+    const left = sortBy === "revenue" ? a.revenue : a.unsubscribeRate ?? Number.NEGATIVE_INFINITY;
+    const right = sortBy === "revenue" ? b.revenue : b.unsubscribeRate ?? Number.NEGATIVE_INFINITY;
+    return direction === "desc" ? right - left : left - right;
+  });
+  const visible = showAll || expanded ? sortedRows : sortedRows.slice(0, 6);
   const isEmail = channel === "email";
+  const selectSort = (metric: "revenue" | "unsubscribeRate") => {
+    if (sortBy === metric) setDirection((current) => current === "desc" ? "asc" : "desc");
+    else {
+      setSortBy(metric);
+      setDirection("desc");
+    }
+  };
+  const sortLabel = (metric: "revenue" | "unsubscribeRate", label: string) => (
+    <button type="button" onClick={() => selectSort(metric)} className={classNames("inline-flex items-center gap-1 hover:text-[#111318]", sortBy === metric && "font-bold text-[#111318]")}>{label}{sortBy === metric && <ArrowDownWideNarrow size={13} className={direction === "asc" ? "rotate-180" : ""} />}</button>
+  );
 
   return (
     <section className="min-w-0 overflow-hidden rounded-lg border border-[#e4e7ec] bg-white">
@@ -2941,12 +3011,13 @@ function CampaignLeaderboard({
           </button>
         )}
       </header>
-      <div className="hidden grid-cols-[minmax(210px,1.6fr)_repeat(5,minmax(72px,0.7fr))] gap-3 border-b border-[#eef0f2] bg-[#fafbfc] px-5 py-2 text-[11px] font-bold text-[#667085] lg:grid">
+      <div className="hidden grid-cols-[minmax(210px,1.6fr)_repeat(6,minmax(70px,0.68fr))] gap-3 border-b border-[#eef0f2] bg-[#fafbfc] px-5 py-2 text-[11px] font-bold text-[#667085] lg:grid">
         <span>קמפיין</span>
-        <span>הכנסה</span>
+        <span>{sortLabel("revenue", "הכנסה")}</span>
         {isEmail ? <><span>פתיחה</span><span>הקלקה</span></> : <><span>עלות</span><span>ROAS</span></>}
         <span>רכישות</span>
         <span>{isEmail ? "הכנסה ל־1,000" : "הקלקה"}</span>
+        <span>{sortLabel("unsubscribeRate", "% הסרה")}</span>
       </div>
       <div className="divide-y divide-[#eef0f2]">
         {visible.map((row) => {
@@ -2957,6 +3028,7 @@ function CampaignLeaderboard({
                 ["הקלקה", row.clickRate === null ? "—" : formatPercent(row.clickRate)],
                 ["רכישות", formatNumber(row.purchases)],
                 ["הכנסה ל־1,000", row.revenuePerThousand === null ? "—" : formatCurrency(row.revenuePerThousand, currency)],
+                ["הסרה", row.unsubscribeRate === null ? "—" : `${formatPercent(row.unsubscribeRate)} · ${formatNumber(row.unsubscribed)}`],
               ]
             : [
                 ["הכנסה", formatCurrency(row.revenue, currency)],
@@ -2964,10 +3036,11 @@ function CampaignLeaderboard({
                 ["ROAS", formatRoas(row.roas)],
                 ["רכישות", formatNumber(row.purchases)],
                 ["הקלקה", row.clickRate === null ? "—" : formatPercent(row.clickRate)],
+                ["הסרה", row.unsubscribeRate === null ? "—" : `${formatPercent(row.unsubscribeRate)} · ${formatNumber(row.unsubscribed)}`],
               ];
 
           return (
-            <button key={row.id} type="button" onClick={() => onSelect(row)} className="grid w-full gap-3 px-4 py-4 text-right transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8] lg:grid-cols-[minmax(210px,1.6fr)_repeat(5,minmax(72px,0.7fr))] lg:items-center lg:px-5">
+            <button key={row.id} type="button" onClick={() => onSelect(row)} className="grid w-full gap-3 px-4 py-4 text-right transition hover:bg-[#f8fbfa] focus-visible:outline-2 focus-visible:outline-[#20b9a8] lg:grid-cols-[minmax(210px,1.6fr)_repeat(6,minmax(70px,0.68fr))] lg:items-center lg:px-5">
               <span className="min-w-0">
                 <span className="flex items-center gap-2"><i className="size-2 shrink-0 rounded-sm" style={{ background: isEmail ? chartColors.email : chartColors.sms }} /><b className="truncate text-sm">{row.name}</b></span>
                 <small className="mt-1 block truncate pr-4 text-[11px] text-[#667085]">{row.detail}</small>
@@ -2975,7 +3048,7 @@ function CampaignLeaderboard({
               {metrics.map(([label, value]) => (
                 <span key={label} className="grid grid-cols-[1fr_auto] items-center gap-3 text-xs lg:block">
                   <span className="text-[#667085] lg:hidden">{label}</span>
-                  <b className="tabular-nums text-[#111318]" dir="ltr">{value}</b>
+                  <b className={classNames("tabular-nums", label === "הסרה" && row.unsubscribeRate !== null && row.unsubscribeRate >= 0.005 ? "text-[#b45309]" : "text-[#111318]")} dir="ltr">{value}</b>
                 </span>
               ))}
             </button>
@@ -3066,6 +3139,8 @@ function CampaignDashboard({
       clickRate: measuredRate(item.uniqueClicks, item.totalDelivered),
       revenuePerThousand: item.totalDelivered > 0 ? item.revenueGenerated / item.totalDelivered * 1_000 : null,
       roas: null,
+      unsubscribed: item.unsubscribed,
+      unsubscribeRate: item.totalRecipients > 0 ? item.unsubscribed / item.totalRecipients : null,
       item: emailToDrilldown(item),
     }));
   const smsRows: CampaignLeaderboardRow[] = [...sms]
@@ -3083,6 +3158,8 @@ function CampaignDashboard({
         clickRate: measuredRate(item.uniqueClicks, item.totalDelivered),
         revenuePerThousand: item.totalDelivered > 0 ? item.revenueGenerated / item.totalDelivered * 1_000 : null,
         roas: cost > 0 ? item.revenueGenerated / cost : null,
+        unsubscribed: item.unsubscribed,
+        unsubscribeRate: item.totalRecipients > 0 ? item.unsubscribed / item.totalRecipients : null,
         item: smsToDrilldown(item),
       };
     });
@@ -3151,6 +3228,8 @@ function CampaignDashboard({
         <MetricCard title="הכנסות מ־SMS" value={formatCurrency(smsRevenue, account.currency)} caption={`${totalRevenue > 0 ? formatPercent(smsRevenue / totalRevenue) : "—"} מהכנסות הקמפיינים · ${comparisonCaption(smsRevenue, previousSmsRevenue)}`} icon={MessageSquareText} />
         <MetricCard title="ROAS של SMS" value={formatRoas(smsRoas)} caption={`עלות SMS ${formatCurrency(smsCost, account.currency)} · ${comparisonCaption(smsRoas, previousSmsRoas)}`} icon={TrendingUp} tone={smsRoas !== null && smsRoas >= 1 ? "good" : "warn"} />
       </div>
+
+      <CampaignListHealthStrip emails={emails} sms={sms} />
 
       <PeriodComparisonChart
         points={campaignTrendPoints}
