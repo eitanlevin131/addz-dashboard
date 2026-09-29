@@ -762,6 +762,47 @@ type AdminUserAccess = {
   }[];
 };
 
+function ClientAssignmentControl({
+  user,
+  clients,
+  selectedClientId,
+  onSelect,
+  onAssign,
+  compact = false,
+}: {
+  user: AdminUserAccess;
+  clients: Client[];
+  selectedClientId?: string;
+  onSelect: (clientId: string) => void;
+  onAssign: () => void;
+  compact?: boolean;
+}) {
+  const assignedClientIds = new Set(user.clients.map((client) => client.clientId));
+  const availableClients = clients.filter((client) => !assignedClientIds.has(client.id));
+  if (!availableClients.length) {
+    return <p className="mt-3 text-xs font-semibold text-[#087f72]">כל הלקוחות הזמינים כבר משויכים.</p>;
+  }
+  const value = availableClients.some((client) => client.id === selectedClientId)
+    ? selectedClientId
+    : availableClients[0].id;
+  return (
+    <div className="mt-3 flex gap-2">
+      <select
+        aria-label={`הוספת גישה ללקוח עבור ${user.email}`}
+        value={value}
+        onChange={(event) => onSelect(event.target.value)}
+        className={classNames(
+          "min-w-0 rounded-md border border-[#dfe7ee] px-2 text-xs",
+          compact ? "h-8" : "h-9 flex-1",
+        )}
+      >
+        {availableClients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
+      </select>
+      <button type="button" onClick={onAssign} className={classNames("rounded-md border border-[#d0d5dd] px-2 text-xs font-bold", compact ? "h-8" : "h-9 px-3")}>הוסף גישה</button>
+    </div>
+  );
+}
+
 function MetricCard({
   title,
   value,
@@ -5205,15 +5246,25 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
   }
 
   async function addClientAccess(userId: string) {
-    const targetClientId = assignmentByUser[userId] || clients[0]?.id;
-    if (!targetClientId) return;
+    const user = users.find((item) => item.id === userId);
+    const assignedClientIds = new Set(user?.clients.map((client) => client.clientId) ?? []);
+    const availableClients = clients.filter((client) => !assignedClientIds.has(client.id));
+    const requestedClientId = assignmentByUser[userId];
+    const targetClientId = availableClients.some((client) => client.id === requestedClientId)
+      ? requestedClientId
+      : availableClients[0]?.id;
+    if (!targetClientId) {
+      setState("כל הלקוחות הזמינים כבר משויכים למשתמש.");
+      return;
+    }
     setState("מוסיף שיוך לקוח...");
     try {
       const response = await fetch("/api/admin/users", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ userId, clientId: targetClientId }) });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.message || "הוספת השיוך נכשלה");
       await loadUsers();
-      setState("הלקוח שויך והמשתמש יתבקש להתחבר מחדש.");
+      setAssignmentByUser((current) => ({ ...current, [userId]: "" }));
+      setState(payload.data?.alreadyAssigned ? "הלקוח כבר היה משויך למשתמש." : "הלקוח שויך והמשתמש יתבקש להתחבר מחדש.");
     } catch (error) {
       setState(error instanceof Error ? error.message : "הוספת השיוך נכשלה.");
     }
@@ -5326,7 +5377,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
             <div className="mt-3">
               <p className="text-xs text-[#667085]">גישה ללקוחות</p>
               <p className="mt-1 text-sm font-bold text-[#344054]">{user.role === "admin" || user.role === "owner" ? "כל הלקוחות" : user.clients.length ? user.clients.map((client) => client.clientName).join(" · ") : "אין שיוך"}</p>
-              {user.role === "client" && <div className="mt-3 flex gap-2"><select aria-label={`שיוך לקוח עבור ${user.email}`} value={assignmentByUser[user.id] || clients[0]?.id || ""} onChange={(event) => setAssignmentByUser((current) => ({ ...current, [user.id]: event.target.value }))} className="h-9 min-w-0 flex-1 rounded-md border border-[#dfe7ee] px-2 text-xs">{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select><button type="button" onClick={() => addClientAccess(user.id)} className="h-9 rounded-md border border-[#d0d5dd] px-3 text-xs font-bold">שייך</button></div>}
+              {user.role === "client" && <ClientAssignmentControl user={user} clients={clients} selectedClientId={assignmentByUser[user.id]} onSelect={(targetClientId) => setAssignmentByUser((current) => ({ ...current, [user.id]: targetClientId }))} onAssign={() => addClientAccess(user.id)} />}
             </div>
           </article>
         ))}
@@ -5424,14 +5475,7 @@ function UserAccessManager({ clients }: { clients: Client[] }) {
                       </span>
                     </div>
                   )}
-                  {user.role === "client" && (
-                    <div className="mt-3 flex gap-2">
-                      <select aria-label={`שיוך לקוח עבור ${user.email}`} value={assignmentByUser[user.id] || clients[0]?.id || ""} onChange={(event) => setAssignmentByUser((current) => ({ ...current, [user.id]: event.target.value }))} className="h-8 min-w-0 rounded-md border border-[#dfe7ee] px-2 text-xs">
-                        {clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}
-                      </select>
-                      <button type="button" onClick={() => addClientAccess(user.id)} className="h-8 rounded-md border border-[#d0d5dd] px-2 text-xs font-bold">שייך</button>
-                    </div>
-                  )}
+                  {user.role === "client" && <ClientAssignmentControl compact user={user} clients={clients} selectedClientId={assignmentByUser[user.id]} onSelect={(targetClientId) => setAssignmentByUser((current) => ({ ...current, [user.id]: targetClientId }))} onAssign={() => addClientAccess(user.id)} />}
                 </td>
                 <td className="p-3 text-[#65738a]">
                   {new Date(user.createdAt).toLocaleDateString("he-IL")}

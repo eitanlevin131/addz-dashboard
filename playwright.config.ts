@@ -7,6 +7,14 @@ const appPort = Number(process.env.E2E_APP_PORT || 3060);
 const mockPort = Number(process.env.E2E_MOCK_PORT || 3061);
 const baseURL = `http://127.0.0.1:${appPort}`;
 const mockBaseURL = `http://127.0.0.1:${mockPort}`;
+const testDatabaseUrl = process.env.E2E_DATABASE_URL;
+
+if (!testDatabaseUrl) {
+  throw new Error("E2E_DATABASE_URL is required. E2E tests must never run against the application DATABASE_URL.");
+}
+if (testDatabaseUrl === process.env.DATABASE_URL) {
+  throw new Error("E2E_DATABASE_URL must point to a database that is separate from DATABASE_URL.");
+}
 
 export default defineConfig({
   testDir: "./e2e",
@@ -46,6 +54,7 @@ export default defineConfig({
       timeout: 120_000,
       reuseExistingServer: false,
       env: {
+        DATABASE_URL: testDatabaseUrl,
         AUTH_URL: baseURL,
         NEXTAUTH_URL: baseURL,
         FLASHY_API_BASE_URL: mockBaseURL,

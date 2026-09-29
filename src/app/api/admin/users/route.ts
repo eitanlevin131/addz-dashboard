@@ -117,10 +117,16 @@ export async function PUT(request: Request) {
   if (!user || !client) return NextResponse.json({ success: false, message: "המשתמש או הלקוח לא נמצאו." }, { status: 404 });
   if (isOwnerEmail(user.email)) return NextResponse.json({ success: false, message: "לא ניתן לשנות את הרשאות בעל המערכת." }, { status: 400 });
   if (user.role !== "client") return NextResponse.json({ success: false, message: "שיוך לקוח זמין רק למשתמש מסוג לקוח." }, { status: 400 });
-  await db.insert(clientUsers).values({ userId, clientId }).onConflictDoNothing();
+  const inserted = await db.insert(clientUsers)
+    .values({ userId, clientId })
+    .onConflictDoNothing()
+    .returning({ id: clientUsers.id });
+  if (!inserted.length) {
+    return NextResponse.json({ success: true, data: { alreadyAssigned: true } });
+  }
   await revokeAuthentication(userId);
   await recordAudit({ actorUserId: context.access.userId, action: "user.client_assigned", entityType: "user", entityId: userId, metadata: { clientId } });
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, data: { alreadyAssigned: false } });
 }
 
 export async function PATCH(request: Request) {

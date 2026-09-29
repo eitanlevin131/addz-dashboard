@@ -3,8 +3,9 @@ import { expect, test } from "@playwright/test";
 import { neon } from "@neondatabase/serverless";
 import { encryptSecret } from "../src/lib/crypto";
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error("DATABASE_URL is required for the E2E suite.");
+const databaseUrl = process.env.E2E_DATABASE_URL;
+if (!databaseUrl) throw new Error("E2E_DATABASE_URL is required for the E2E suite.");
+if (databaseUrl === process.env.DATABASE_URL) throw new Error("E2E_DATABASE_URL must be isolated from DATABASE_URL.");
 const mockBaseURL = `http://127.0.0.1:${Number(process.env.E2E_MOCK_PORT || 3061)}`;
 
 const db = neon(databaseUrl);
