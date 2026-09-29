@@ -24,6 +24,7 @@ import {
   Link2,
   ListFilter,
   MessageSquareText,
+  Menu,
   Minus,
   Moon,
   Paperclip,
@@ -353,8 +354,40 @@ const views: { key: ViewKey; label: string; icon: typeof Activity; module?: Modu
   { key: "planner", label: "גאנט דיוורים", icon: CalendarDays, module: "planner" },
   { key: "ai", label: "AI", icon: Bot, module: "ai" },
   { key: "settings", label: "הגדרות", icon: Settings },
-  { key: "admin", label: "ניהול", icon: ShieldCheck },
+  { key: "admin", label: "משתמשים", icon: ShieldCheck },
 ];
+
+type NavigationGroupKey = "performance" | "work" | "management";
+
+const navigationGroups: Array<{
+  key: NavigationGroupKey;
+  label: string;
+  icon: typeof Activity;
+  views: ViewKey[];
+}> = [
+  {
+    key: "performance",
+    label: "ביצועים",
+    icon: ChartNoAxesColumnIncreasing,
+    views: ["portfolio", "overview", "campaigns", "sms", "automations"],
+  },
+  {
+    key: "work",
+    label: "עבודה",
+    icon: Rows3,
+    views: ["planner", "monthly", "ai"],
+  },
+  {
+    key: "management",
+    label: "ניהול",
+    icon: Settings,
+    views: ["close", "settings", "admin"],
+  },
+];
+
+function navigationGroupForView(view: ViewKey) {
+  return navigationGroups.find((group) => group.views.includes(view))?.key ?? "performance";
+}
 
 const timeRanges: { key: TimeRangeKey; label: string; days: number | null }[] = [
   { key: "7d", label: "7 ימים", days: 7 },
@@ -1823,6 +1856,34 @@ function Sidebar({
   onSelectClient: (clientId: string) => void;
   onSelectView: (view: ViewKey) => void;
 }) {
+  const [navigationState, setNavigationState] = useState<{ view: ViewKey; openGroup: NavigationGroupKey }>(() => {
+    if (typeof window === "undefined") return { view, openGroup: navigationGroupForView(view) };
+    const savedGroup = window.localStorage.getItem("addz-navigation-group");
+    const openGroup = navigationGroups.some((group) => group.key === savedGroup)
+      ? savedGroup as NavigationGroupKey
+      : navigationGroupForView(view);
+    return { view, openGroup };
+  });
+
+  if (navigationState.view !== view) {
+    setNavigationState({ view, openGroup: navigationGroupForView(view) });
+  }
+
+  const openGroup = navigationState.openGroup;
+
+  useEffect(() => {
+    window.localStorage.setItem("addz-navigation-group", openGroup);
+  }, [openGroup]);
+
+  function selectGroup(group: NavigationGroupKey) {
+    setNavigationState({ view, openGroup: group });
+  }
+
+  function selectView(nextView: ViewKey) {
+    setNavigationState({ view: nextView, openGroup: navigationGroupForView(nextView) });
+    onSelectView(nextView);
+  }
+
   return (
     <aside className="sticky top-0 hidden h-screen flex-col gap-4 border-l border-white/10 bg-[#090024] px-3 py-4 text-white lg:flex">
       <div className="border-b border-white/10 px-1 pb-4">
@@ -1831,28 +1892,153 @@ function Sidebar({
       {!hideClientSelector && (
         <ClientSelector clients={clients} selectedClientId={selectedClientId} onChange={onSelectClient} />
       )}
-      <nav className="grid gap-1" aria-label="ניווט ראשי">
-        {visibleViews.map((item) => {
-          const Icon = item.icon;
+      <nav className="grid gap-1.5" aria-label="ניווט ראשי">
+        {navigationGroups.map((group) => {
+          const groupViews = visibleViews.filter((item) => group.views.includes(item.key));
+          if (!groupViews.length) return null;
+          const GroupIcon = group.icon;
+          const expanded = openGroup === group.key;
+          const containsActiveView = group.views.includes(view);
+
           return (
-            <button
-              key={item.key}
-              onClick={() => onSelectView(item.key)}
-              className={classNames(
-                "relative flex min-h-10 items-center gap-2 rounded-md px-2.5 py-2 text-right text-sm font-medium transition",
-                view === item.key
-                  ? "bg-[#FFE045] font-bold text-[#080123] before:absolute before:inset-y-2 before:right-0 before:w-0.5 before:rounded-full before:bg-white"
-                  : "text-white/60 hover:bg-white/5 hover:text-white",
+            <div key={group.key} className="border-b border-white/10 pb-1.5 last:border-b-0">
+              <button
+                type="button"
+                aria-label={`קטגוריית ${group.label}`}
+                aria-expanded={expanded}
+                aria-controls={`navigation-group-${group.key}`}
+                onClick={() => selectGroup(group.key)}
+                className={classNames(
+                  "flex min-h-9 w-full items-center gap-2 rounded-md px-2.5 py-2 text-right text-xs font-bold transition",
+                  expanded || containsActiveView ? "text-white" : "text-white/55 hover:bg-white/5 hover:text-white",
+                )}
+              >
+                <GroupIcon className="shrink-0" size={16} />
+                <span className="flex-1">{group.label}</span>
+                <ChevronDown className={classNames("shrink-0 transition-transform", expanded && "rotate-180")} size={15} />
+              </button>
+              {expanded && (
+                <div id={`navigation-group-${group.key}`} className="mt-1 grid gap-1 pr-2">
+                  {groupViews.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => selectView(item.key)}
+                        aria-current={view === item.key ? "page" : undefined}
+                        className={classNames(
+                          "relative flex min-h-9 items-center gap-2 rounded-md px-2.5 py-2 text-right text-sm font-medium transition",
+                          view === item.key
+                            ? "bg-[#FFE045] font-bold text-[#080123]"
+                            : "text-white/60 hover:bg-white/5 hover:text-white",
+                        )}
+                      >
+                        <Icon className="shrink-0" size={16} />
+                        <span className="truncate">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
-            >
-              <Icon className="shrink-0" size={17} />
-              <span className="truncate">{item.label}</span>
-            </button>
+            </div>
           );
         })}
       </nav>
       <div className="mt-auto border-t border-white/10 px-2 pt-3 text-[11px] text-white/40">addz.digital · Growth OS</div>
     </aside>
+  );
+}
+
+function MobileNavigation({
+  visibleViews,
+  view,
+  onSelectView,
+}: {
+  visibleViews: typeof views;
+  view: ViewKey;
+  onSelectView: (view: ViewKey) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const activeItem = visibleViews.find((item) => item.key === view) ?? visibleViews[0];
+  const ActiveIcon = activeItem?.icon ?? Menu;
+
+  useEffect(() => {
+    if (!open) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [open]);
+
+  return (
+    <div className="relative lg:hidden">
+      <div className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-white/10 bg-[#090024] px-3 py-2.5 text-white">
+        <BrandLogo compact showProductName={false} />
+        <button
+          type="button"
+          aria-label={`פתיחת ניווט, מסך נוכחי: ${activeItem?.label ?? "תפריט"}`}
+          aria-expanded={open}
+          aria-controls="mobile-navigation-menu"
+          onClick={() => setOpen((current) => !current)}
+          className="flex min-h-9 min-w-0 max-w-[72vw] items-center gap-2 rounded-md border border-white/15 bg-white/5 px-3 text-sm font-bold text-white transition hover:bg-white/10"
+        >
+          <ActiveIcon className="shrink-0 text-[#FFE045]" size={17} />
+          <span className="truncate">{activeItem?.label ?? "תפריט"}</span>
+          <ChevronDown className={classNames("shrink-0 transition-transform", open && "rotate-180")} size={16} />
+        </button>
+      </div>
+      {open && (
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-40 bg-[#090024]/35 backdrop-blur-[2px]" onClick={() => setOpen(false)}>
+          <nav
+            id="mobile-navigation-menu"
+            aria-label="ניווט ראשי במובייל"
+            className="max-h-[calc(100vh-74px)] overflow-y-auto border-b border-white/10 bg-[#090024] px-3 pb-4 pt-2 text-white shadow-[0_18px_35px_rgba(9,0,36,0.28)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {navigationGroups.map((group) => {
+              const groupViews = visibleViews.filter((item) => group.views.includes(item.key));
+              if (!groupViews.length) return null;
+              const GroupIcon = group.icon;
+              return (
+                <section key={group.key} className="border-b border-white/10 py-2 last:border-b-0">
+                  <h2 className="flex items-center gap-2 px-2.5 py-1.5 text-[11px] font-bold text-white/45">
+                    <GroupIcon size={14} />
+                    <span>{group.label}</span>
+                  </h2>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {groupViews.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          aria-current={view === item.key ? "page" : undefined}
+                          onClick={() => {
+                            onSelectView(item.key);
+                            setOpen(false);
+                          }}
+                          className={classNames(
+                            "flex min-h-10 min-w-0 items-center gap-2 rounded-md px-2.5 py-2 text-right text-sm transition",
+                            view === item.key
+                              ? "bg-[#FFE045] font-bold text-[#080123]"
+                              : "bg-white/[0.04] text-white/70 hover:bg-white/10 hover:text-white",
+                          )}
+                        >
+                          <Icon className="shrink-0" size={16} />
+                          <span className="truncate">{item.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+          </nav>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -6506,25 +6692,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
         onSelectView={setView}
       />
 
-      <div className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-white/10 bg-[#090024] px-3 py-2.5 text-white lg:hidden">
-        <BrandLogo compact showProductName={false} />
-        <div className="flex max-w-[78vw] gap-2 overflow-x-auto">
-          {visibleViews.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => setView(item.key)}
-              className={classNames(
-                "h-8 shrink-0 rounded-md px-3 text-sm",
-                activeView === item.key
-                  ? "bg-[#FFE045] font-bold text-[#080123]"
-                  : "bg-white/5 text-white/65",
-              )}
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <MobileNavigation visibleViews={visibleViews} view={activeView} onSelectView={setView} />
 
       <main className="dashboard-content relative min-w-0 p-3 text-[#111318] md:p-5 lg:p-6">
         {localClients.length > 1 && activeView !== "portfolio" && activeView !== "close" && (

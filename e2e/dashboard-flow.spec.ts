@@ -61,6 +61,14 @@ async function loginWithCode(page: import("@playwright/test").Page, targetEmail:
   await page.getByRole("button", { name: "כניסה", exact: true }).click();
 }
 
+async function openNavigationGroup(
+  navigation: import("@playwright/test").Locator,
+  group: "ביצועים" | "עבודה" | "ניהול",
+) {
+  const trigger = navigation.getByRole("button", { name: `קטגוריית ${group}`, exact: true });
+  if (await trigger.getAttribute("aria-expanded") !== "true") await trigger.click();
+}
+
 test.describe("agency dashboard critical journey", () => {
   test.beforeAll(async () => {
     await cleanup();
@@ -164,7 +172,11 @@ test.describe("agency dashboard critical journey", () => {
     await expect(page.getByRole("button", { name: "30 ימים", exact: true })).toHaveClass(/bg-\[#111318\]/);
 
     const navigation = page.getByRole("navigation", { name: "ניווט ראשי" });
-    await expect(navigation.getByRole("button", { name: "ניהול", exact: true })).toBeVisible();
+    await expect(navigation.getByRole("button", { name: "קטגוריית ביצועים", exact: true })).toHaveAttribute("aria-expanded", "true");
+    await expect(navigation.getByRole("button", { name: "קטגוריית עבודה", exact: true })).toHaveAttribute("aria-expanded", "false");
+    await expect(navigation.getByRole("button", { name: "קטגוריית ניהול", exact: true })).toHaveAttribute("aria-expanded", "false");
+    await openNavigationGroup(navigation, "ניהול");
+    await expect(navigation.getByRole("button", { name: "משתמשים", exact: true })).toBeVisible();
     await navigation.getByRole("button", { name: "הגדרות", exact: true }).click();
     const syncResponsePromise = page.waitForResponse((response) =>
       response.url().endsWith("/api/flashy/sync") && response.request().method() === "POST",
@@ -184,9 +196,18 @@ test.describe("agency dashboard critical journey", () => {
     await page.getByRole("group", { name: "תצוגת מרכז תפעול" }).getByRole("button", { name: "איכות נתונים", exact: true }).click();
     await expect(page.getByText("Snapshot", { exact: true })).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
+    const mobileNavigationTrigger = page.getByRole("button", { name: "פתיחת ניווט, מסך נוכחי: סגירת חודש", exact: true });
+    await mobileNavigationTrigger.click();
+    const mobileNavigation = page.getByRole("navigation", { name: "ניווט ראשי במובייל" });
+    await expect(mobileNavigation.getByRole("heading", { name: "ביצועים", exact: true })).toBeVisible();
+    await expect(mobileNavigation.getByRole("heading", { name: "עבודה", exact: true })).toBeVisible();
+    await expect(mobileNavigation.getByRole("heading", { name: "ניהול", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(mobileNavigation).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
     await page.setViewportSize({ width: 1280, height: 720 });
 
+    await openNavigationGroup(navigation, "ביצועים");
     await navigation.getByRole("button", { name: "כללי", exact: true }).click();
     await expect(page.getByText("הכנסה מיוחסת לפעילות", { exact: true })).toBeVisible();
     await expect(page.getByText("הכנסה ממוצעת לרכישה", { exact: true })).toBeVisible();
@@ -265,6 +286,7 @@ test.describe("agency dashboard critical journey", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
     await page.setViewportSize({ width: 1280, height: 720 });
 
+    await openNavigationGroup(navigation, "עבודה");
     await navigation.getByRole("button", { name: "גאנט דיוורים", exact: true }).click();
     await expect(page.getByRole("heading", { name: "גאנט דיוורים", exact: true })).toBeVisible();
     const plannedCampaign = page.locator("article").filter({ hasText: "E2E launch campaign" });
@@ -302,6 +324,7 @@ test.describe("agency dashboard critical journey", () => {
     await expect(page.getByRole("heading", { name: primaryAccountName, exact: true })).toBeVisible();
 
     const navigation = page.getByRole("navigation", { name: "ניווט ראשי" });
+    await openNavigationGroup(navigation, "עבודה");
     await navigation.getByRole("button", { name: "סיכומים", exact: true }).click();
     await expect(page.getByText("יצירת סיכום חודשי", { exact: true })).toBeVisible();
     await page.getByLabel("חודש", { exact: true }).fill(currentMonth());
@@ -356,7 +379,8 @@ test.describe("agency dashboard critical journey", () => {
     await loginWithCode(page, ownerEmail);
     await expect(page.getByRole("heading", { name: "סקירת סוכנות" })).toBeVisible();
     const ownerNavigation = page.getByRole("navigation", { name: "ניווט ראשי" });
-    await expect(ownerNavigation.getByRole("button", { name: "ניהול", exact: true })).toBeVisible();
+    await openNavigationGroup(ownerNavigation, "ניהול");
+    await expect(ownerNavigation.getByRole("button", { name: "משתמשים", exact: true })).toBeVisible();
 
     const invalidRole = await page.evaluate(async (targetUserId) => {
       const response = await fetch("/api/admin/users", {
@@ -407,9 +431,18 @@ test.describe("agency dashboard critical journey", () => {
     await expect(clientNavigation.getByRole("button", { name: "סוכנות", exact: true })).toHaveCount(0);
     await expect(clientNavigation.getByRole("button", { name: "סגירת חודש", exact: true })).toHaveCount(0);
     await expect(clientNavigation.getByRole("button", { name: "הגדרות", exact: true })).toHaveCount(0);
-    await expect(clientNavigation.getByRole("button", { name: "ניהול", exact: true })).toHaveCount(0);
+    await expect(clientNavigation.getByRole("button", { name: "משתמשים", exact: true })).toHaveCount(0);
     const monthlyCloseStatus = await clientPage.evaluate(async () => (await fetch("/api/monthly-close")).status);
     expect(monthlyCloseStatus).toBe(403);
+
+    await clientPage.setViewportSize({ width: 390, height: 844 });
+    await clientPage.getByRole("button", { name: "פתיחת ניווט, מסך נוכחי: כללי", exact: true }).click();
+    const clientMobileNavigation = clientPage.getByRole("navigation", { name: "ניווט ראשי במובייל" });
+    await expect(clientMobileNavigation.getByRole("heading", { name: "ביצועים", exact: true })).toBeVisible();
+    await expect(clientMobileNavigation.getByRole("heading", { name: "עבודה", exact: true })).toBeVisible();
+    await expect(clientMobileNavigation.getByRole("heading", { name: "ניהול", exact: true })).toHaveCount(0);
+    await expect(clientMobileNavigation.getByRole("button", { name: "סוכנות", exact: true })).toHaveCount(0);
+    expect(await clientPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
 
     const revokeStatus = await page.evaluate(async (targetUserId) => {
       const response = await fetch("/api/admin/users", {
