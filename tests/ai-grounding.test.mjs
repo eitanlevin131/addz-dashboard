@@ -151,6 +151,39 @@ test("planner learning stays labeled as team interpretation beside measured camp
   assert.equal(source.metrics.find((item) => item.key === "openRate")?.value, 500 / 980);
 });
 
+test("account changes are available to AI as dated evidence with a direct timeline target", () => {
+  const catalog = buildAiEvidenceCatalog({
+    account,
+    summary,
+    emails: [email],
+    sms: [],
+    automations: [],
+    plans: [],
+    accountChanges: [{
+      id: "change-1",
+      clientId: "client-1",
+      accountId: account.id,
+      title: "עדכון הטבת Welcome",
+      details: "החלפנו 10% הנחה ב-20 ש״ח הנחה בפופאפ ובאוטומציה.",
+      reason: "לבדוק אם הטבה כספית ברורה מעלה הרשמות ורכישות.",
+      areas: ["popup", "automation", "offer"],
+      occurredAt: "2026-09-29T09:30:00Z",
+      createdAt: "2026-09-29T09:31:00Z",
+      updatedAt: "2026-09-29T09:31:00Z",
+      createdBy: { id: "user-1", name: "Eitan", email: "eitan@example.com" },
+    }],
+    question: "מה שינינו לאחרונה בפופאפ?",
+    currentView: "ai",
+  });
+  const source = catalog.find((item) => item.id === "change:change-1");
+
+  assert.ok(source);
+  assert.equal(source.reportView, "changes");
+  assert.equal(source.date, "2026-09-29T09:30:00Z");
+  assert.match(source.content, /10%/);
+  assert.match(source.content, /מטרת השינוי/);
+});
+
 test("grounded AI output cannot cite a source that is not in the catalog", () => {
   const catalog = buildAiEvidenceCatalog({
     account,

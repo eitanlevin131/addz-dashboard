@@ -230,6 +230,35 @@ export interface NewsletterPlanAsset {
   createdAt: string;
 }
 
+export type AccountChangeArea =
+  | "popup"
+  | "automation"
+  | "email"
+  | "sms"
+  | "offer"
+  | "tracking"
+  | "strategy"
+  | "account"
+  | "other";
+
+export interface AccountChangeEvent {
+  id: string;
+  clientId: string;
+  accountId: string;
+  title: string;
+  details: string;
+  reason: string;
+  areas: AccountChangeArea[];
+  occurredAt: string;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: {
+    id: string | null;
+    name: string;
+    email: string;
+  };
+}
+
 export interface AiInsight {
   id: string;
   clientId: string;

@@ -1,4 +1,5 @@
 import type {
+  AccountChangeEvent,
   AutomationReport,
   EmailCampaignReport,
   FlashyAccount,
@@ -14,7 +15,7 @@ import {
   summarizePlannerReports,
 } from "./planner-learning.ts";
 
-export type AiReportView = "overview" | "campaigns" | "sms" | "automations" | "planner" | "ai";
+export type AiReportView = "overview" | "campaigns" | "sms" | "automations" | "planner" | "changes" | "ai";
 
 export type AiEvidenceMetric = {
   key: string;
@@ -25,7 +26,7 @@ export type AiEvidenceMetric = {
 
 export type AiEvidenceSource = {
   id: string;
-  kind: "summary" | "email" | "sms" | "automation" | "plan" | "document" | "timing";
+  kind: "summary" | "email" | "sms" | "automation" | "plan" | "change" | "document" | "timing";
   entityId: string;
   reportView: AiReportView;
   title: string;
@@ -63,6 +64,7 @@ type EvidenceInput = {
   sms: SmsCampaignReport[];
   automations: AutomationReport[];
   plans: NewsletterPlan[];
+  accountChanges?: AccountChangeEvent[];
   documents?: { name: string; content: string; createdAt: string }[];
   question?: string;
   currentView?: string;
@@ -119,6 +121,7 @@ function isTimingQuestion(question: string) {
 function queryArea(question: string, currentView = "") {
   const value = `${question} ${currentView}`.toLowerCase();
   if (isTimingQuestion(value)) return "timing";
+  if (/שינוי|שינינו|שונה|עודכן|עדכון|פופאפ|הטבה|מה עשינו|change/.test(value)) return "change";
   if (value.includes("אוטומ") || value.includes("automation")) return "automation";
   if (/הסר|נטיש|unsubscribe/.test(value)) return "campaign";
   if (value.includes("sms") || value.includes("סמס")) return "sms";
@@ -134,8 +137,9 @@ function relevantReportSources(sources: AiEvidenceSource[], question: string, cu
     if (area === "automation") return source.kind === "automation";
     if (area === "sms") return source.kind === "sms" || (source.kind === "automation" && metricValue(source, "smsCost") !== null);
     if (area === "plan") return source.kind === "plan";
+    if (area === "change") return source.kind === "change";
     if (area === "campaign") return source.kind === "email" || source.kind === "sms";
-    return source.kind === "email" || source.kind === "sms" || source.kind === "automation";
+    return source.kind === "email" || source.kind === "sms" || source.kind === "automation" || source.kind === "change";
   });
   const tokens = question
     .toLowerCase()
@@ -271,6 +275,20 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
     date: item.createdAt,
     metrics: [],
   }));
+  const changeSources = [...(input.accountChanges ?? [])]
+    .sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt))
+    .slice(0, 30)
+    .map((item): AiEvidenceSource => ({
+      id: `change:${item.id}`,
+      kind: "change",
+      entityId: item.id,
+      reportView: "changes",
+      title: item.title,
+      subtitle: `יומן שינויים · ${item.areas.length ? item.areas.join(" · ") : "כללי"}`,
+      content: [item.details, item.reason ? `מטרת השינוי: ${item.reason}` : ""].filter(Boolean).join("\n"),
+      date: item.occurredAt,
+      metrics: [],
+    }));
   const timing = campaignTiming([
     ...input.emails.map((item) => ({ sentAt: item.sentAt, revenue: item.revenueGenerated, purchases: item.purchases })),
     ...input.sms.map((item) => ({ sentAt: item.sentAt, revenue: item.revenueGenerated, purchases: item.purchases })),
@@ -305,11 +323,13 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
       ],
     })),
   ];
-  const allSources = [...emailSources, ...smsSources, ...automationSources, ...planSources, ...timingSources, ...documentSources];
+  const allSources = [...emailSources, ...smsSources, ...automationSources, ...planSources, ...changeSources, ...timingSources, ...documentSources];
   const relevant = relevantReportSources(allSources, input.question ?? "", input.currentView);
   const area = queryArea(input.question ?? "", input.currentView);
   const supporting = area === "plan"
     ? planSources.slice(0, 20)
+    : area === "change"
+      ? changeSources.slice(0, 20)
     : area === "timing"
       ? timingSources
     : area === "all"
@@ -317,7 +337,7 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
       : relevantReportSources(allSources, input.question ?? "", input.currentView);
   const unique = new Map<string, AiEvidenceSource>();
 
-  for (const source of [summarySource, ...supporting, ...documentSources.slice(0, 6)]) unique.set(source.id, source);
+  for (const source of [summarySource, ...supporting, ...changeSources.slice(0, 12), ...documentSources.slice(0, 6)]) unique.set(source.id, source);
   return Array.from(unique.values()).slice(0, 43);
 }
 

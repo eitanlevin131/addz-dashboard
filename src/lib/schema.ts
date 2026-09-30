@@ -206,6 +206,31 @@ export const accountMetricSnapshots = pgTable(
   ],
 );
 
+export const accountChangeEvents = pgTable(
+  "account_change_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => clients.id, { onDelete: "cascade" }),
+    flashyAccountId: uuid("flashy_account_id")
+      .notNull()
+      .references(() => flashyAccounts.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    details: text("details").notNull(),
+    reason: text("reason"),
+    areas: text("areas").array().notNull().default([]),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("account_change_events_account_occurred_idx").on(table.flashyAccountId, table.occurredAt),
+    index("account_change_events_client_occurred_idx").on(table.clientId, table.occurredAt),
+  ],
+);
+
 export const siteRevenueBenchmarks = pgTable(
   "site_revenue_benchmarks",
   {

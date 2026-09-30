@@ -7,6 +7,7 @@ import {
 import { getAutomationSmsRecipients } from "./metrics";
 import { campaignTiming } from "./report-chart-data.ts";
 import type {
+  AccountChangeEvent,
   AiInsight,
   AutomationReport,
   EmailCampaignReport,
@@ -87,6 +88,14 @@ export type AiContextPack = {
       purchases: number;
     }[];
   };
+  changeLog: {
+    id: string;
+    title: string;
+    details: string;
+    reason: string;
+    areas: string[];
+    occurredAt: string;
+  }[];
   memory: AiAccountMemory;
 };
 
@@ -258,9 +267,10 @@ export function buildAiContextPack(input: {
   sms: SmsCampaignReport[];
   automations: AutomationReport[];
   plans: NewsletterPlan[];
+  accountChanges?: AccountChangeEvent[];
   memory?: AiAccountMemory;
 }): AiContextPack {
-  const { account, summary, emails, sms, automations, plans, memory = {} } = input;
+  const { account, summary, emails, sms, automations, plans, accountChanges = [], memory = {} } = input;
   const smsRows = sms
     .map((item) => {
       const cost = item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate;
@@ -382,6 +392,17 @@ export function buildAiContextPack(input: {
           };
         }),
     },
+    changeLog: [...accountChanges]
+      .sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt))
+      .slice(0, 30)
+      .map((event) => ({
+        id: event.id,
+        title: event.title,
+        details: event.details,
+        reason: event.reason,
+        areas: event.areas,
+        occurredAt: event.occurredAt,
+      })),
     memory: {
       ...memory,
       documents: (memory.documents ?? []).map((document) => ({

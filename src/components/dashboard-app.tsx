@@ -66,6 +66,7 @@ import { AgencyPortfolio, type AgencyPortfolioRow } from "@/components/agency-po
 import { AiWorkspace } from "@/components/ai-workspace";
 import { MonthlyCloseCenter } from "@/components/monthly-close-center";
 import { MonthlySummaryDashboard } from "@/components/monthly-summary-dashboard";
+import { AccountChangeLog } from "@/components/account-change-log";
 import { campaignTiming, measuredRate } from "@/lib/report-chart-data";
 import {
   matchNewsletterPlans,
@@ -142,6 +143,7 @@ type ViewKey =
   | "campaigns"
   | "monthly"
   | "planner"
+  | "changes"
   | "ai"
   | "settings"
   | "admin";
@@ -358,6 +360,7 @@ const views: { key: ViewKey; label: string; icon: typeof Activity; module?: Modu
   { key: "campaigns", label: "קמפיינים", icon: Send, module: "reports" },
   { key: "monthly", label: "סיכומים", icon: FileText, module: "reports" },
   { key: "planner", label: "גאנט דיוורים", icon: CalendarDays, module: "planner" },
+  { key: "changes", label: "יומן שינויים", icon: History },
   { key: "ai", label: "AI", icon: Bot, module: "ai" },
   { key: "settings", label: "הגדרות", icon: Settings },
   { key: "admin", label: "משתמשים", icon: ShieldCheck },
@@ -381,7 +384,7 @@ const navigationGroups: Array<{
     key: "work",
     label: "עבודה",
     icon: Rows3,
-    views: ["planner", "monthly", "ai"],
+    views: ["planner", "changes", "monthly", "ai"],
   },
   {
     key: "management",
@@ -4872,6 +4875,7 @@ function FloatingAiChat({
     automations: "אוטומציות",
     campaigns: "קמפיינים",
     planner: "גאנט",
+    changes: "יומן שינויים",
     monthly: "סיכום חודשי",
     ai: "AI",
     settings: "הגדרות",
@@ -6678,12 +6682,13 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
   const visibleViews = views.filter((item) => {
     if (item.key === "portfolio" && !viewerIsStaff) return false;
     if (item.key === "close" && !viewerIsStaff) return false;
+    if (item.key === "changes" && !viewerIsStaff) return false;
     if (item.key === "admin" && !canConnectAccounts) return false;
     if (isRestrictedUser && item.key === "settings") return false;
     return !item.module || selectedClient.visibleModules.includes(item.module) || item.key === "admin";
   });
   const effectiveShowDeepAnalysis = showDeepAnalysis;
-  const activeView = isRestrictedUser && (view === "portfolio" || view === "close" || view === "settings" || view === "admin") ? "overview" : view;
+  const activeView = isRestrictedUser && (view === "portfolio" || view === "close" || view === "changes" || view === "settings" || view === "admin") ? "overview" : view;
   const showTimeRange = activeView === "portfolio" || costViewKeys.includes(activeView);
 
   useEffect(() => {
@@ -7191,6 +7196,15 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
               onUpsertPlan={upsertNewsletterPlan}
               onDeletePlan={deleteNewsletterPlan}
               onEditorOpenChange={setPlannerEditorOpen}
+            />
+          )}
+          {activeView === "changes" && viewerIsStaff && (
+            <AccountChangeLog
+              key={account.id}
+              clientId={selectedClient.id}
+              accountId={account.id}
+              accountName={account.name}
+              timezone={account.timezone}
             />
           )}
           {activeView === "monthly" && (

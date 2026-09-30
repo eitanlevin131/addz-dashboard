@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { assertClientAccess, getAccessContext } from "@/lib/auth/access";
-import { aiChatMessages } from "@/lib/schema";
+import { accountChangeEvents, aiChatMessages } from "@/lib/schema";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import {
   buildAiEvidenceCatalog,
@@ -21,6 +21,7 @@ import {
   type AiAccountMemory,
 } from "@/lib/ai";
 import type {
+  AccountChangeEvent,
   AutomationReport,
   EmailCampaignReport,
   FlashyAccount,
@@ -137,6 +138,30 @@ export async function POST(request: Request) {
     .filter((item) => item.clientId === clientId && (!item.accountId || item.accountId === account.id))
     .slice(0, 250);
   const memory = (body.memory ?? {}) as AiAccountMemory;
+  const accountChanges: AccountChangeEvent[] = isDatabaseConfigured()
+    ? await getDb()
+        .select()
+        .from(accountChangeEvents)
+        .where(and(
+          eq(accountChangeEvents.clientId, clientId),
+          eq(accountChangeEvents.flashyAccountId, account.id),
+        ))
+        .orderBy(desc(accountChangeEvents.occurredAt))
+        .limit(100)
+        .then((rows) => rows.map((event) => ({
+          id: event.id,
+          clientId: event.clientId,
+          accountId: event.flashyAccountId,
+          title: event.title,
+          details: event.details,
+          reason: event.reason ?? "",
+          areas: event.areas as AccountChangeEvent["areas"],
+          occurredAt: event.occurredAt.toISOString(),
+          createdAt: event.createdAt.toISOString(),
+          updatedAt: event.updatedAt.toISOString(),
+          createdBy: { id: event.createdByUserId, name: "צוות addz", email: "" },
+        })))
+    : [];
   const context = buildAiContextPack({
     account,
     summary,
@@ -144,6 +169,7 @@ export async function POST(request: Request) {
     sms,
     automations,
     plans,
+    accountChanges,
     memory,
   });
   const evidence = buildAiEvidenceCatalog({
@@ -153,6 +179,7 @@ export async function POST(request: Request) {
     sms,
     automations,
     plans,
+    accountChanges,
     documents: memory.documents,
     question,
     currentView,
@@ -170,6 +197,7 @@ export async function POST(request: Request) {
     sms,
     automations,
     plans,
+    accountChanges,
     documents: memory.documents,
     question,
     currentView,
