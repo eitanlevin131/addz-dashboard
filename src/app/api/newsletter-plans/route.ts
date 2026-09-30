@@ -11,6 +11,12 @@ import { emailCampaignReports, newsletterPlanAssets, newsletterPlanCampaignMatch
 
 const matchActions = new Set(["match", "confirm", "unmatch", "resume"]);
 
+function planStatus(value: unknown, hasDate: boolean) {
+  if (!hasDate && value === "idea") return "idea";
+  if (!hasDate) return "draft";
+  return value === "postponed" ? "postponed" : "planned";
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const clientId = searchParams.get("clientId");
@@ -59,11 +65,11 @@ export async function POST(request: Request) {
   const plan = {
     clientId: String(body.clientId ?? ""),
     flashyAccountId: String(body.accountId ?? ""),
-    plannedDate: body.date ? String(body.date) : null,
-    plannedTime: body.time ? String(body.time) : null,
+    plannedDate: body.status === "idea" ? null : body.date ? String(body.date) : null,
+    plannedTime: body.status === "idea" ? null : body.time ? String(body.time) : null,
     channel: String(body.channel ?? "email"),
     kind: "campaign",
-    status: body.date ? String(body.status ?? "planned") : "draft",
+    status: planStatus(body.status, body.status !== "idea" && Boolean(body.date)),
     title: String(body.title ?? "").trim(),
     owner: String(body.owner ?? ""),
     notes: String(body.notes ?? ""),
@@ -260,11 +266,11 @@ export async function PATCH(request: Request) {
   }
 
   const plan = {
-    plannedDate: body.date ? String(body.date) : null,
-    plannedTime: body.time ? String(body.time) : null,
+    plannedDate: body.status === "idea" ? null : body.date ? String(body.date) : null,
+    plannedTime: body.status === "idea" ? null : body.time ? String(body.time) : null,
     channel: String(body.channel ?? "email"),
     kind: "campaign",
-    status: body.date ? String(body.status ?? "planned") : "draft",
+    status: planStatus(body.status, body.status !== "idea" && Boolean(body.date)),
     title: String(body.title ?? "").trim(),
     owner: String(body.owner ?? ""),
     notes: String(body.notes ?? ""),

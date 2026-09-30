@@ -78,7 +78,7 @@ import {
   campaignObjectives,
   summarizePlannerReports,
 } from "@/lib/planner-learning";
-import { accountDate, accountLocalTimestamp, reportRange, reportDateInstant } from "@/lib/report-time";
+import { accountDate, accountLocalTimestamp, localDateKey, reportRange, reportDateInstant } from "@/lib/report-time";
 import { canonicalPortfolioAccounts } from "@/lib/portfolio";
 import {
   automationReports,
@@ -610,7 +610,7 @@ function consolidateAutomations(automations: AutomationReport[]): AutomationRepo
 }
 
 function toDateInputValue(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return localDateKey(date);
 }
 
 function getMonthBounds(monthValue: string) {
@@ -3855,7 +3855,7 @@ function Planner({
   const initialMonth = toDateInputValue(new Date()).slice(0, 7);
   const initialTableRange = getMonthDateRange(initialMonth);
   const [month, setMonth] = useState(initialMonth);
-  const [layout, setLayout] = useState<"calendar" | "table">("calendar");
+  const [layout, setLayout] = useState<"calendar" | "table" | "ideas">("calendar");
   const [tableDateStart, setTableDateStart] = useState(initialTableRange.start);
   const [tableDateEnd, setTableDateEnd] = useState(initialTableRange.end);
   const [tableRangeCustomized, setTableRangeCustomized] = useState(false);
@@ -3878,6 +3878,7 @@ function Planner({
     ...emptyDraft,
   });
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const [editorMode, setEditorMode] = useState<"plan" | "idea">("plan");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingMatchChannel, setEditingMatchChannel] = useState<Channel>("email");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -3896,9 +3897,11 @@ function Planner({
     return () => onEditorOpenChange(false);
   }, [editorOpen, onEditorOpenChange]);
 
-  const monthPlans = plans.filter((plan) => plan.date && isSameMonth(plan.date, month));
-  const unscheduledPlans = plans.filter((plan) => !plan.date);
-  const planMatching = matchNewsletterPlans(plans, emails, sms, account.timezone);
+  const ideaPlans = plans.filter((plan) => plan.status === "idea");
+  const ganttPlans = plans.filter((plan) => plan.status !== "idea");
+  const monthPlans = ganttPlans.filter((plan) => plan.date && isSameMonth(plan.date, month));
+  const unscheduledPlans = ganttPlans.filter((plan) => !plan.date);
+  const planMatching = matchNewsletterPlans(ganttPlans, emails, sms, account.timezone);
   const editingMatch = editingPlanId
     ? planMatching.matches.find((item) => item.plan.id === editingPlanId && item.slotChannel === editingMatchChannel)
     : undefined;
@@ -3910,7 +3913,7 @@ function Planner({
   const editingResults = summarizePlannerReports(editingReports);
   const editingSlotStored = editingPlan?.campaignMatches?.find((item) => item.channel === editingMatchChannel);
   const schedulingConflicts = draft.date
-    ? plans.filter((item) => item.id !== editingPlanId && item.date === draft.date)
+    ? ganttPlans.filter((item) => item.id !== editingPlanId && item.date === draft.date)
     : [];
   const manualMatchCandidates = editingMatch
     ? planMatching.availableReports
@@ -4021,12 +4024,14 @@ function Planner({
   ];
 
   function editPlan(plan: NewsletterPlan) {
+    const isIdea = plan.status === "idea";
     setEditingPlanId(plan.id);
+    setEditorMode(isIdea ? "idea" : "plan");
     setDraft({
-      date: plan.date ?? "",
-      time: plan.time ?? "",
+      date: isIdea ? "" : plan.date ?? "",
+      time: isIdea ? "" : plan.time ?? "",
       channel: plan.channel,
-      status: plan.status === "postponed" ? "postponed" : plan.date ? "planned" : "draft",
+      status: isIdea ? "idea" : plan.status === "postponed" ? "postponed" : plan.date ? "planned" : "draft",
       title: plan.title,
       notes: plan.notes,
       brief: plan.brief ?? plan.notes,
@@ -4041,12 +4046,13 @@ function Planner({
     setPendingFiles([]);
     setPendingLinks([]);
     setEditorOpen(true);
-    setSaveState("עורך פריט קיים.");
+    setSaveState(isIdea ? "עורך רעיון שמור." : "עורך פריט קיים.");
     setManualCampaignKey("");
   }
 
   function startQuickPlan(title = "", channel: PlannerChannel = "email", date: string | null = null) {
     setEditingPlanId(null);
+    setEditorMode("plan");
     setDraft({
       ...emptyDraft,
       date: date ?? "",
@@ -4062,9 +4068,21 @@ function Planner({
     setSaveState(date ? "התאריך נבחר מהיומן. אפשר לשנות או להסיר אותו." : "אפשר לשמור כבריף ולהחליט על תאריך בהמשך.");
   }
 
+  function startIdea() {
+    setEditingPlanId(null);
+    setEditorMode("idea");
+    setDraft({ ...emptyDraft, status: "idea" });
+    setEditingMatchChannel("email");
+    setPendingFiles([]);
+    setPendingLinks([]);
+    setEditorOpen(true);
+    setSaveState("שמרו כיוון ראשוני. אפשר להעתיק אותו לגאנט כשמחליטים להתקדם.");
+  }
+
   function closeEditor() {
     setEditorOpen(false);
     setEditingPlanId(null);
+    setEditorMode("plan");
     setDraft({ ...emptyDraft });
     setPendingFiles([]);
     setPendingLinks([]);
@@ -4075,6 +4093,7 @@ function Planner({
 
   function duplicatePlan() {
     setEditingPlanId(null);
+    setEditorMode("plan");
     setDraft((current) => ({
       ...current,
       date: "",
@@ -4182,14 +4201,15 @@ function Planner({
       return;
     }
 
+    const isIdea = editorMode === "idea";
     const plan: NewsletterPlan = {
       id: editingPlanId ?? crypto.randomUUID(),
       clientId: client.id,
       accountId: account.id,
-      date: draft.date || null,
+      date: isIdea ? null : draft.date || null,
       channel: draft.channel,
       kind: "campaign",
-      status: draft.date ? draft.status === "postponed" ? "postponed" : "planned" : "draft",
+      status: isIdea ? "idea" : draft.date ? draft.status === "postponed" ? "postponed" : "planned" : "draft",
       title: draft.title.trim(),
       owner: "",
       notes: draft.brief.trim(),
@@ -4199,7 +4219,7 @@ function Planner({
       cta: draft.cta.trim(),
       objective: draft.objective || undefined,
       learning: draft.learning.trim() || undefined,
-      time: draft.date && draft.time ? draft.time : undefined,
+      time: !isIdea && draft.date && draft.time ? draft.time : undefined,
       couponCode: draft.couponCode.trim() || undefined,
       assets: editingPlanId ? plans.find((item) => item.id === editingPlanId)?.assets ?? [] : [],
     };
@@ -4224,7 +4244,10 @@ function Planner({
         return;
       }
       setSaveState(editingPlanId ? "הפריט עודכן ונשמר." : "הפריט נוסף ונשמר.");
-      if (addAnother) startQuickPlan("", draft.channel, draft.date || null);
+      if (addAnother) {
+        if (isIdea) startIdea();
+        else startQuickPlan("", draft.channel, draft.date || null);
+      }
       else closeEditor();
     } catch (error) {
       setSaveState(
@@ -4232,6 +4255,35 @@ function Planner({
           ? `השמירה נכשלה: ${error.message}`
           : "השמירה נכשלה.",
       );
+    }
+  }
+
+  async function copyIdeaToGantt(idea: NewsletterPlan) {
+    setSaveState("מעתיק את הרעיון לגאנט...");
+    try {
+      const response = await fetch("/api/newsletter-plans", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...idea,
+          id: undefined,
+          date: null,
+          time: undefined,
+          status: "draft",
+          learning: undefined,
+          campaignMatches: undefined,
+          assets: undefined,
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "העתקת הרעיון נכשלה");
+      const copied = payload.data as NewsletterPlan;
+      onUpsertPlan(copied);
+      setLayout("calendar");
+      editPlan(copied);
+      setSaveState("הרעיון הועתק כבריף ללא תאריך. אפשר להשלים ולשבץ אותו ביומן.");
+    } catch (error) {
+      setSaveState(error instanceof Error ? error.message : "העתקת הרעיון נכשלה.");
     }
   }
 
@@ -4265,13 +4317,15 @@ function Planner({
 
   async function deletePlan() {
     if (!editingPlanId) return;
-    const match = planMatching.matches.find((item) => item.plan.id === editingPlanId);
+    const currentPlan = plans.find((item) => item.id === editingPlanId);
     const matches = planMatching.matches.filter((item) => item.plan.id === editingPlanId);
-    if (!match || matches.some((item) => item.report) || match.plan.status === "sent") {
+    if (!currentPlan) return;
+    if (matches.some((item) => item.report) || currentPlan.status === "sent") {
       setSaveState("אי אפשר למחוק דיוור שכבר חובר לביצוע ב־Flashy.");
       return;
     }
-    if (!window.confirm(`למחוק את התכנון “${match.plan.title}”?`)) return;
+    const entityLabel = currentPlan.status === "idea" ? "הרעיון" : "התכנון";
+    if (!window.confirm(`למחוק את ${entityLabel} “${currentPlan.title}”?`)) return;
 
     setSaveState("מוחק את התכנון...");
     try {
@@ -4348,11 +4402,11 @@ function Planner({
           </div>
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
             <button
-              onClick={() => startQuickPlan()}
+              onClick={() => layout === "ideas" ? startIdea() : startQuickPlan()}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#111318] px-4 text-sm font-bold text-white transition hover:bg-black"
             >
               <Plus size={17} />
-              הוסף דיוור
+              {layout === "ideas" ? "רעיון חדש" : "הוסף דיוור"}
             </button>
             <div className="inline-flex h-11 rounded-lg border border-[#d0d5dd] bg-[#f2f4f7] p-1">
               <button
@@ -4369,6 +4423,13 @@ function Planner({
                 <Table2 size={16} />
                 טבלה
               </button>
+              <button
+                onClick={() => setLayout("ideas")}
+                className={classNames("inline-flex items-center gap-2 rounded-md px-3 text-sm font-semibold", layout === "ideas" ? "bg-white text-[#111318] shadow-sm" : "text-[#667085]")}
+              >
+                <Lightbulb size={16} />
+                רעיונות
+              </button>
             </div>
             {layout === "calendar" && (
               <input
@@ -4383,7 +4444,7 @@ function Planner({
         </div>
       </section>
 
-      <section className="rounded-xl border border-[#dfe7ee] bg-white p-4 shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
+      {layout !== "ideas" && <section className="rounded-xl border border-[#dfe7ee] bg-white p-4 shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="flex items-center gap-2"><Rows3 size={17} className="text-[#087f72]" /><h3 className="text-sm font-bold text-[#111318]">בריפים ללא תאריך</h3><span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-xs font-bold text-[#475467]">{unscheduledPlans.length}</span></div>
@@ -4410,9 +4471,49 @@ function Planner({
             ))}
           </div>
         ) : <p className="mt-3 rounded-lg border border-dashed border-[#d0d5dd] px-3 py-4 text-center text-xs text-[#98a2b3]">אין כרגע בריפים שממתינים לשיבוץ.</p>}
-      </section>
+      </section>}
 
-      {layout === "calendar" ? (
+      {layout === "ideas" ? (
+        <section className="rounded-xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
+          <header className="flex flex-col gap-3 border-b border-[#e4e7ec] px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Lightbulb size={18} className="text-[#087f72]" />
+                <h3 className="text-base font-bold text-[#111318]">בנק רעיונות</h3>
+                <span className="rounded-full bg-[#eefbf8] px-2 py-0.5 text-xs font-bold text-[#087f72]">{ideaPlans.length}</span>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-[#667085]">שומרים כיוונים לפני שהם הופכים לבריף. העתקה לגאנט משאירה את הרעיון המקורי בבנק.</p>
+            </div>
+            <button type="button" onClick={startIdea} className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-[#087f72] px-3 text-xs font-bold text-[#087f72] transition hover:bg-[#eefbf8]"><Plus size={15} />הוסף רעיון</button>
+          </header>
+          {ideaPlans.length ? (
+            <div className="grid gap-px bg-[#e4e7ec] sm:grid-cols-2 xl:grid-cols-3">
+              {ideaPlans.map((idea) => (
+                <article key={idea.id} className="flex min-h-56 flex-col bg-white p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="rounded bg-[#eefbf8] px-2 py-1 text-[11px] font-bold text-[#087f72]">{channelLabels[idea.channel]}</span>
+                    <span className="text-[11px] font-semibold text-[#98a2b3]">{campaignObjectiveLabel(idea.objective)}</span>
+                  </div>
+                  <h4 className="mt-4 text-base font-black leading-6 text-[#111318]">{idea.title}</h4>
+                  <p className="mt-2 line-clamp-4 text-sm leading-6 text-[#667085]">{idea.brief || idea.notes || "עדיין לא נוסף פירוט לרעיון."}</p>
+                  <div className="mt-auto flex flex-wrap gap-2 pt-5">
+                    <button type="button" onClick={() => void copyIdeaToGantt(idea)} className="inline-flex h-9 items-center gap-2 rounded-md bg-[#111318] px-3 text-xs font-bold text-white transition hover:bg-black"><Copy size={14} />העתק לגאנט</button>
+                    <button type="button" onClick={() => editPlan(idea)} className="h-9 rounded-md border border-[#d0d5dd] px-3 text-xs font-bold text-[#344054] transition hover:border-[#98a2b3]">ערוך</button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="grid min-h-64 place-items-center p-6 text-center">
+              <div>
+                <Lightbulb size={28} className="mx-auto text-[#42dfcf]" />
+                <p className="mt-3 text-sm font-bold text-[#344054]">בנק הרעיונות עדיין ריק</p>
+                <p className="mt-1 text-xs text-[#667085]">הוסיפו רעיון ראשון והפכו אותו לבריף כשמגיע הזמן.</p>
+              </div>
+            </div>
+          )}
+        </section>
+      ) : layout === "calendar" ? (
         <section className="rounded-xl border border-[#dfe7ee] bg-white shadow-[0_8px_22px_rgba(8,1,35,0.04)]">
           <div className="grid grid-cols-7 border-b border-[#dfe7ee] bg-[#f4f7f6] text-center text-xs font-medium text-[#65738a]">
             {["א׳", "ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳"].map((day) => (
@@ -4584,13 +4685,13 @@ function Planner({
         <div className="fixed inset-0 z-50 flex justify-start bg-[#080123]/65 backdrop-blur-sm">
           <section className="h-full w-full max-w-2xl overflow-y-auto border-r border-[#dfe7ee] bg-white shadow-[20px_0_70px_rgba(8,1,35,0.28)]">
             <header className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[#e4e7ec] bg-white/95 px-5 py-4 backdrop-blur">
-              <div><p className="text-xs font-bold text-[#087f72]">{editingPlanId ? "עריכת קמפיין" : "קמפיין חדש"}</p><h3 className="mt-0.5 text-xl font-black text-[#080123]">{draft.date ? "בריף ותזמון" : "בריף ללא תאריך"}</h3></div>
+              <div><p className="text-xs font-bold text-[#087f72]">{editorMode === "idea" ? editingPlanId ? "עריכת רעיון" : "רעיון חדש" : editingPlanId ? "עריכת קמפיין" : "קמפיין חדש"}</p><h3 className="mt-0.5 text-xl font-black text-[#080123]">{editorMode === "idea" ? "בנק רעיונות" : draft.date ? "בריף ותזמון" : "בריף ללא תאריך"}</h3></div>
               <button type="button" onClick={closeEditor} aria-label="סגירה" className="grid size-9 place-items-center rounded-md border border-[#d0d5dd] text-[#475467] hover:bg-[#f2f4f7]"><X size={17} /></button>
             </header>
 
             <div className="space-y-5 p-5">
               <section className="space-y-4">
-                <label className="block text-sm font-bold text-[#344054]">שם הקמפיין<input autoFocus value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="לדוגמה: מבצע ראש השנה" className="mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] px-3 text-sm outline-none focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20" /></label>
+                <label className="block text-sm font-bold text-[#344054]">{editorMode === "idea" ? "שם הרעיון" : "שם הקמפיין"}<input autoFocus value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder={editorMode === "idea" ? "לדוגמה: סדרת תוכן סביב חזרה לשגרה" : "לדוגמה: מבצע ראש השנה"} className="mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] px-3 text-sm outline-none focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20" /></label>
                 <label className="block text-sm font-bold text-[#344054]">בריף<textarea value={draft.brief} onChange={(event) => setDraft((current) => ({ ...current, brief: event.target.value }))} placeholder="מה המסר, מה מציעים ומה חשוב שיופיע בקמפיין?" className="mt-2 min-h-32 w-full rounded-lg border border-[#d0d5dd] p-3 text-sm leading-6 outline-none focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20" /></label>
                 <label className="block text-sm font-bold text-[#344054]">מטרת הקמפיין
                   <select aria-label="מטרת הקמפיין" value={draft.objective} onChange={(event) => setDraft((current) => ({ ...current, objective: event.target.value as CampaignObjective | "" }))} className="mt-2 h-11 w-full rounded-lg border border-[#d0d5dd] bg-white px-3 text-sm outline-none focus:border-[#42dfcf] focus:ring-2 focus:ring-[#42dfcf]/20">
@@ -4601,7 +4702,7 @@ function Planner({
                 <div><p className="text-sm font-bold text-[#344054]">ערוץ</p><div className="mt-2 grid grid-cols-3 gap-2">{([['email','אימייל'],['sms','SMS'],['mixed','מייל + SMS']] as const).map(([value,label]) => <button key={value} type="button" aria-pressed={draft.channel === value} onClick={() => { setDraft((current) => ({ ...current, channel: value })); setEditingMatchChannel(value === 'sms' ? 'sms' : 'email'); }} className={classNames("h-10 rounded-lg border text-xs font-bold transition", draft.channel === value ? "border-[#080123] bg-[#080123] text-white" : "border-[#d0d5dd] bg-white text-[#475467] hover:border-[#98a2b3]")}>{label}</button>)}</div></div>
               </section>
 
-              <details open={Boolean(draft.date)} className="rounded-xl border border-[#e4e7ec] bg-[#f8fafb] p-4">
+              {editorMode === "plan" && <details open={Boolean(draft.date)} className="rounded-xl border border-[#e4e7ec] bg-[#f8fafb] p-4">
                 <summary className="cursor-pointer text-sm font-bold text-[#111318]">תזמון <span className="mr-2 text-xs font-medium text-[#667085]">{draft.date ? new Date(`${draft.date}T12:00:00Z`).toLocaleDateString('he-IL') : 'אופציונלי'}</span></summary>
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <label className="text-xs font-bold text-[#667085]">תאריך<input type="date" value={draft.date} onChange={(event) => { const date = event.target.value; setDraft((current) => ({ ...current, date, status: date ? current.status === 'draft' ? 'planned' : current.status : 'draft', time: date ? current.time : '' })); if (date) selectMonth(date.slice(0,7)); }} className="mt-1.5 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm" /></label>
@@ -4609,7 +4710,7 @@ function Planner({
                   <label className="text-xs font-bold text-[#667085]">סטטוס<select value={draft.date ? draft.status : 'draft'} disabled={!draft.date} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as PlanStatus }))} className="mt-1.5 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm disabled:bg-[#f2f4f7]"><option value="draft">בריף</option><option value="planned">מתוכנן</option><option value="postponed">נדחה</option></select></label>
                 </div>
                 {schedulingConflicts.length > 0 && <p className="mt-3 rounded-md bg-[#fff8e8] px-3 py-2 text-xs font-semibold text-[#8a5800]">כבר קיימים {schedulingConflicts.length} קמפיינים בתאריך הזה. אפשר לשמור בכל זאת.</p>}
-              </details>
+              </details>}
 
               <details className="rounded-xl border border-[#e4e7ec] p-4">
                 <summary className="cursor-pointer text-sm font-bold text-[#111318]">פרטי קמפיין נוספים</summary>
@@ -4632,7 +4733,7 @@ function Planner({
                 </div>
               </section>
 
-              {editingMatch && draft.date && (
+              {editorMode === "plan" && editingMatch && draft.date && (
                 <section className="rounded-xl border border-[#dfe7ee] bg-[#f8fafb] p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><Link2 size={16} className="text-[#087f72]" /><h4 className="text-sm font-bold text-[#111318]">התאמה ל־Flashy</h4></div>{editingMatches.length > 1 && <div className="inline-flex rounded-md bg-white p-1">{editingMatches.map((item) => <button key={item.slotChannel} type="button" onClick={() => { setEditingMatchChannel(item.slotChannel); setManualCampaignKey(''); }} className={classNames("rounded px-3 py-1 text-xs font-bold", editingMatchChannel === item.slotChannel ? "bg-[#111318] text-white" : "text-[#667085]")}>{channelLabels[item.slotChannel]}</button>)}</div>}</div>
                   {editingMatch.report ? <div className="mt-3"><p className="text-sm font-bold text-[#111318]">{editingMatch.report.campaignName}</p><p className="mt-1 text-xs text-[#667085]">{new Date(editingMatch.report.sentAt).toLocaleDateString('he-IL', { timeZone: account.timezone })} · {formatCurrency(editingMatch.report.revenueGenerated, account.currency)} · {formatNumber(editingMatch.report.purchases)} רכישות</p></div> : <p className="mt-3 text-xs text-[#667085]">עדיין לא נמצא קמפיין תואם בערוץ {channelLabels[editingMatch.slotChannel]}.</p>}
@@ -4641,7 +4742,7 @@ function Planner({
                 </section>
               )}
 
-              {editingReports.length > 0 && (
+              {editorMode === "plan" && editingReports.length > 0 && (
                 <section className="overflow-hidden rounded-xl border border-[#b7eadf] bg-white">
                   <header className="flex items-start justify-between gap-3 border-b border-[#d9f3ed] bg-[#f1fbf8] px-4 py-3">
                     <div>
@@ -4671,9 +4772,9 @@ function Planner({
 
               {saveState && <p role="status" className="rounded-lg bg-[#f2f4f7] px-3 py-2 text-xs font-semibold text-[#475467]">{saveState}</p>}
               <div className="flex flex-col gap-2 border-t border-[#e4e7ec] pt-4 sm:flex-row sm:flex-wrap">
-                <button type="button" disabled={assetBusy} onClick={() => void savePlan(false)} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#080123] px-5 text-sm font-bold text-white disabled:opacity-50"><CheckCircle2 size={16} />{editingPlanId ? 'שמור שינויים' : draft.date ? 'שמור בגאנט' : 'שמור כבריף'}</button>
+                <button type="button" disabled={assetBusy} onClick={() => void savePlan(false)} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-[#080123] px-5 text-sm font-bold text-white disabled:opacity-50"><CheckCircle2 size={16} />{editingPlanId ? 'שמור שינויים' : editorMode === 'idea' ? 'שמור בבנק' : draft.date ? 'שמור בגאנט' : 'שמור כבריף'}</button>
                 {!editingPlanId && <button type="button" disabled={assetBusy} onClick={() => void savePlan(true)} className="h-11 rounded-lg border border-[#d0d5dd] px-4 text-sm font-bold text-[#344054]">שמור והוסף נוסף</button>}
-                {editingPlanId && <button type="button" onClick={duplicatePlan} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-[#d0d5dd] px-4 text-sm font-bold text-[#344054]"><Copy size={15} />{editingResults.revenue > 0 ? "צור וריאציה חדשה" : "שכפל כבריף"}</button>}
+                {editingPlanId && editorMode === "plan" && <button type="button" onClick={duplicatePlan} className="inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-[#d0d5dd] px-4 text-sm font-bold text-[#344054]"><Copy size={15} />{editingResults.revenue > 0 ? "צור וריאציה חדשה" : "שכפל כבריף"}</button>}
                 {editingPlanId && !editingMatches.some((item) => item.report) && <button type="button" onClick={deletePlan} className="mr-auto inline-flex h-11 items-center justify-center gap-2 rounded-lg border border-red-200 px-4 text-sm font-bold text-red-700"><Trash2 size={15} />מחק</button>}
               </div>
             </div>

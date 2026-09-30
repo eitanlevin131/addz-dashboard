@@ -115,7 +115,8 @@ export function matchNewsletterPlans(
     ...sms.map((report) => ({ ...report, channel: "sms" as const })),
   ];
   const today = accountDate(now, timezone);
-  const slots = plans.flatMap((plan) =>
+  const activePlans = plans.filter((plan) => plan.status !== "idea");
+  const slots = activePlans.flatMap((plan) =>
     planChannels(plan).map((slotChannel) => ({ plan, slotChannel })),
   );
   const assignedSlots = new Set<number>();
@@ -212,7 +213,7 @@ export function matchNewsletterPlans(
       };
     }),
     unmatchedReports: reports.filter((_, index) => !assignedReports.has(index)),
-    availableReports: reports.filter((report) => !plans.some((plan) =>
+    availableReports: reports.filter((report) => !activePlans.some((plan) =>
       plan.accountId === report.accountId && (
         plan.campaignMatches?.some((match) => match.channel === report.channel && match.campaignId === report.campaignId)
         || (plan.matchedCampaignId !== undefined

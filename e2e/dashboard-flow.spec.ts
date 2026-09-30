@@ -324,6 +324,19 @@ test.describe("agency dashboard critical journey", () => {
     await expect(page.getByLabel("מתאריך", { exact: true })).toHaveValue("");
     await expect(page.getByLabel("עד תאריך", { exact: true })).toHaveValue("");
 
+    await page.getByRole("button", { name: "רעיונות", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "בנק רעיונות", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "רעיון חדש", exact: true }).click();
+    await page.getByLabel("שם הרעיון", { exact: true }).fill("E2E idea bank concept");
+    await page.getByLabel("בריף", { exact: true }).fill("רעיון שנשמר לפני בחירת תאריך.");
+    await page.getByRole("button", { name: "שמור בבנק", exact: true }).click();
+    const ideaCard = page.locator("article").filter({ hasText: "E2E idea bank concept" });
+    await expect(ideaCard).toBeVisible();
+    await ideaCard.getByRole("button", { name: "העתק לגאנט", exact: true }).click();
+    await expect(page.getByText("הרעיון הועתק כבריף ללא תאריך. אפשר להשלים ולשבץ אותו ביומן.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "סגירה", exact: true }).click();
+
+    await page.getByRole("button", { name: "טבלה", exact: true }).click();
     await page.getByRole("button", { name: "E2E launch campaign", exact: true }).click();
     const actualResults = page.locator("section").filter({ hasText: "תוצאות בפועל" }).last();
     await expect(actualResults.getByText("תוצאות בפועל", { exact: true })).toBeVisible();

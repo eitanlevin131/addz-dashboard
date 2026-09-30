@@ -181,6 +181,19 @@ test("an undated brief stays in draft and never auto-matches a sent campaign", (
   assert.equal(result.unmatchedReports.length, 1);
 });
 
+test("idea bank entries never become planner matching slots", () => {
+  const result = matchNewsletterPlans(
+    [plan({ date: null, status: "idea" })],
+    [email()],
+    [],
+    "Asia/Jerusalem",
+    new Date("2026-09-14T08:00:00Z"),
+  );
+
+  assert.equal(result.matches.length, 0);
+  assert.equal(result.unmatchedReports.length, 1);
+});
+
 test("a mixed plan creates independent email and SMS matching slots", () => {
   const result = matchNewsletterPlans(
     [plan({ channel: "mixed" })],

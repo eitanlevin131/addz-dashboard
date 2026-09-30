@@ -8,7 +8,7 @@ export type CampaignObjective = "revenue" | "launch" | "restock" | "content" | "
 
 export type CampaignKind = "campaign" | "automation";
 
-export type PlanStatus = "planned" | "postponed" | "draft" | "ready" | "approved" | "sent";
+export type PlanStatus = "planned" | "postponed" | "draft" | "idea" | "ready" | "approved" | "sent";
 
 export type UserRole = "owner" | "admin" | "client";
 

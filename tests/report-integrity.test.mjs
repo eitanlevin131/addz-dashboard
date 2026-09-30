@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { latestCampaignReports, latestAutomationReports } from "../src/lib/report-identity.ts";
-import { accountLocalTimestamp, accountDate, reportRange } from "../src/lib/report-time.ts";
+import { accountLocalTimestamp, accountDate, localDateKey, reportRange } from "../src/lib/report-time.ts";
 
 const campaign = (overrides = {}) => ({ id: "old", flashyAccountId: "a", campaignId: 272573, sentAt: new Date("2026-08-11T10:30:00Z"), revenue: 13206, raw: { sent_date: "2026-08-11", sent_time: "10:30:00" }, ...overrides });
 
@@ -36,4 +36,15 @@ test("account dates and 30-day boundaries do not depend on server TZ", () => {
     assert.equal(accountLocalTimestamp("2026-01-11", "10:30:00", "Asia/Jerusalem"), "2026-01-11T08:30:00.000Z");
     assert.equal(accountLocalTimestamp("2026-08-11", "10:30:00", "America/New_York"), "2026-08-11T14:30:00.000Z");
   } finally { if (before === undefined) delete process.env.TZ; else process.env.TZ = before; }
+});
+
+test("calendar keys keep the local day instead of shifting at UTC midnight", () => {
+  const before = process.env.TZ;
+  try {
+    process.env.TZ = "Asia/Jerusalem";
+    assert.equal(localDateKey(new Date(2026, 8, 17)), "2026-09-17");
+  } finally {
+    if (before === undefined) delete process.env.TZ;
+    else process.env.TZ = before;
+  }
 });

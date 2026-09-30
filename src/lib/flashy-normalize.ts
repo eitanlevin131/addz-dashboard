@@ -40,12 +40,12 @@ export function campaignEngagementMetrics(row: RawFlashyRow) {
 }
 
 export function rawDate(row: RawFlashyRow, _fallbackIndex: number, timezone = "UTC") {
-  const timestamp = rawNumber(row, ["created_at", "timestamp", "sent_at"]);
-  if (timestamp > 1_000_000_000) return new Date(timestamp * 1000).toISOString();
-
   const date = rawString(row, ["sent_date", "date", "report_date"], "");
   const time = rawString(row, ["sent_time", "time"], "00:00:00");
   if (date) return accountLocalTimestamp(date, time, timezone);
+
+  const timestamp = rawNumber(row, ["sent_at", "timestamp", "created_at"]);
+  if (timestamp > 1_000_000_000) return new Date(timestamp * 1000).toISOString();
   throw new Error("Missing report date; refusing to invent a send date");
 }
 

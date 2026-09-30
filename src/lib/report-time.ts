@@ -18,6 +18,13 @@ export function accountDate(value: Date, timezone: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(value);
 }
 
+export function localDateKey(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 export function reportRange(days: number, timezone: string, now = new Date()) {
   const endDate = accountDate(now, timezone);
   const start = new Date(`${endDate}T12:00:00Z`);

@@ -17,6 +17,7 @@ const {
   normalizeAutomationReports,
   normalizeEmailReports,
   normalizeSmsReports,
+  rawDate,
 } = await import(moduleUrl(normalizeSource));
 
 test("90-day windows cover every second once and no more than 30 calendar days", () => {
@@ -81,6 +82,14 @@ test("SMS message content survives report normalization", () => {
   }], "account", "Asia/Jerusalem");
 
   assert.equal(row.messageText, "הטקסט המלא שנשלח ללקוח");
+});
+
+test("an explicit Flashy send date wins over creation timestamps", () => {
+  const friday = Math.floor(Date.parse("2026-09-18T08:00:00.000Z") / 1000);
+  assert.equal(
+    rawDate({ created_at: friday, sent_date: "2026-09-17", sent_time: "20:30:00" }, 0, "Asia/Jerusalem"),
+    "2026-09-17T17:30:00.000Z",
+  );
 });
 
 test("campaign unsubscribe and engagement counters survive raw report mapping", () => {
