@@ -310,8 +310,14 @@ test.describe("agency dashboard critical journey", () => {
     await openNavigationGroup(navigation, "עבודה");
     await navigation.getByRole("button", { name: "גאנט דיוורים", exact: true }).click();
     await expect(page.getByRole("heading", { name: "גאנט דיוורים", exact: true })).toBeVisible();
-    const plannedCampaign = page.locator("article").filter({ hasText: "E2E launch campaign" });
+    const plannedCampaign = page.getByRole("button", { name: "פתח בריף: E2E launch campaign", exact: true });
     await expect(plannedCampaign).toContainText("נשלח");
+    await expect(plannedCampaign).not.toContainText("E2E planned send");
+    await expect(plannedCampaign).toHaveClass(/bg-\[#dfe9ff\]/);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(plannedCampaign).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+    await page.setViewportSize({ width: 1280, height: 720 });
 
     await page.getByRole("button", { name: "טבלה", exact: true }).click();
     await expect(page.getByText("E2E launch campaign", { exact: true })).toBeVisible();
@@ -343,11 +349,17 @@ test.describe("agency dashboard critical journey", () => {
     await expect(actualResults).toContainText("8,400");
     await page.getByLabel("מטרת הקמפיין", { exact: true }).selectOption("launch");
     await page.getByLabel("מה למדנו", { exact: true }).fill("הצעה ישירה לקהל חוזר עבדה טוב יותר.");
+    await page.getByPlaceholder("שם הקישור", { exact: true }).fill("E2E creative brief");
+    await page.getByPlaceholder("https://...", { exact: true }).fill("https://example.com/creative-brief");
+    await page.getByRole("button", { name: "הוסף קישור", exact: true }).click();
+    await expect(page.getByText("יישמר כקישור", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "שמור שינויים", exact: true }).click();
     await expect(page.getByText("למידה שמורה", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "E2E launch campaign", exact: true }).click();
     await expect(page.getByLabel("מטרת הקמפיין", { exact: true })).toHaveValue("launch");
     await expect(page.getByLabel("מה למדנו", { exact: true })).toHaveValue("הצעה ישירה לקהל חוזר עבדה טוב יותר.");
+    await expect(page.getByText("example.com", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "פתח E2E creative brief", exact: true })).toBeVisible();
     await page.getByRole("button", { name: "סגירה", exact: true }).click();
 
     await page.getByRole("button", { name: "שאל את ה־AI", exact: true }).click();

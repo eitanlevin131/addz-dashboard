@@ -417,6 +417,34 @@ const channelLabels: Record<PlannerChannel, string> = {
   mixed: "מייל + SMS",
 };
 
+const plannerChannelStyles: Record<PlannerChannel, { planned: string; sent: string; accent: string }> = {
+  email: {
+    planned: "border-[#b8c9ef] bg-[#eef4ff] text-[#173b72]",
+    sent: "border-[#6f91d8] bg-[#dfe9ff] text-[#123264]",
+    accent: "bg-[#4f73bf]",
+  },
+  sms: {
+    planned: "border-[#9ddfd2] bg-[#eafaf6] text-[#08685d]",
+    sent: "border-[#43b6a2] bg-[#d8f4ed] text-[#07594f]",
+    accent: "bg-[#159786]",
+  },
+  mixed: {
+    planned: "border-[#d5c1ed] bg-[#f5f0fb] text-[#60408a]",
+    sent: "border-[#a985d2] bg-[#ece2f8] text-[#503273]",
+    accent: "bg-[#8662b1]",
+  },
+};
+
+function plannerAssetSubtitle(asset: NewsletterPlanAsset) {
+  if (asset.kind === "file") return asset.fileName || "מסמך מצורף";
+  if (!asset.url) return "קישור חיצוני";
+  try {
+    return new URL(asset.url).hostname.replace(/^www\./, "");
+  } catch {
+    return asset.url;
+  }
+}
+
 const automationFilterLabels: Record<AutomationFilterKey, string> = {
   all: "הכל",
   mixed: "מעורבת",
@@ -3954,9 +3982,10 @@ function Planner({
         ? suggested ? ("התאמה מוצעת" as const) : ("תכנון + Flashy" as const)
         : ("תכנון" as const),
       status: status as OperationalPlanStatus,
+      opensBrief: true,
       caption: reports.length
         ? `${formatCurrency(revenue, account.currency)} · ${formatNumber(purchases)} רכישות${plan.channel === "mixed" ? ` · ${reports.length}/2 ערוצים` : ""}`
-        : plan.brief || plan.notes || "קמפיין מתוכנן",
+        : plan.time ? `מתוכנן לשעה ${plan.time}` : "טרם נקבעה שעת שליחה",
     };
   });
   const liveEvents = [
@@ -3968,6 +3997,7 @@ function Planner({
         channel: item.channel,
         source: "Flashy" as const,
         status: "sent" as OperationalPlanStatus,
+        opensBrief: false,
         caption: `${formatNumber(item.totalRecipients)} נמענים · ${formatCurrency(item.revenueGenerated, account.currency)}`,
       })),
     ...monthPlanEvents,
@@ -4573,10 +4603,13 @@ function Planner({
                       </div>
                     )}
                     <div className="space-y-2">
-                      {day.events.slice(0, 4).map((event) => (
-                        <button
+                      {day.events.slice(0, 4).map((event) => {
+                        const channelStyle = plannerChannelStyles[event.channel];
+                        return <button
                           key={event.id}
-                          draggable={event.source !== "Flashy"}
+                          type="button"
+                          draggable={event.opensBrief}
+                          aria-label={event.opensBrief ? `פתח בריף: ${event.title}` : `${channelLabels[event.channel]} שנשלח: ${event.title}`}
                           onDragStart={() => {
                             const planId = event.id.startsWith("plan-") ? event.id.replace("plan-", "") : null;
                             setDraggingPlanId(planId);
@@ -4587,27 +4620,27 @@ function Planner({
                             if (plan) editPlan(plan);
                           }}
                           className={classNames(
-                            "w-full rounded-md border p-2 text-right text-xs leading-5",
-                            event.source === "Flashy"
-                              ? "border-teal-100 bg-teal-50 text-teal-900"
-                              : event.status === "sent"
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-900 transition hover:border-emerald-300"
-                                : event.status === "postponed"
-                                  ? "border-amber-200 bg-amber-50 text-amber-900 transition hover:border-amber-300"
-                                  : event.status === "not_found"
-                                    ? "border-slate-300 bg-slate-50 text-slate-700 transition hover:border-slate-400"
-                                    : "border-blue-200 bg-blue-50 text-blue-900 transition hover:border-blue-300",
+                            "relative w-full overflow-hidden rounded-md border p-2.5 text-right text-xs leading-5 transition",
+                            event.status === "sent" ? channelStyle.sent : channelStyle.planned,
+                            event.opensBrief ? "cursor-pointer hover:-translate-y-px hover:shadow-sm" : "cursor-default",
+                            event.status === "postponed" && "border-dashed opacity-75",
+                            event.status === "not_found" && "border-dashed saturate-50",
                           )}
                         >
+                          <span aria-hidden="true" className={classNames("absolute inset-y-0 right-0 w-1", channelStyle.accent)} />
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-medium">{channelLabels[event.channel]}</span>
-                            <span className="rounded-full bg-white/75 px-1.5 font-bold">{operationalStatusLabels[event.status]}</span>
+                            <span className="inline-flex items-center gap-1.5 font-bold"><span className={classNames("size-1.5 rounded-full", channelStyle.accent)} />{channelLabels[event.channel]}</span>
+                            <span className="rounded-full border border-current/10 bg-white/75 px-1.5 font-bold">{operationalStatusLabels[event.status]}</span>
                           </div>
-                          <p className="mt-1 line-clamp-2 font-medium">{event.title}</p>
-                          <p className="mt-0.5 text-[10px] font-medium opacity-70">{event.source}</p>
-                          <p className="mt-1 text-[#65738a]">{event.caption}</p>
+                          <p className="mt-1.5 line-clamp-2 font-bold leading-5">{event.title}</p>
+                          <p className="mt-1 truncate text-[10px] font-semibold opacity-70">{event.caption}</p>
+                          {event.opensBrief ? (
+                            <span className="mt-1.5 inline-flex items-center gap-1 text-[10px] font-bold"><FileText size={11} />פתח בריף מלא</span>
+                          ) : (
+                            <span className="mt-1.5 block text-[10px] font-bold opacity-65">דיוור מ־Flashy</span>
+                          )}
                         </button>
-                      ))}
+                      })}
                       {day.events.length > 4 && (
                         <div className="text-xs font-medium text-[#65738a]">
                           ועוד {day.events.length - 4} פריטים
@@ -4723,13 +4756,28 @@ function Planner({
               </details>
 
               <section className="rounded-xl border border-[#e4e7ec] p-4">
-                <div className="flex items-center gap-2"><Paperclip size={16} className="text-[#087f72]" /><h4 className="text-sm font-bold text-[#111318]">נכסים ומסמכים</h4></div>
+                <div className="flex items-start gap-2"><Paperclip size={16} className="mt-0.5 text-[#087f72]" /><div><h4 className="text-sm font-bold text-[#111318]">קישורים ומסמכים</h4><p className="mt-0.5 text-xs leading-5 text-[#667085]">כל חומרי העבודה של הבריף נשארים מרוכזים כאן.</p></div></div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1.4fr_auto]"><input value={assetLabel} onChange={(event) => setAssetLabel(event.target.value)} placeholder="שם הקישור" className="h-10 rounded-md border border-[#d0d5dd] px-3 text-sm" /><input dir="ltr" value={assetUrl} onChange={(event) => setAssetUrl(event.target.value)} placeholder="https://..." className="h-10 rounded-md border border-[#d0d5dd] px-3 text-left text-sm" /><button type="button" onClick={queueLink} className="h-10 rounded-md border border-[#087f72] px-3 text-xs font-bold text-[#087f72]">הוסף קישור</button></div>
                 <label className="mt-3 flex min-h-20 cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-[#98a2b3] bg-[#f8fafb] px-4 text-xs font-bold text-[#475467] hover:border-[#42dfcf]"><Upload size={16} />העלה PDF, Word, Excel או תמונה<input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.csv,.jpg,.jpeg,.png,.webp" className="sr-only" onChange={(event) => setPendingFiles((current) => [...current, ...Array.from(event.target.files ?? [])])} /></label>
                 <div className="mt-3 grid gap-2">
-                  {(editingPlan?.assets ?? []).map((asset) => <div key={asset.id} className="flex items-center justify-between gap-3 rounded-md bg-[#f8fafb] px-3 py-2 text-xs"><a href={asset.kind === 'link' ? asset.url : asset.downloadUrl} target="_blank" rel="noreferrer" className="min-w-0 truncate font-bold text-[#344054] hover:text-[#087f72]">{asset.label}</a><button type="button" disabled={assetBusy} onClick={() => void removeAsset(asset)} aria-label="הסר נכס" className="text-[#98a2b3] hover:text-red-600"><X size={14} /></button></div>)}
-                  {pendingLinks.map((asset) => <div key={asset.id} className="flex items-center justify-between gap-3 rounded-md bg-[#fffbed] px-3 py-2 text-xs"><span className="truncate font-bold text-[#6f5f00]">{asset.label}</span><button type="button" onClick={() => setPendingLinks((current) => current.filter((item) => item.id !== asset.id))}><X size={14} /></button></div>)}
-                  {pendingFiles.map((file, index) => <div key={`${file.name}-${index}`} className="flex items-center justify-between gap-3 rounded-md bg-[#eefbf8] px-3 py-2 text-xs"><span className="truncate font-bold text-[#087f72]">{file.name}</span><button type="button" onClick={() => setPendingFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}><X size={14} /></button></div>)}
+                  {(editingPlan?.assets ?? []).map((asset) => {
+                    const target = asset.kind === "link" ? asset.url : asset.downloadUrl;
+                    return <div key={asset.id} className="flex items-center justify-between gap-3 rounded-lg border border-[#dfe7ee] bg-[#f8fafb] p-3 text-xs">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className={classNames("grid size-9 shrink-0 place-items-center rounded-md", asset.kind === "link" ? "bg-[#eafaf6] text-[#087f72]" : "bg-[#eef4ff] text-[#4f73bf]")}>{asset.kind === "link" ? <Link2 size={16} /> : <FileText size={16} />}</span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2"><p className="truncate font-bold text-[#344054]">{asset.label}</p><span className="shrink-0 rounded bg-white px-1.5 py-0.5 text-[10px] font-bold text-[#667085]">{asset.kind === "link" ? "קישור" : "קובץ"}</span></div>
+                          <p dir={asset.kind === "link" ? "ltr" : undefined} className="mt-1 truncate text-left text-[11px] text-[#667085]">{plannerAssetSubtitle(asset)}</p>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {target && <a href={target} target="_blank" rel="noreferrer" aria-label={`פתח ${asset.label}`} title="פתח בחלון חדש" className="grid size-8 place-items-center rounded-md border border-[#d0d5dd] bg-white text-[#475467] transition hover:border-[#087f72] hover:text-[#087f72]"><ExternalLink size={14} /></a>}
+                        <button type="button" disabled={assetBusy} onClick={() => void removeAsset(asset)} aria-label={`הסר ${asset.label}`} title="הסר" className="grid size-8 place-items-center rounded-md text-[#98a2b3] transition hover:bg-red-50 hover:text-red-600"><X size={14} /></button>
+                      </div>
+                    </div>;
+                  })}
+                  {pendingLinks.map((asset) => <div key={asset.id} className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-[#9ddfd2] bg-[#eefbf8] p-3 text-xs"><div className="flex min-w-0 items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-md bg-white text-[#087f72]"><Link2 size={16} /></span><div className="min-w-0"><div className="flex items-center gap-2"><p className="truncate font-bold text-[#08685d]">{asset.label}</p><span className="rounded bg-white px-1.5 py-0.5 text-[10px] font-bold text-[#087f72]">יישמר כקישור</span></div><p dir="ltr" className="mt-1 truncate text-left text-[11px] text-[#667085]">{asset.url}</p></div></div><button type="button" onClick={() => setPendingLinks((current) => current.filter((item) => item.id !== asset.id))} aria-label={`הסר ${asset.label}`} className="grid size-8 place-items-center rounded-md text-[#98a2b3] hover:bg-red-50 hover:text-red-600"><X size={14} /></button></div>)}
+                  {pendingFiles.map((file, index) => <div key={`${file.name}-${index}`} className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-[#b8c9ef] bg-[#f3f6ff] p-3 text-xs"><div className="flex min-w-0 items-center gap-3"><span className="grid size-9 shrink-0 place-items-center rounded-md bg-white text-[#4f73bf]"><FileText size={16} /></span><div className="min-w-0"><p className="truncate font-bold text-[#344054]">{file.name}</p><p className="mt-1 text-[11px] text-[#667085]">הקובץ יועלה בשמירת הבריף</p></div></div><button type="button" onClick={() => setPendingFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`הסר ${file.name}`} className="grid size-8 place-items-center rounded-md text-[#98a2b3] hover:bg-red-50 hover:text-red-600"><X size={14} /></button></div>)}
                 </div>
               </section>
 
