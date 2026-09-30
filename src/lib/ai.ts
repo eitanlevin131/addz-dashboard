@@ -8,6 +8,7 @@ import { getAutomationSmsRecipients } from "./metrics";
 import { campaignTiming } from "./report-chart-data.ts";
 import type {
   AccountChangeEvent,
+  AiDataScope,
   AiInsight,
   AutomationReport,
   EmailCampaignReport,
@@ -52,6 +53,7 @@ export type AiContextPack = {
     dateBasis: "campaign send date and automation activity date";
     revenueBasis: "revenue attributed to each activity under the account attribution window";
     limitation: string;
+    requestedPeriod?: AiDataScope;
   };
   account: {
     name: string;
@@ -268,9 +270,10 @@ export function buildAiContextPack(input: {
   automations: AutomationReport[];
   plans: NewsletterPlan[];
   accountChanges?: AccountChangeEvent[];
+  dataScope?: AiDataScope;
   memory?: AiAccountMemory;
 }): AiContextPack {
-  const { account, summary, emails, sms, automations, plans, accountChanges = [], memory = {} } = input;
+  const { account, summary, emails, sms, automations, plans, accountChanges = [], dataScope, memory = {} } = input;
   const smsRows = sms
     .map((item) => {
       const cost = item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate;
@@ -319,6 +322,7 @@ export function buildAiContextPack(input: {
       dateBasis: "campaign send date and automation activity date",
       revenueBasis: "revenue attributed to each activity under the account attribution window",
       limitation: "This is not Flashy Sales Overview revenue. Sales Overview filters purchases by conversion date and can include campaigns sent before the selected range; it is not available through the public API.",
+      requestedPeriod: dataScope,
     },
     account: {
       name: account.name,

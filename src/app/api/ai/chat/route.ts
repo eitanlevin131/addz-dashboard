@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
 import { and, desc, eq } from "drizzle-orm";
 import { assertClientAccess, getAccessContext } from "@/lib/auth/access";
-import { accountChangeEvents, aiChatMessages } from "@/lib/schema";
+import { accountChangeEvents, aiChatMessages, flashyAccounts } from "@/lib/schema";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import {
   buildAiEvidenceCatalog,
+  buildCampaignListGroundedResponse,
   buildFallbackGroundedResponse,
   buildTimingGroundedResponse,
 } from "@/lib/ai-grounding";
+import { loadHistoricalAiData } from "@/lib/ai-historical-data";
+import { resolveAiQuestionPeriod } from "@/lib/ai-question-period";
+import { summarizeAccount } from "@/lib/metrics";
 import {
   askOpenAiAgent,
   askOpenAiActionPlan,
@@ -106,10 +110,10 @@ export async function POST(request: Request) {
   const mode =
     body.mode === "recommendations" ? "recommendations" : body.mode === "onboarding" ? "onboarding" : "chat";
   const account = body.account as FlashyAccount | undefined;
-  const summary = body.summary as MetricSummary | undefined;
+  const requestSummary = body.summary as MetricSummary | undefined;
   const currentView = String(body.view ?? "overview");
 
-  if (!clientId || !account || !summary) {
+  if (!clientId || !account || !requestSummary) {
     return NextResponse.json(
       { success: false, message: "חסרים clientId, account או summary לבניית Context Pack." },
       { status: 400 },
@@ -117,27 +121,56 @@ export async function POST(request: Request) {
   }
 
   let accessUserId: string | null = null;
+  let storedAccount: typeof flashyAccounts.$inferSelect | null = null;
   if (isDatabaseConfigured()) {
     const accessContext = await getAccessContext();
     if (!accessContext.ok) return accessContext.response;
     const denied = assertClientAccess(accessContext.access, clientId);
     if (denied) return denied;
     accessUserId = accessContext.access.userId;
+    storedAccount = await getDb()
+      .select()
+      .from(flashyAccounts)
+      .where(and(eq(flashyAccounts.id, account.id), eq(flashyAccounts.clientId, clientId)))
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
+    if (!storedAccount) {
+      return NextResponse.json({ success: false, message: "החשבון לא נמצא עבור הלקוח שנבחר." }, { status: 404 });
+    }
   }
 
-  const emails = ((body.emails ?? []) as EmailCampaignReport[])
+  let emails = ((body.emails ?? []) as EmailCampaignReport[])
     .filter((item) => item.accountId === account.id)
     .slice(0, 250);
-  const sms = ((body.sms ?? []) as SmsCampaignReport[])
+  let sms = ((body.sms ?? []) as SmsCampaignReport[])
     .filter((item) => item.accountId === account.id)
     .slice(0, 250);
-  const automations = ((body.automations ?? []) as AutomationReport[])
+  let automations = ((body.automations ?? []) as AutomationReport[])
     .filter((item) => item.accountId === account.id)
     .slice(0, 250);
   const plans = ((body.plans ?? []) as NewsletterPlan[])
     .filter((item) => item.clientId === clientId && (!item.accountId || item.accountId === account.id))
     .slice(0, 250);
   const memory = (body.memory ?? {}) as AiAccountMemory;
+  const questionPeriod = mode === "chat"
+    ? resolveAiQuestionPeriod(question, storedAccount?.timezone ?? account.timezone)
+    : null;
+  const historicalData = questionPeriod && storedAccount
+    ? await loadHistoricalAiData({
+        accountId: storedAccount.id,
+        encryptedApiKey: storedAccount.encryptedApiKey,
+        timezone: storedAccount.timezone,
+        period: questionPeriod,
+      })
+    : null;
+  if (historicalData) {
+    emails = historicalData.emails;
+    sms = historicalData.sms;
+    automations = historicalData.automations;
+  }
+  const summary = historicalData
+    ? summarizeAccount(account, emails, sms, automations, false)
+    : requestSummary;
   const accountChanges: AccountChangeEvent[] = isDatabaseConfigured()
     ? await getDb()
         .select()
@@ -170,6 +203,7 @@ export async function POST(request: Request) {
     automations,
     plans,
     accountChanges,
+    dataScope: historicalData?.scope,
     memory,
   });
   const evidence = buildAiEvidenceCatalog({
@@ -180,6 +214,7 @@ export async function POST(request: Request) {
     automations,
     plans,
     accountChanges,
+    dataScope: historicalData?.scope,
     documents: memory.documents,
     question,
     currentView,
@@ -198,6 +233,20 @@ export async function POST(request: Request) {
     automations,
     plans,
     accountChanges,
+    dataScope: historicalData?.scope,
+    documents: memory.documents,
+    question,
+    currentView,
+  }) : null;
+  const campaignListGrounding = mode === "chat" ? buildCampaignListGroundedResponse({
+    account,
+    summary,
+    emails,
+    sms,
+    automations,
+    plans,
+    accountChanges,
+    dataScope: historicalData?.scope,
     documents: memory.documents,
     question,
     currentView,
@@ -215,16 +264,19 @@ export async function POST(request: Request) {
   let grounding = buildFallbackGroundedResponse(fallbackAnswer, evidence);
   let recommendations = fallbackActionPlan(context);
   let onboarding = fallbackOnboarding(context);
-  let provider: "openai" | "rule-based-fallback" | "deterministic-analysis" = timingGrounding ? "deterministic-analysis" : "rule-based-fallback";
+  let provider: "openai" | "rule-based-fallback" | "deterministic-analysis" = timingGrounding || campaignListGrounding
+    ? "deterministic-analysis"
+    : "rule-based-fallback";
 
-  if (timingGrounding) {
-    grounding = timingGrounding;
-    answer = timingGrounding.answer;
+  const deterministicGrounding = campaignListGrounding ?? timingGrounding;
+  if (deterministicGrounding) {
+    grounding = deterministicGrounding;
+    answer = deterministicGrounding.answer;
   }
 
   try {
-    if (timingGrounding) {
-      // Timing recommendations are calculated from the same dataset and formula as the campaign report.
+    if (deterministicGrounding) {
+      // Historical lists and timing recommendations are calculated directly from measured report rows.
     } else if (mode === "recommendations") {
       const openAiRecommendations = await askOpenAiActionPlan(context);
       if (openAiRecommendations?.length) {
@@ -267,7 +319,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     success: true,
     provider,
-    analysisMode: timingGrounding ? "deterministic-timing" : "model",
+    analysisMode: campaignListGrounding ? "deterministic-history" : timingGrounding ? "deterministic-timing" : "model",
     historyPersisted,
     providerError: "",
     model: getConfiguredOpenAiModel(),

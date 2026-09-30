@@ -1,5 +1,6 @@
 import type {
   AccountChangeEvent,
+  AiDataScope,
   AutomationReport,
   EmailCampaignReport,
   FlashyAccount,
@@ -26,7 +27,7 @@ export type AiEvidenceMetric = {
 
 export type AiEvidenceSource = {
   id: string;
-  kind: "summary" | "email" | "sms" | "automation" | "plan" | "change" | "document" | "timing";
+  kind: "summary" | "coverage" | "email" | "sms" | "automation" | "plan" | "change" | "document" | "timing";
   entityId: string;
   reportView: AiReportView;
   title: string;
@@ -65,6 +66,7 @@ type EvidenceInput = {
   automations: AutomationReport[];
   plans: NewsletterPlan[];
   accountChanges?: AccountChangeEvent[];
+  dataScope?: AiDataScope;
   documents?: { name: string; content: string; createdAt: string }[];
   question?: string;
   currentView?: string;
@@ -141,6 +143,11 @@ function relevantReportSources(sources: AiEvidenceSource[], question: string, cu
     if (area === "campaign") return source.kind === "email" || source.kind === "sms";
     return source.kind === "email" || source.kind === "sms" || source.kind === "automation" || source.kind === "change";
   });
+  if (isCampaignListQuestion(question)) {
+    return [...reports]
+      .sort((a, b) => Date.parse(a.date ?? "") - Date.parse(b.date ?? ""))
+      .slice(0, 40);
+  }
   const tokens = question
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
@@ -154,6 +161,56 @@ function relevantReportSources(sources: AiEvidenceSource[], question: string, cu
   return Array.from(unique.values()).slice(0, 36);
 }
 
+function emailEvidenceSources(input: EvidenceInput): AiEvidenceSource[] {
+  return input.emails.map((item) => ({
+    id: `email:${item.id}`,
+    kind: "email",
+    entityId: item.id,
+    reportView: "campaigns",
+    title: item.campaignName,
+    subtitle: item.subjectLine ? `קמפיין אימייל · ${item.subjectLine}` : "קמפיין אימייל",
+    date: item.sentAt,
+    metrics: [
+      metric("revenue", "הכנסה", item.revenueGenerated, money(item.revenueGenerated, input.account.currency)),
+      metric("purchases", "רכישות", item.purchases, number(item.purchases)),
+      metric("recipients", "נמענים", item.totalRecipients, number(item.totalRecipients)),
+      metric("opens", "פתיחות", item.totalOpens, number(item.totalOpens)),
+      metric("clicks", "קליקים", item.uniqueClicks, number(item.uniqueClicks)),
+      metric("openRate", "אחוז פתיחה", item.totalDelivered > 0 ? item.totalOpens / item.totalDelivered : null, item.totalDelivered > 0 ? percent(item.totalOpens / item.totalDelivered) : "לא זמין"),
+      metric("clickRate", "אחוז הקלקה", item.totalDelivered > 0 ? item.uniqueClicks / item.totalDelivered : null, item.totalDelivered > 0 ? percent(item.uniqueClicks / item.totalDelivered) : "לא זמין"),
+      metric("unsubscribed", "הסרות", item.unsubscribed, number(item.unsubscribed)),
+      metric("unsubscribeRate", "שיעור הסרה", item.totalRecipients > 0 ? item.unsubscribed / item.totalRecipients : null, item.totalRecipients > 0 ? percent(item.unsubscribed / item.totalRecipients) : "לא זמין"),
+    ],
+  }));
+}
+
+function smsEvidenceSources(input: EvidenceInput): AiEvidenceSource[] {
+  return input.sms.map((item) => {
+    const cost = item.totalRecipients * input.account.smsCreditPriceUsd * input.account.usdIlsRate;
+    const roas = cost > 0 ? item.revenueGenerated / cost : null;
+    return {
+      id: `sms:${item.id}`,
+      kind: "sms",
+      entityId: item.id,
+      reportView: "sms",
+      title: item.campaignName,
+      subtitle: "קמפיין SMS",
+      content: item.messageText || undefined,
+      date: item.sentAt,
+      metrics: [
+        metric("revenue", "הכנסה", item.revenueGenerated, money(item.revenueGenerated, input.account.currency)),
+        metric("smsCost", "עלות SMS", cost, money(cost, input.account.currency)),
+        metric("roas", "הכנסה / עלות SMS", roas, roas === null ? "לא זמין" : `${number(roas)}x`),
+        metric("purchases", "רכישות", item.purchases, number(item.purchases)),
+        metric("recipients", "נמענים", item.totalRecipients, number(item.totalRecipients)),
+        metric("clicks", "קליקים", item.totalClicks, number(item.totalClicks)),
+        metric("unsubscribed", "הסרות", item.unsubscribed, number(item.unsubscribed)),
+        metric("unsubscribeRate", "שיעור הסרה", item.totalRecipients > 0 ? item.unsubscribed / item.totalRecipients : null, item.totalRecipients > 0 ? percent(item.unsubscribed / item.totalRecipients) : "לא זמין"),
+      ],
+    };
+  });
+}
+
 export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[] {
   const { account, summary } = input;
   const currency = account.currency;
@@ -163,7 +220,7 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
     kind: "summary",
     entityId: account.id,
     reportView: "overview",
-    title: "סיכום הטווח הנבחר",
+    title: input.dataScope ? `סיכום ${input.dataScope.label}` : "סיכום הטווח הנבחר",
     subtitle: "חישוב הדאשבורד מדוחות הפעילות של Flashy",
     metrics: [
       metric("revenue", "הכנסה מיוחסת", summary.revenue, money(summary.revenue, currency)),
@@ -177,50 +234,25 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
       metric("unsubscribeRate", "שיעור הסרה משוקלל", listHealth.unsubscribeRate, listHealth.unsubscribeRate === null ? "לא זמין" : percent(listHealth.unsubscribeRate)),
     ],
   };
-  const emailSources = input.emails.map((item): AiEvidenceSource => ({
-    id: `email:${item.id}`,
-    kind: "email",
-    entityId: item.id,
+  const coverageSource: AiEvidenceSource | null = input.dataScope ? {
+    id: "coverage:question-period",
+    kind: "coverage",
+    entityId: account.id,
     reportView: "campaigns",
-    title: item.campaignName,
-    subtitle: item.subjectLine ? `קמפיין אימייל · ${item.subjectLine}` : "קמפיין אימייל",
-    date: item.sentAt,
+    title: `כיסוי נתונים · ${input.dataScope.label}`,
+    subtitle: input.dataScope.source === "flashy-api" ? "שליפה חיה מ־Flashy API" : "מטמון הדוחות במסד הנתונים",
+    content: input.dataScope.complete
+      ? `הטווח ${input.dataScope.start} עד ${input.dataScope.end} נבדק במלואו מול Flashy.`
+      : input.dataScope.warning,
+    date: input.dataScope.end,
     metrics: [
-      metric("revenue", "הכנסה", item.revenueGenerated, money(item.revenueGenerated, currency)),
-      metric("purchases", "רכישות", item.purchases, number(item.purchases)),
-      metric("recipients", "נמענים", item.totalRecipients, number(item.totalRecipients)),
-      metric("opens", "פתיחות", item.totalOpens, number(item.totalOpens)),
-      metric("clicks", "קליקים", item.uniqueClicks, number(item.uniqueClicks)),
-      metric("openRate", "אחוז פתיחה", item.totalDelivered > 0 ? item.totalOpens / item.totalDelivered : null, item.totalDelivered > 0 ? percent(item.totalOpens / item.totalDelivered) : "לא זמין"),
-      metric("clickRate", "אחוז הקלקה", item.totalDelivered > 0 ? item.uniqueClicks / item.totalDelivered : null, item.totalDelivered > 0 ? percent(item.uniqueClicks / item.totalDelivered) : "לא זמין"),
-      metric("unsubscribed", "הסרות", item.unsubscribed, number(item.unsubscribed)),
-      metric("unsubscribeRate", "שיעור הסרה", item.totalRecipients > 0 ? item.unsubscribed / item.totalRecipients : null, item.totalRecipients > 0 ? percent(item.unsubscribed / item.totalRecipients) : "לא זמין"),
+      metric("emailCampaigns", "קמפייני אימייל", input.dataScope.counts.emails, number(input.dataScope.counts.emails)),
+      metric("smsCampaigns", "קמפייני SMS", input.dataScope.counts.sms, number(input.dataScope.counts.sms)),
+      metric("automationRows", "רשומות אוטומציה", input.dataScope.counts.automations, number(input.dataScope.counts.automations)),
     ],
-  }));
-  const smsSources = input.sms.map((item): AiEvidenceSource => {
-    const cost = item.totalRecipients * account.smsCreditPriceUsd * account.usdIlsRate;
-    const roas = cost > 0 ? item.revenueGenerated / cost : null;
-    return {
-      id: `sms:${item.id}`,
-      kind: "sms",
-      entityId: item.id,
-      reportView: "sms",
-      title: item.campaignName,
-      subtitle: "קמפיין SMS",
-      content: item.messageText || undefined,
-      date: item.sentAt,
-      metrics: [
-        metric("revenue", "הכנסה", item.revenueGenerated, money(item.revenueGenerated, currency)),
-        metric("smsCost", "עלות SMS", cost, money(cost, currency)),
-        metric("roas", "הכנסה / עלות SMS", roas, roas === null ? "לא זמין" : `${number(roas)}x`),
-        metric("purchases", "רכישות", item.purchases, number(item.purchases)),
-        metric("recipients", "נמענים", item.totalRecipients, number(item.totalRecipients)),
-        metric("clicks", "קליקים", item.totalClicks, number(item.totalClicks)),
-        metric("unsubscribed", "הסרות", item.unsubscribed, number(item.unsubscribed)),
-        metric("unsubscribeRate", "שיעור הסרה", item.totalRecipients > 0 ? item.unsubscribed / item.totalRecipients : null, item.totalRecipients > 0 ? percent(item.unsubscribed / item.totalRecipients) : "לא זמין"),
-      ],
-    };
-  });
+  } : null;
+  const emailSources = emailEvidenceSources(input);
+  const smsSources = smsEvidenceSources(input);
   const automationSources = input.automations.map((item): AiEvidenceSource => {
     const smsRecipients = automationSmsRecipients(item);
     const smsCost = smsRecipients * account.smsCreditPriceUsd * account.usdIlsRate;
@@ -337,8 +369,61 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
       : relevantReportSources(allSources, input.question ?? "", input.currentView);
   const unique = new Map<string, AiEvidenceSource>();
 
-  for (const source of [summarySource, ...supporting, ...changeSources.slice(0, 12), ...documentSources.slice(0, 6)]) unique.set(source.id, source);
+  for (const source of [coverageSource, summarySource, ...supporting, ...changeSources.slice(0, 12), ...documentSources.slice(0, 6)]) {
+    if (source) unique.set(source.id, source);
+  }
   return Array.from(unique.values()).slice(0, 43);
+}
+
+function isCampaignListQuestion(question: string) {
+  return /(?:איזה|אילו|מה).{0,24}קמפיינ|קמפיינים.{0,24}(?:שלחנו|נשלחו|יצאו)|רשימת.{0,16}קמפיינ/i.test(question);
+}
+
+export function buildCampaignListGroundedResponse(input: EvidenceInput): AiGroundedResponse | null {
+  if (!input.dataScope || !isCampaignListQuestion(input.question ?? "")) return null;
+  const catalog = buildAiEvidenceCatalog(input);
+  const coverage = catalog.find((source) => source.kind === "coverage");
+  const campaigns = [...emailEvidenceSources(input), ...smsEvidenceSources(input)]
+    .sort((a, b) => Date.parse(a.date ?? "") - Date.parse(b.date ?? ""));
+  const evidenceIds = campaigns.map((source) => source.id);
+
+  if (!campaigns.length) {
+    const verified = input.dataScope.complete;
+    return {
+      answer: verified
+        ? `בדקתי ישירות את Flashy לטווח ${input.dataScope.label}, ולא נמצאו בו קמפייני אימייל או SMS שנשלחו.`
+        : `לא מצאתי קמפיינים שמורים לטווח ${input.dataScope.label}, אבל השליפה החיה מ־Flashy לא הושלמה ולכן אי אפשר לקבוע שלא היו קמפיינים.`,
+      facts: coverage ? [{ text: coverage.content ?? coverage.title, evidenceIds: [coverage.id] }] : [],
+      calculations: [],
+      inferences: [],
+      sources: coverage ? [coverage] : [],
+    };
+  }
+
+  const rows = campaigns.map((source, index) => {
+    const sentAt = new Date(source.date ?? "").toLocaleDateString("he-IL", { timeZone: input.account.timezone });
+    const channel = source.kind === "email" ? "אימייל" : "SMS";
+    const revenue = source.metrics.find((item) => item.key === "revenue")?.display ?? "ללא נתון הכנסה";
+    return `${index + 1}. ${sentAt} · ${channel} · ${source.title} · ${revenue}`;
+  });
+  const emailCount = campaigns.filter((source) => source.kind === "email").length;
+  const smsCount = campaigns.length - emailCount;
+  const sources = coverage ? [coverage, ...campaigns] : campaigns;
+
+  return {
+    answer: `נמצאו ${campaigns.length.toLocaleString("he-IL")} קמפיינים שנשלחו ב${input.dataScope.label}: ${emailCount} באימייל ו־${smsCount} ב־SMS.\n\n${rows.join("\n")}`,
+    facts: campaigns.map((source) => ({
+      text: `${source.title} נשלח ב־${new Date(source.date ?? "").toLocaleDateString("he-IL", { timeZone: input.account.timezone })}.`,
+      evidenceIds: [source.id],
+    })),
+    calculations: [{
+      text: `סה״כ ${campaigns.length} קמפיינים: ${emailCount} אימייל ו־${smsCount} SMS.`,
+      formula: `${emailCount} + ${smsCount} = ${campaigns.length}`,
+      evidenceIds: evidenceIds.slice(0, 5),
+    }],
+    inferences: [],
+    sources,
+  };
 }
 
 export function buildTimingGroundedResponse(input: EvidenceInput): AiGroundedResponse | null {

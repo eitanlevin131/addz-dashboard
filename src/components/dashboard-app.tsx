@@ -4963,7 +4963,7 @@ function FloatingAiChat({
       setConversation((current) => [...current, { id: `local-assistant-${Date.now()}`, role: "assistant", content: payload.answer, createdAt: new Date().toISOString() }]);
       setProvider(payload.provider);
       setProviderError(payload.providerError ?? "");
-      setState(!payload.historyPersisted ? "התשובה התקבלה, אך ההיסטוריה לא נשמרה" : payload.analysisMode === "deterministic-timing" ? "חושב ישירות מדוח הקמפיינים" : payload.provider === "openai" ? `${payload.model || "OpenAI"} פעיל` : "שגיאת חיבור");
+      setState(!payload.historyPersisted ? "התשובה התקבלה, אך ההיסטוריה לא נשמרה" : String(payload.analysisMode).startsWith("deterministic") ? "חושב ישירות מדוחות Flashy" : payload.provider === "openai" ? `${payload.model || "OpenAI"} פעיל` : "שגיאת חיבור");
       setQuestion("");
     } catch (error) {
       const message = error instanceof Error ? error.message : "החיבור למודל OpenAI נכשל.";

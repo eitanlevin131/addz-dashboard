@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildAiEvidenceCatalog,
+  buildCampaignListGroundedResponse,
   buildTimingGroundedResponse,
   normalizeAiGroundedResponse,
 } from "../src/lib/ai-grounding.ts";
@@ -182,6 +183,82 @@ test("account changes are available to AI as dated evidence with a direct timeli
   assert.equal(source.date, "2026-09-29T09:30:00Z");
   assert.match(source.content, /10%/);
   assert.match(source.content, /מטרת השינוי/);
+});
+
+test("a historical campaign-list question returns measured campaigns directly", () => {
+  const historicalEmail = {
+    ...email,
+    id: "email-november",
+    campaignName: "מבצע נובמבר",
+    sentAt: "2025-11-12T08:00:00Z",
+  };
+  const input = {
+    account,
+    summary,
+    emails: [historicalEmail],
+    sms: [],
+    automations: [],
+    plans: [],
+    dataScope: {
+      label: "נובמבר 2025",
+      start: "2025-11-01",
+      end: "2025-11-30",
+      source: "flashy-api",
+      complete: true,
+      warning: "",
+      counts: { emails: 1, sms: 0, automations: 0 },
+    },
+    question: "איזה קמפיינים שלחנו בנובמבר 2025?",
+    currentView: "ai",
+  };
+  const response = buildCampaignListGroundedResponse(input);
+
+  assert.ok(response);
+  assert.match(response.answer, /מבצע נובמבר/);
+  assert.match(response.answer, /1 קמפיינים/);
+  assert.equal(response.sources[0].kind, "coverage");
+  assert.equal(response.sources[1].id, "email:email-november");
+});
+
+test("a historical campaign-list answer includes every report in the requested period", () => {
+  const emails = Array.from({ length: 5 }, (_, index) => ({
+    ...email,
+    id: `email-november-${index}`,
+    campaignId: 100 + index,
+    campaignName: `קמפיין אימייל ${index + 1}`,
+    sentAt: `2025-11-${String(index + 1).padStart(2, "0")}T08:00:00Z`,
+  }));
+  const messages = Array.from({ length: 5 }, (_, index) => ({
+    ...sms,
+    id: `sms-november-${index}`,
+    campaignId: 200 + index,
+    campaignName: `קמפיין SMS ${index + 1}`,
+    sentAt: `2025-11-${String(index + 6).padStart(2, "0")}T08:00:00Z`,
+  }));
+  const response = buildCampaignListGroundedResponse({
+    account,
+    summary,
+    emails,
+    sms: messages,
+    automations: [],
+    plans: [],
+    dataScope: {
+      label: "נובמבר 2025",
+      start: "2025-11-01",
+      end: "2025-11-30",
+      source: "flashy-api",
+      complete: true,
+      warning: "",
+      counts: { emails: 5, sms: 5, automations: 0 },
+    },
+    question: "אילו קמפיינים שלחנו בנובמבר 2025?",
+    currentView: "overview",
+  });
+
+  assert.ok(response);
+  assert.match(response.answer, /נמצאו 10 קמפיינים/);
+  assert.match(response.answer, /5 באימייל ו־5 ב־SMS/);
+  assert.equal(response.sources.filter((source) => source.kind === "email" || source.kind === "sms").length, 10);
 });
 
 test("grounded AI output cannot cite a source that is not in the catalog", () => {

@@ -259,6 +259,20 @@ export interface AccountChangeEvent {
   };
 }
 
+export interface AiDataScope {
+  label: string;
+  start: string;
+  end: string;
+  source: "flashy-api" | "database-cache";
+  complete: boolean;
+  warning: string;
+  counts: {
+    emails: number;
+    sms: number;
+    automations: number;
+  };
+}
+
 export interface AiInsight {
   id: string;
   clientId: string;

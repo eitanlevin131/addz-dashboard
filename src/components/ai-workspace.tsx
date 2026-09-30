@@ -339,7 +339,7 @@ export function AiWorkspace({ clientId, account, summary, emails, sms, automatio
       if (!response.ok || !payload.success || !payload.grounding) throw new Error(payload.message || "בקשת AI נכשלה.");
       const grounding = payload.grounding as AiGroundedResponse;
       setChatHistory((current) => [...current, { id: `local-assistant-${Date.now()}`, role: "assistant", content: grounding.answer, createdAt: new Date().toISOString(), grounding }]);
-      setAskState(!payload.historyPersisted ? "התשובה התקבלה, אך היסטוריית השיחה לא נשמרה" : payload.analysisMode === "deterministic-timing" ? "חושב ישירות מדוח הקמפיינים · ללא ניחוש מודל" : `${payload.model || "OpenAI"} · התשובה נבדקה מול מקורות`);
+      setAskState(!payload.historyPersisted ? "התשובה התקבלה, אך היסטוריית השיחה לא נשמרה" : String(payload.analysisMode).startsWith("deterministic") ? "חושב ישירות מדוחות Flashy · ללא ניחוש מודל" : `${payload.model || "OpenAI"} · התשובה נבדקה מול מקורות`);
     } catch (error) {
       setAskError(error instanceof Error ? error.message : "בקשת AI נכשלה.");
       setAskState("הבקשה נכשלה");
