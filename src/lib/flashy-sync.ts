@@ -1,5 +1,6 @@
 import { and, eq, gt, gte, lt, ne, or, sql } from "drizzle-orm";
 import { decryptSecret } from "@/lib/crypto";
+import { batchesOf } from "@/lib/db-batch";
 import { getDb } from "@/lib/db";
 import {
   normalizeAutomationReports,
@@ -99,6 +100,21 @@ export class PersistedSyncError extends Error {
 
 function wait(delayMs: number) {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function publicSyncErrorMessage(error: unknown) {
+  if (error instanceof FlashyApiError) {
+    return error.status === 401 || error.status === 403
+      ? "החיבור ל־Flashy נדחה. בדוק שמפתח ה־API של החשבון עדיין פעיל."
+      : `Flashy החזיר שגיאה (${error.status}). נסה לסנכרן שוב בעוד כמה דקות.`;
+  }
+  if (error instanceof Error && error.message.startsWith("סנכרון נכשל בבדיקת שלמות:")) {
+    return error.message;
+  }
+  if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
+    return "החיבור ל־Flashy ארך יותר מדי והופסק. נסה לסנכרן שוב.";
+  }
+  return "שמירת נתוני הסנכרון נכשלה. הנתונים הקיימים נשמרו; נסה לסנכרן שוב.";
 }
 
 async function withTransientRetry<T>(operation: () => Promise<T>, maxAttempts = DEFAULT_MAX_ATTEMPTS) {
@@ -350,9 +366,7 @@ export async function syncPersistedFlashyAccount(
     }
 
     if (normalizedEmails.length) {
-      await db
-        .insert(emailCampaignReports)
-        .values(normalizedEmails.map((report, index) => ({
+      const values = normalizedEmails.map((report, index) => ({
           flashyAccountId: account.id,
           campaignId: report.campaignId,
           sentAt: new Date(report.sentAt),
@@ -365,8 +379,9 @@ export async function syncPersistedFlashyAccount(
           purchases: report.purchases,
           revenueGenerated: String(report.revenueGenerated),
           raw: { ...emailRows[index], _syncStartedAt: syncRun.startedAt.getTime() },
-        })))
-        .onConflictDoUpdate({
+        }));
+      for (const batch of batchesOf(values)) {
+        await db.insert(emailCampaignReports).values(batch).onConflictDoUpdate({
           target: [
             emailCampaignReports.flashyAccountId,
             emailCampaignReports.campaignId,
@@ -384,12 +399,11 @@ export async function syncPersistedFlashyAccount(
             raw: sql`excluded.raw`,
           },
         });
+      }
     }
 
     if (normalizedSms.length) {
-      await db
-        .insert(smsCampaignReports)
-        .values(normalizedSms.map((report, index) => ({
+      const values = normalizedSms.map((report, index) => ({
           flashyAccountId: account.id,
           campaignId: report.campaignId,
           sentAt: new Date(report.sentAt),
@@ -400,8 +414,9 @@ export async function syncPersistedFlashyAccount(
           purchases: report.purchases,
           revenueGenerated: String(report.revenueGenerated),
           raw: { ...smsRows[index], _syncStartedAt: syncRun.startedAt.getTime() },
-        })))
-        .onConflictDoUpdate({
+        }));
+      for (const batch of batchesOf(values)) {
+        await db.insert(smsCampaignReports).values(batch).onConflictDoUpdate({
           target: [
             smsCampaignReports.flashyAccountId,
             smsCampaignReports.campaignId,
@@ -417,12 +432,11 @@ export async function syncPersistedFlashyAccount(
             raw: sql`excluded.raw`,
           },
         });
+      }
     }
 
     if (normalizedAutomations.length) {
-      await db
-        .insert(automationReports)
-        .values(normalizedAutomations.map((report, index) => ({
+      const values = normalizedAutomations.map((report, index) => ({
           flashyAccountId: account.id,
           automationId: report.automationId,
           reportDate: report.date,
@@ -443,8 +457,9 @@ export async function syncPersistedFlashyAccount(
           purchases: report.purchases,
           revenueGenerated: String(report.revenueGenerated),
           raw: { ...automationRows[index], _syncStartedAt: syncRun.startedAt.getTime() },
-        })))
-        .onConflictDoUpdate({
+        }));
+      for (const batch of batchesOf(values)) {
+        await db.insert(automationReports).values(batch).onConflictDoUpdate({
           target: [
             automationReports.flashyAccountId,
             automationReports.automationId,
@@ -470,6 +485,7 @@ export async function syncPersistedFlashyAccount(
             raw: sql`excluded.raw`,
           },
         });
+      }
     }
 
     const plannerMatchesSaved = await persistAutomaticPlannerMatches({
@@ -557,7 +573,8 @@ export async function syncPersistedFlashyAccount(
       message,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "סנכרון Flashy נכשל.";
+    console.error("Persisted Flashy sync failed", { accountId: account.id, source, lookbackDays }, error);
+    const message = publicSyncErrorMessage(error);
     const finishedAt = new Date();
     await db
       .update(syncRuns)
