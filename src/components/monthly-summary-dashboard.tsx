@@ -34,7 +34,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { monthLabel, type MonthlySummaryLeader, type MonthlySummaryManualInput, type MonthlySummarySnapshot } from "@/lib/monthly-summary";
+import { monthLabel, withoutMonthlySummaryShareLink, type MonthlySummaryLeader, type MonthlySummaryManualInput, type MonthlySummarySnapshot } from "@/lib/monthly-summary";
 import type { Client, FlashyAccount } from "@/lib/types";
 
 type SummaryRecord = {
@@ -336,7 +336,7 @@ export function MonthlySummaryDashboard({
     if (!selected) return;
     const text = withLink
       ? whatsappText
-      : whatsappText.replace(/\n*לצפייה בסיכום המלא והאינטראקטיבי:\nhttps?:\/\/\S+\s*$/u, "").trim();
+      : withoutMonthlySummaryShareLink(whatsappText);
     await navigator.clipboard.writeText(text);
     setMessage(withLink ? "ההודעה והקישור הועתקו ל־WhatsApp." : "ההודעה הועתקה בלי קישור.");
   }

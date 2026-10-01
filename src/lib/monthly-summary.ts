@@ -421,16 +421,19 @@ export function buildMonthlyWhatsappText(snapshot: MonthlySummarySnapshot, share
     );
   }
 
-  if (shareUrl) lines.push("לצפייה בסיכום המלא והאינטראקטיבי:", shareUrl);
-  return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  const text = lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return shareUrl ? withMonthlySummaryShareLink(text, shareUrl) : text;
 }
 
 export function withoutMonthlySummaryShareLink(text: string) {
-  return text.replace(/\n*לצפייה בסיכום המלא והאינטראקטיבי:\nhttps?:\/\/\S+\s*$/u, "").trim();
+  return text
+    .replace(/^\*?לצפייה בסיכום המלא והאינטראקטיבי:?\*?\nhttps?:\/\/\S+\n*/u, "")
+    .replace(/\n*לצפייה בסיכום המלא והאינטראקטיבי:\nhttps?:\/\/\S+\s*$/u, "")
+    .trim();
 }
 
 export function withMonthlySummaryShareLink(text: string, shareUrl: string) {
-  return `${withoutMonthlySummaryShareLink(text)}\n\nלצפייה בסיכום המלא והאינטראקטיבי:\n${shareUrl}`;
+  return `*לצפייה בסיכום המלא והאינטראקטיבי:*\n${shareUrl}\n\n${withoutMonthlySummaryShareLink(text)}`;
 }
 
 export function monthlyCopyNumbers(text: string) {

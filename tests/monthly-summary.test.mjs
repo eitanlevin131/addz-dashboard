@@ -94,6 +94,7 @@ test("WhatsApp copy uses only available facts and can include the protected link
     emails: [email()], sms: [], automations: [], generatedAt: new Date("2026-09-01T12:00:00.000Z"),
   });
   const text = buildMonthlyWhatsappText(snapshot, "https://dashboard.example/summaries/123");
+  assert.ok(text.startsWith("*לצפייה בסיכום המלא והאינטראקטיבי:*\nhttps://dashboard.example/summaries/123\n\n*סיכום חודש"));
   assert.match(text, /Email winner/);
   assert.match(text, /https:\/\/dashboard\.example\/summaries\/123/);
   assert.doesNotMatch(text, /פופ אפ/);
@@ -106,7 +107,11 @@ test("share links are replaced per environment instead of freezing localhost", (
   assert.equal(withoutMonthlySummaryShareLink(local), "Monthly copy");
   assert.equal(
     withMonthlySummaryShareLink(local, "https://app.example/summaries/123"),
-    "Monthly copy\n\nלצפייה בסיכום המלא והאינטראקטיבי:\nhttps://app.example/summaries/123",
+    "*לצפייה בסיכום המלא והאינטראקטיבי:*\nhttps://app.example/summaries/123\n\nMonthly copy",
+  );
+  assert.equal(
+    withoutMonthlySummaryShareLink("*לצפייה בסיכום המלא והאינטראקטיבי:*\nhttps://app.example/summaries/123\n\nMonthly copy"),
+    "Monthly copy",
   );
 });
 
