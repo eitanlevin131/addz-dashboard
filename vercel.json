@@ -4,6 +4,8 @@
     {
       "path": "/api/cron/flashy-sync",
       "schedule": "0 3 * * *"
-    }
+    },
+    { "path": "/api/cron/planner-digest", "schedule": "0 5 * * *" },
+    { "path": "/api/cron/planner-digest/winter", "schedule": "0 6 * * *" }
   ]
 }

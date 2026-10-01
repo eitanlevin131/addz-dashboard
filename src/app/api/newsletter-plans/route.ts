@@ -14,7 +14,7 @@ const matchActions = new Set(["match", "confirm", "unmatch", "resume"]);
 function planStatus(value: unknown, hasDate: boolean) {
   if (!hasDate && value === "idea") return "idea";
   if (!hasDate) return "draft";
-  return value === "postponed" ? "postponed" : "planned";
+  return value === "ready" ? "ready" : value === "postponed" ? "postponed" : "planned";
 }
 
 export async function GET(request: Request) {

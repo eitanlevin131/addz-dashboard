@@ -21,7 +21,7 @@ export type PlannerCampaignReport =
   | (EmailCampaignReport & { channel: "email" })
   | (SmsCampaignReport & { channel: "sms" });
 
-export type OperationalPlanStatus = "draft" | "planned" | "sent" | "postponed" | "not_found";
+export type OperationalPlanStatus = "draft" | "planned" | "ready" | "sent" | "postponed" | "not_found";
 export type PlanMatchState = "none" | "suggested" | "automatic" | "confirmed" | "missing";
 
 export type PlanCampaignMatch = {
@@ -96,6 +96,7 @@ function operationalStatus(plan: NewsletterPlan, matched: boolean, today: string
   if (plan.status === "postponed") return "postponed";
   if (!plan.date || plan.status === "draft") return "draft";
   if (plan.date < today || plan.status === "sent") return "not_found";
+  if (plan.status === "ready") return "ready";
   return "planned";
 }
 

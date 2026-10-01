@@ -47,7 +47,7 @@ import {
   X,
 } from "lucide-react";
 import { signIn, signOut } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import {
   chartColors,
   AutomationPerformanceTrendChart,
@@ -410,6 +410,7 @@ const timeRanges: { key: TimeRangeKey; label: string; days: number | null }[] = 
 const operationalStatusLabels: Record<OperationalPlanStatus, string> = {
   draft: "בריף",
   planned: "מתוכנן",
+  ready: "מוכן לשליחה",
   sent: "נשלח",
   postponed: "נדחה",
   not_found: "לא נמצא",
@@ -4065,7 +4066,7 @@ function Planner({
       date: isIdea ? "" : plan.date ?? "",
       time: isIdea ? "" : plan.time ?? "",
       channel: plan.channel,
-      status: isIdea ? "idea" : plan.status === "postponed" ? "postponed" : plan.date ? "planned" : "draft",
+      status: isIdea ? "idea" : plan.status === "postponed" ? "postponed" : plan.date ? plan.status === "ready" ? "ready" : "planned" : "draft",
       title: plan.title,
       notes: plan.notes,
       brief: plan.brief ?? plan.notes,
@@ -4083,6 +4084,23 @@ function Planner({
     setSaveState(isIdea ? "עורך רעיון שמור." : "עורך פריט קיים.");
     setManualCampaignKey("");
   }
+
+  const openedLinkedPlan = useRef(false);
+  const openLinkedPlan = useEffectEvent((plan: NewsletterPlan) => {
+    editPlan(plan);
+    if (plan.date) selectMonth(plan.date.slice(0, 7));
+  });
+  useEffect(() => {
+    if (openedLinkedPlan.current) return;
+    const planId = new URLSearchParams(window.location.search).get("planId");
+    const plan = plans.find((item) => item.id === planId);
+    if (!plan) return;
+    const frame = window.requestAnimationFrame(() => {
+      openedLinkedPlan.current = true;
+      openLinkedPlan(plan);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [plans]);
 
   function startQuickPlan(title = "", channel: PlannerChannel = "email", date: string | null = null) {
     setEditingPlanId(null);
@@ -4243,7 +4261,7 @@ function Planner({
       date: isIdea ? null : draft.date || null,
       channel: draft.channel,
       kind: "campaign",
-      status: isIdea ? "idea" : draft.date ? draft.status === "postponed" ? "postponed" : "planned" : "draft",
+      status: isIdea ? "idea" : draft.date ? draft.status === "ready" ? "ready" : draft.status === "postponed" ? "postponed" : "planned" : "draft",
       title: draft.title.trim(),
       owner: "",
       notes: draft.brief.trim(),
@@ -4744,7 +4762,7 @@ function Planner({
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <label className="text-xs font-bold text-[#667085]">תאריך<input type="date" value={draft.date} onChange={(event) => { const date = event.target.value; setDraft((current) => ({ ...current, date, status: date ? current.status === 'draft' ? 'planned' : current.status : 'draft', time: date ? current.time : '' })); if (date) selectMonth(date.slice(0,7)); }} className="mt-1.5 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm" /></label>
                   <label className="text-xs font-bold text-[#667085]">שעה<input type="time" value={draft.time} disabled={!draft.date} onChange={(event) => setDraft((current) => ({ ...current, time: event.target.value }))} className="mt-1.5 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm disabled:bg-[#f2f4f7]" /></label>
-                  <label className="text-xs font-bold text-[#667085]">סטטוס<select value={draft.date ? draft.status : 'draft'} disabled={!draft.date} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as PlanStatus }))} className="mt-1.5 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm disabled:bg-[#f2f4f7]"><option value="draft">בריף</option><option value="planned">מתוכנן</option><option value="postponed">נדחה</option></select></label>
+                  <label className="text-xs font-bold text-[#667085]">סטטוס<select value={draft.date ? draft.status : 'draft'} disabled={!draft.date} onChange={(event) => setDraft((current) => ({ ...current, status: event.target.value as PlanStatus }))} className="mt-1.5 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm disabled:bg-[#f2f4f7]"><option value="draft">בריף</option><option value="planned">מתוכנן</option><option value="ready">מוכן לשליחה</option><option value="postponed">נדחה</option></select></label>
                 </div>
                 {schedulingConflicts.length > 0 && <p className="mt-3 rounded-md bg-[#fff8e8] px-3 py-2 text-xs font-semibold text-[#8a5800]">כבר קיימים {schedulingConflicts.length} קמפיינים בתאריך הזה. אפשר לשמור בכל זאת.</p>}
               </details>}
@@ -6735,8 +6753,11 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
         }
 
         setViewerRole(incomingRole);
+        const linkedPlan = data.newsletterPlans.find((plan) => plan.id === new URLSearchParams(window.location.search).get("planId"));
         if (initialSummaryId) {
           setView("monthly");
+        } else if (linkedPlan) {
+          setView("planner");
         } else if (incomingRole === "client") {
           setShowDeepAnalysis(false);
           setView((current) => (current === "portfolio" || current === "settings" || current === "admin" ? "overview" : current));
@@ -6750,7 +6771,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
         setLocalAutomationReports(data.automationReports);
         setLocalNewsletterPlans(data.newsletterPlans);
         setLocalSyncHistory(data.syncHistory ?? []);
-        setSelectedClientId(data.clients[0].id);
+        setSelectedClientId(linkedPlan?.clientId ?? data.clients[0].id);
         setAuthRequired(false);
         setLiveDataIssue("");
         setDataSource("neon");
