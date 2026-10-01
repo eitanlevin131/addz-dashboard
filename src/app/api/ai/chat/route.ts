@@ -8,6 +8,7 @@ import {
   buildCampaignListGroundedResponse,
   buildFallbackGroundedResponse,
   buildTimingGroundedResponse,
+  isCampaignListQuestion,
 } from "@/lib/ai-grounding";
 import { loadHistoricalAiData } from "@/lib/ai-historical-data";
 import { resolveAiQuestionPeriod } from "@/lib/ai-question-period";
@@ -155,12 +156,14 @@ export async function POST(request: Request) {
   const questionPeriod = mode === "chat"
     ? resolveAiQuestionPeriod(question, storedAccount?.timezone ?? account.timezone)
     : null;
+  const campaignListRequested = mode === "chat" && isCampaignListQuestion(question);
   const historicalData = questionPeriod && storedAccount
     ? await loadHistoricalAiData({
         accountId: storedAccount.id,
         encryptedApiKey: storedAccount.encryptedApiKey,
         timezone: storedAccount.timezone,
         period: questionPeriod,
+        includeAutomations: !campaignListRequested,
       })
     : null;
   if (historicalData) {

@@ -375,7 +375,7 @@ export function buildAiEvidenceCatalog(input: EvidenceInput): AiEvidenceSource[]
   return Array.from(unique.values()).slice(0, 43);
 }
 
-function isCampaignListQuestion(question: string) {
+export function isCampaignListQuestion(question: string) {
   return /(?:איזה|אילו|מה).{0,24}קמפיינ|קמפיינים.{0,24}(?:שלחנו|נשלחו|יצאו)|רשימת.{0,16}קמפיינ/i.test(question);
 }
 

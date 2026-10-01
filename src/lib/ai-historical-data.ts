@@ -9,7 +9,7 @@ import {
   rawString,
   type RawFlashyRow,
 } from "./flashy-normalize";
-import { getFlashyReports } from "./flashy";
+import { getFlashyCampaignReports, getFlashyReports } from "./flashy";
 import type { QuestionPeriod } from "./ai-question-period";
 import { latestAutomationReports, latestCampaignReports } from "./report-identity";
 import { automationReports, emailCampaignReports, smsCampaignReports } from "./schema";
@@ -134,18 +134,23 @@ export async function loadHistoricalAiData(input: {
   encryptedApiKey: string;
   timezone: string;
   period: QuestionPeriod;
+  includeAutomations?: boolean;
 }): Promise<HistoricalAiData> {
   let apiWarning = "";
   try {
     const apiKey = decryptSecret(input.encryptedApiKey);
     const from = Math.floor(Date.parse(input.period.start) / 1000);
     const to = Math.floor((Date.parse(input.period.endExclusive) - 1_000) / 1000);
-    const reports = await getFlashyReports(apiKey, from, to);
+    const reports = input.includeAutomations === false
+      ? await getFlashyCampaignReports(apiKey, from, to)
+      : await getFlashyReports(apiKey, from, to);
     const failed = reports.checks.filter((check) => !check.ok);
     if (!failed.length) {
       const emails = normalizeEmailReports(reports.emails as RawFlashyRow[], input.accountId, input.timezone);
       const sms = normalizeSmsReports(reports.sms as RawFlashyRow[], input.accountId, input.timezone);
-      const automations = normalizeAutomationReports(reports.automations as RawFlashyRow[], input.accountId);
+      const automations = input.includeAutomations === false
+        ? []
+        : normalizeAutomationReports(reports.automations as RawFlashyRow[], input.accountId);
       return {
         emails,
         sms,

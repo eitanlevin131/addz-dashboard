@@ -34,6 +34,7 @@ import type {
   NewsletterPlan,
   SmsCampaignReport,
 } from "@/lib/types";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 
 type AiWorkspaceTab = "ask" | "create" | "knowledge";
 type CreationTool = "sms" | "subject";
@@ -334,14 +335,16 @@ export function AiWorkspace({ clientId, account, summary, emails, sms, automatio
     setAskState("בודק את הדוחות והמקורות...");
     setAskError("");
     try {
-      const response = await fetch("/api/ai/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientId, mode: "chat", question: prompt, view: "ai", account, summary, emails, sms, automations, plans, memory }) });
+      const response = await fetchWithTimeout("/api/ai/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ clientId, mode: "chat", question: prompt, view: "ai", account, summary, emails, sms, automations, plans, memory }) });
       const payload = await response.json();
       if (!response.ok || !payload.success || !payload.grounding) throw new Error(payload.message || "בקשת AI נכשלה.");
       const grounding = payload.grounding as AiGroundedResponse;
       setChatHistory((current) => [...current, { id: `local-assistant-${Date.now()}`, role: "assistant", content: grounding.answer, createdAt: new Date().toISOString(), grounding }]);
       setAskState(!payload.historyPersisted ? "התשובה התקבלה, אך היסטוריית השיחה לא נשמרה" : String(payload.analysisMode).startsWith("deterministic") ? "חושב ישירות מדוחות Flashy · ללא ניחוש מודל" : `${payload.model || "OpenAI"} · התשובה נבדקה מול מקורות`);
     } catch (error) {
-      setAskError(error instanceof Error ? error.message : "בקשת AI נכשלה.");
+      setAskError(error instanceof DOMException && error.name === "AbortError"
+        ? "הבדיקה ארכה יותר מדי. נסה שוב; המערכת לא תישאר בהמתנה ללא תשובה."
+        : error instanceof Error ? error.message : "בקשת AI נכשלה.");
       setAskState("הבקשה נכשלה");
     }
   }

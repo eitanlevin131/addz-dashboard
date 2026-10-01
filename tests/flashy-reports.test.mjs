@@ -9,7 +9,7 @@ function moduleUrl(source) {
 }
 const metricsUrl = moduleUrl(await readFile(new URL("../src/lib/metrics.ts", import.meta.url), "utf8"));
 const flashySource = (await readFile(new URL("../src/lib/flashy.ts", import.meta.url), "utf8")).replace('"./metrics"', JSON.stringify(metricsUrl));
-const { monthWindows, getFlashyReports } = await import(moduleUrl(flashySource));
+const { monthWindows, getFlashyCampaignReports, getFlashyReports } = await import(moduleUrl(flashySource));
 const timeUrl = moduleUrl(await readFile(new URL("../src/lib/report-time.ts", import.meta.url), "utf8"));
 const normalizeSource = (await readFile(new URL("../src/lib/flashy-normalize.ts", import.meta.url), "utf8")).replace('"@/lib/metrics"', JSON.stringify(metricsUrl)).replace('"@/lib/report-time"', JSON.stringify(timeUrl));
 const {
@@ -57,6 +57,22 @@ test("automation pages combine; one failed page is not reported as empty success
   const failed = await getFlashyReports("test-key", from, to);
   assert.equal(failed.checks[2].ok, false);
   assert.deepEqual(failed.automations, []);
+});
+
+test("campaign-only history never waits for the automation endpoint", async (t) => {
+  const calls = [];
+  t.mock.method(globalThis, "fetch", async (url) => {
+    const pathname = new URL(url).pathname;
+    calls.push(pathname);
+    if (pathname === "/reports/automations") throw new Error("automation endpoint must not be called");
+    return Response.json({ success: true, data: [{ campaign_id: 1 }] });
+  });
+
+  const result = await getFlashyCampaignReports("test-key", 1, 2);
+
+  assert.deepEqual(calls.sort(), ["/reports/emails", "/reports/sms"]);
+  assert.equal(result.checks.every((check) => check.ok), true);
+  assert.deepEqual(result.automations, []);
 });
 
 test("automation date and revenues survive normalization in Israel timezone", () => {

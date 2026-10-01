@@ -1,6 +1,7 @@
 import { parseMoney } from "./metrics";
 
 const FLASHY_BASE_URL = process.env.FLASHY_API_BASE_URL?.trim() || "https://api.flashy.app";
+const FLASHY_REQUEST_TIMEOUT_MS = 15_000;
 
 export class FlashyApiError extends Error {
   status: number;
@@ -37,6 +38,7 @@ export async function flashyRequest<T>({
     },
     body: body ? JSON.stringify(body) : undefined,
     cache: "no-store",
+    signal: AbortSignal.timeout(FLASHY_REQUEST_TIMEOUT_MS),
   });
 
   const payload = await response.json().catch(() => null);
@@ -95,6 +97,28 @@ export async function getFlashyReports(apiKey: string, from: number, to: number)
       describeReportCheck("אימייל", endpoints.emails, emails),
       describeReportCheck("SMS", endpoints.sms, sms),
       describeReportCheck("אוטומציות", endpoints.automations, automations),
+    ],
+  };
+}
+
+export async function getFlashyCampaignReports(apiKey: string, from: number, to: number) {
+  const query = `from=${from}&to=${to}`;
+  const endpoints = {
+    emails: `/reports/emails?${query}`,
+    sms: `/reports/sms?${query}`,
+  };
+  const [emails, sms] = await Promise.allSettled([
+    flashyRequest<{ success: boolean; data: unknown[] }>({ apiKey, path: endpoints.emails }),
+    flashyRequest<{ success: boolean; data: unknown[] }>({ apiKey, path: endpoints.sms }),
+  ]);
+
+  return {
+    emails: emails.status === "fulfilled" ? emails.value.data ?? [] : [],
+    sms: sms.status === "fulfilled" ? sms.value.data ?? [] : [],
+    automations: [],
+    checks: [
+      describeReportCheck("אימייל", endpoints.emails, emails),
+      describeReportCheck("SMS", endpoints.sms, sms),
     ],
   };
 }

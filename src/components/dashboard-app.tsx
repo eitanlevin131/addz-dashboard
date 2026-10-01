@@ -133,6 +133,7 @@ import type {
   SmsCampaignReport,
   SyncHistoryEntry,
 } from "@/lib/types";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 
 type ViewKey =
   | "portfolio"
@@ -4936,7 +4937,7 @@ function FloatingAiChat({
     setGrounding(null);
     setConversation((current) => [...current, { id: `local-user-${Date.now()}`, role: "user", content: resolvedQuestion, createdAt: new Date().toISOString() }]);
     try {
-      const response = await fetch("/api/ai/chat", {
+      const response = await fetchWithTimeout("/api/ai/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -4966,7 +4967,9 @@ function FloatingAiChat({
       setState(!payload.historyPersisted ? "התשובה התקבלה, אך ההיסטוריה לא נשמרה" : String(payload.analysisMode).startsWith("deterministic") ? "חושב ישירות מדוחות Flashy" : payload.provider === "openai" ? `${payload.model || "OpenAI"} פעיל` : "שגיאת חיבור");
       setQuestion("");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "החיבור למודל OpenAI נכשל.";
+      const message = error instanceof DOMException && error.name === "AbortError"
+        ? "הבדיקה ארכה יותר מדי והופסקה. אפשר לנסות שוב בלי להיתקע בהמתנה."
+        : error instanceof Error ? error.message : "החיבור למודל OpenAI נכשל.";
       setAnswer("לא התקבלה תשובה מהמודל. הנתונים לא הוחלפו בתשובה אוטומטית.");
       setGrounding(null);
       setProvider("openai-error");
