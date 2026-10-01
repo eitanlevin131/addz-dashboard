@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { digestClock, plannerDigestGroups, buildPlannerDigest } from "../src/lib/planner-digest.ts";
+import { digestClock, plannerDigestGroups, buildPlannerDigest, plannerDigestDelivery } from "../src/lib/planner-digest.ts";
 
 const plan = (id, date, extra = {}) => ({ id, date, clientId: "client", clientName: "Client", time: null, title: "Campaign", channel: "email", status: "planned", sent: false, ...extra });
+
+test("test email previews tomorrow without consuming the scheduled delivery key", () => {
+  const preview = plannerDigestDelivery("2026-12-31", true);
+  assert.equal(preview.date, "2027-01-01");
+  assert.notEqual(preview.idempotencyKey, plannerDigestDelivery("2027-01-01").idempotencyKey);
+  assert.ok(preview.subjectPrefix.includes("בדיקה"));
+  assert.equal(plannerDigestDelivery("2026-12-31").date, "2026-12-31");
+});
 
 test("digest excludes today, tomorrow and sent plans, and separates work from ready sends", () => {
   const groups = plannerDigestGroups([

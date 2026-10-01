@@ -23,6 +23,7 @@ import {
   LineChart,
   Link2,
   ListFilter,
+  Mail,
   MessageSquareText,
   Menu,
   Minus,
@@ -5719,6 +5720,23 @@ function AdminActivityLog() {
 
 function AdminWorkspace({ clients, canManageUsers }: { clients: Client[]; canManageUsers: boolean }) {
   const [tab, setTab] = useState<"clients" | "users" | "activity">("clients");
+  const [digestSending, setDigestSending] = useState(false);
+  const [digestMessage, setDigestMessage] = useState("");
+  async function testPlannerDigest() {
+    if (digestSending) return;
+    setDigestSending(true);
+    setDigestMessage("");
+    try {
+      const response = await fetch("/api/admin/planner-digest-test", { method: "POST" });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.message || "השליחה נכשלה.");
+      setDigestMessage(`מייל הבדיקה התקבל לשליחה אל ${result.to} · תכנון ל־${result.date} · ${result.plans} דיוורים`);
+    } catch (error) {
+      setDigestMessage(error instanceof Error ? error.message : "השליחה נכשלה.");
+    } finally {
+      setDigestSending(false);
+    }
+  }
   const tabs = [
     { key: "clients" as const, label: "לקוחות", icon: Building2 },
     ...(canManageUsers
@@ -5731,6 +5749,15 @@ function AdminWorkspace({ clients, canManageUsers }: { clients: Client[]; canMan
 
   return (
     <div>
+      {canManageUsers && (
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          <button type="button" onClick={testPlannerDigest} disabled={digestSending} className="inline-flex items-center gap-2 rounded-md border border-[#dfe3e8] px-3 py-2 text-sm font-medium disabled:opacity-50">
+            <Mail size={16} />
+            {digestSending ? "שולח בדיקה..." : "שלח בדיקת מייל גאנט למחר"}
+          </button>
+          <span role="status" className="text-sm text-[#667085]">{digestMessage}</span>
+        </div>
+      )}
       <div className="mb-5 flex items-end justify-between gap-4 border-b border-[#dfe3e8]">
         <div className="flex gap-1" role="tablist" aria-label="ניהול מערכת">
           {tabs.map((item) => {

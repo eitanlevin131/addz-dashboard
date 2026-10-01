@@ -18,6 +18,16 @@ export function digestClock(now = new Date()) {
   return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) };
 }
 
+export function plannerDigestDelivery(date: string, test = false) {
+  const target = new Date(`${date}T12:00:00Z`);
+  if (test) target.setUTCDate(target.getUTCDate() + 1);
+  return {
+    date: target.toISOString().slice(0, 10),
+    idempotencyKey: `planner-digest-${test ? "test-" : ""}${date}`,
+    subjectPrefix: test ? "[בדיקה · תצוגת מחר] " : "",
+  };
+}
+
 export function plannerDigestGroups(plans: DigestPlan[], today: string) {
   const day = (offset: number) => {
     const value = new Date(`${today}T12:00:00Z`);

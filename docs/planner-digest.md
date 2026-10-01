@@ -24,3 +24,10 @@ After deployment, verify that the production environment contains the four
 variables above and that a digest reaches the owner during the next 08:00 hour.
 The two endpoints are `/api/cron/planner-digest` and
 `/api/cron/planner-digest/winter`, both protected by the cron bearer secret.
+# Test Delivery
+
+The owner can send a tomorrow-preview from Admin using the planner email test button.
+The authenticated same-origin POST `/api/admin/planner-digest-test` sends only to
+the configured owner address. It uses live current plans, tomorrow's date, a test
+subject prefix and a separate daily idempotency key; scheduled delivery is unaffected.
+Repeated tests in the same day are deduplicated by Resend.
