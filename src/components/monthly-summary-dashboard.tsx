@@ -199,8 +199,16 @@ export function MonthlySummaryDashboard({
   const [suggestedRecipients, setSuggestedRecipients] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [copyState, setCopyState] = useState<"link" | "text" | "copying" | "error" | null>(null);
+
+  useEffect(() => {
+    if (!copyState || copyState === "copying") return;
+    const timeout = window.setTimeout(() => setCopyState(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [copyState]);
 
   const selectSummary = useCallback((summary: SummaryRecord) => {
+    setCopyState(null);
     setSelected(summary);
     setMonth(summary.month);
     setSiteRevenue(summary.manualInputs.siteRevenue?.toString() ?? "");
@@ -337,8 +345,13 @@ export function MonthlySummaryDashboard({
     const text = withLink
       ? whatsappText
       : withoutMonthlySummaryShareLink(whatsappText);
-    await navigator.clipboard.writeText(text);
-    setMessage(withLink ? "ההודעה והקישור הועתקו ל־WhatsApp." : "ההודעה הועתקה בלי קישור.");
+    setCopyState("copying");
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopyState(withLink ? "link" : "text");
+    } catch {
+      setCopyState("error");
+    }
   }
 
   async function rewriteWhatsapp() {
@@ -531,9 +544,10 @@ export function MonthlySummaryDashboard({
                 <div className="mt-3 flex flex-wrap gap-2">
                   {isStaff && selected.status === "draft" && <button type="button" onClick={() => patchSummary("save")} disabled={busy} className="inline-flex h-9 items-center gap-2 rounded-md bg-[#080123] px-4 text-sm font-bold text-white"><Check size={15} /> שמור נוסח</button>}
                   {isStaff && selected.status === "draft" && <button type="button" onClick={rewriteWhatsapp} disabled={busy} className="inline-flex h-9 items-center gap-2 rounded-md border border-[#d8bb00] bg-[#fff9d8] px-4 text-sm font-bold text-[#6b5a00] disabled:opacity-50"><Sparkles size={15} /> שפר ניסוח עם AI</button>}
-                  <button type="button" onClick={() => copyWhatsapp(true)} className="inline-flex h-9 items-center gap-2 rounded-md border border-[#d0d5dd] bg-white px-4 text-sm"><Copy size={15} /> העתק עם קישור</button>
-                  <button type="button" onClick={() => copyWhatsapp(false)} className="inline-flex h-9 items-center gap-2 rounded-md border border-[#d0d5dd] bg-white px-4 text-sm"><Copy size={15} /> העתק בלי קישור</button>
+                  <button type="button" disabled={copyState === "copying"} onClick={() => void copyWhatsapp(true)} className="inline-flex h-9 items-center gap-2 rounded-md border border-[#d0d5dd] bg-white px-4 text-sm disabled:opacity-50">{copyState === "link" ? <Check size={15} className="text-[#087f72]" /> : <Copy size={15} />}{copyState === "link" ? "הועתק עם קישור" : "העתק עם קישור"}</button>
+                  <button type="button" disabled={copyState === "copying"} onClick={() => void copyWhatsapp(false)} className="inline-flex h-9 items-center gap-2 rounded-md border border-[#d0d5dd] bg-white px-4 text-sm disabled:opacity-50">{copyState === "text" ? <Check size={15} className="text-[#087f72]" /> : <Copy size={15} />}{copyState === "text" ? "הועתק בלי קישור" : "העתק בלי קישור"}</button>
                 </div>
+                <p role="status" aria-live="polite" className={`mt-2 min-h-5 text-sm ${copyState === "error" ? "text-[#b42318]" : "text-[#087f72]"}`}>{copyState === "link" ? "ההודעה והקישור הועתקו. אפשר להדביק ב־WhatsApp." : copyState === "text" ? "ההודעה הועתקה בלי קישור. אפשר להדביק ב־WhatsApp." : copyState === "error" ? "ההעתקה נכשלה. אפשר לסמן ולהעתיק את ההודעה ידנית." : copyState === "copying" ? "מעתיק..." : ""}</p>
               </div>}
 
               {tab === "email" && <div className="p-4 md:p-6">
