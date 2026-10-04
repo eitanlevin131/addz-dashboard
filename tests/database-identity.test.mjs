@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { decode, encode } from "next-auth/jwt";
 import {
   DIAGNOSTIC_EXPIRES_AT,
   handleDatabaseIdentityDiagnostic,
@@ -12,7 +14,7 @@ const connectionString = "postgresql://secret-user:secret-password@ep-test-examp
 const now = DIAGNOSTIC_EXPIRES_AT - 60_000;
 function fixture(overrides = {}) {
   const calls = [];
-  const session = { user: { email: "owner@example.test" }, userId: "owner-id", sessionVersion: 3, expires: new Date(now + 30_000).toISOString() };
+  const session = { user: { email: "owner@example.test" }, userId: "owner-id", sessionVersion: 3 };
   return {
     calls,
     dependencies: {
@@ -50,9 +52,40 @@ test("owner receives only allowlisted identity and never credentials or session 
   }
 });
 
+test("actual NextAuth server-session shape without expires permits the verified owner", async () => {
+  const result = spawnSync(process.execPath, ["-e", `
+    const path = require("node:path");
+    const nextPath = require.resolve("next-auth/next");
+    const core = require(path.resolve(path.dirname(nextPath), "../core/index.js"));
+    core.AuthHandler = async () => ({
+      body: { user: { email: "owner@example.test" }, userId: "owner-id", sessionVersion: 3, expires: "2099-01-01T00:00:00.000Z" },
+      status: 200,
+    });
+    const headersPath = require.resolve("next/headers");
+    require.cache[headersPath] = {
+      id: headersPath, filename: headersPath, loaded: true,
+      exports: { headers: async () => new Map(), cookies: async () => ({ getAll: () => [] }) },
+    };
+    require(nextPath).getServerSession({ secret: "local-test-only" })
+      .then(session => process.stdout.write(JSON.stringify(session)));
+  `], { encoding: "utf8", timeout: 5000 });
+  assert.equal(result.status, 0, result.stderr);
+  const session = JSON.parse(result.stdout);
+  assert.equal(Object.hasOwn(session, "expires"), false);
+  const { dependencies, calls } = fixture({ getSession: async () => session });
+  assert.equal((await handleDatabaseIdentityDiagnostic(dependencies)).status, 200);
+  assert.equal(calls.length, 1);
+});
+
+test("NextAuth rejects an expired JWT before it can produce a server session", async () => {
+  const secret = "local-expiry-test-only";
+  const token = await encode({ secret, token: { sub: "owner-id", sessionVersion: 3 }, maxAge: -60 });
+  await assert.rejects(decode({ secret, token }), (error) => error.code === "ERR_JWT_EXPIRED");
+});
+
 for (const role of ["admin", "agency", "manager", "client"]) {
   test(`${role} is denied before database inspection`, async () => {
-    const { dependencies, calls } = fixture({ getSession: async () => ({ user: { email: `${role}@example.test` }, userId: role, sessionVersion: 3, expires: new Date(now + 30_000).toISOString() }) });
+    const { dependencies, calls } = fixture({ getSession: async () => ({ user: { email: `${role}@example.test` }, userId: role, sessionVersion: 3 }) });
     const response = await handleDatabaseIdentityDiagnostic(dependencies);
     assert.equal(response.status, 403);
     assert.equal(response.headers.get("Cache-Control"), "no-store");

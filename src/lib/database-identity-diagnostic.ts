@@ -86,8 +86,9 @@ export async function handleDatabaseIdentityDiagnostic(dependencies: DiagnosticD
   try {
     const session = await dependencies.getSession();
     const email = session?.user?.email?.trim().toLowerCase();
+    // NextAuth validates JWT expiry, then omits expires in its server-session API.
     if (!email || !session?.userId || !Number.isInteger(session.sessionVersion)
-      || !session.expires || !(Date.parse(session.expires) > now)) {
+      || (session.expires !== undefined && !(Date.parse(session.expires) > now))) {
       return response({ error: "Unauthorized" }, 401);
     }
     if (!dependencies.isOwnerEmail(email)) return response({ error: "Forbidden" }, 403);
