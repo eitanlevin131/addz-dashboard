@@ -3,6 +3,14 @@ import test from "node:test";
 import { extractWebsitePage, deterministicFindings, evidenceThreshold, canonicalUrl, robotsRules, sitemapLinks, selectPages, checksum, pageType } from "../src/lib/website-intelligence/extraction.ts";
 import { aiInput, prepareAiTask, validateAiFindings, interpretWebsite } from "../src/lib/website-intelligence/ai.ts";
 import { canClaim, retryAt, initialScanState, defaultIntelligence } from "../src/lib/website-intelligence/state.ts";
+import { websiteWarningLabel } from "../src/lib/website-intelligence/config.ts";
+test("runtime warning codes have safe Hebrew coverage and AI evidence explanations", () => {
+  assert.match(websiteWarningLabel("audience_problems_invalid_ai_evidence"), /קהל וצרכים.*לא פורסמה/);
+  assert.match(websiteWarningLabel("brand_voice_invalid_findings_rejected"), /התקינים נשמרו/);
+  assert.match(websiteWarningLabel("products_commercial_attempts_exhausted"), /ניסיונות חוזרים/);
+  assert.match(websiteWarningLabel("private_error_with_secret"), /לא היה זמין/);
+  assert.ok(!websiteWarningLabel("private_error_with_secret").includes("secret"));
+});
 const root = "https://shop.example.com/";
 const content = "We make handmade chocolate gifts with carefully selected ingredients. ".repeat(40);
 function html(platform) { return `<html lang="he"><head><title>${platform} gifts</title><script type="application/ld+json">{"@type":"Product","name":"Gift box","offers":{"price":"59.90","priceCurrency":"ILS"}}</script></head><body><nav>Navigation noise</nav><main>${content}<a href="/shipping">Shipping</a></main><footer>Footer noise</footer></body></html>`; }

@@ -17,6 +17,29 @@ export const SCAN_STATUS_LABELS: Record<string, string> = {
   pending: "ממתינה", running: "איסוף מקורות", processing: "עיבוד ממצאים",
   completed: "הושלמה", completed_with_warnings: "הושלמה עם אזהרות", failed: "נכשלה", cancelled: "נעצרה",
 };
+const WARNING_LABELS: Record<string, string> = {
+  insufficient_evidence_ai_skipped: "לא נאסף מספיק תוכן שימושי להפעלת AI. מוצגים רק ממצאים ישירים.",
+  challenge: "האתר דורש אימות דפדפן; לא בוצע ניסיון לעקוף אותו.",
+  javascript_required: "חלק מהאתר דורש JavaScript ואינו זמין לסריקה זו.",
+  noindex: "עמודים שסומנו noindex לא עובדו.",
+  sitemap_unavailable: "מפת האתר לא הייתה זמינה; האיסוף הסתמך גם על קישורים.",
+  text_truncated: "תוכן ארוך קוצר בהתאם למגבלות הסריקה.",
+};
+const TASK_LABELS: Record<string, string> = {
+  brand_voice: "מותג ושפה", products_commercial: "מוצרים ומסחר",
+  audience_problems: "קהל וצרכים", differentiation_operations: "בידול ושירות",
+};
+export function websiteWarningLabel(code: string): string {
+  if (WARNING_LABELS[code]) return WARNING_LABELS[code];
+  const task = AI_TASKS.find(task => code.startsWith(task + "_"));
+  const prefix = task ? TASK_LABELS[task] + ": " : "";
+  if (code.includes("insufficient_evidence")) return prefix + "אין מספיק מקורות לניתוח AI.";
+  if (code.endsWith("invalid_findings_rejected")) return prefix + "ממצאים ללא הוכחה תקינה הוסרו; הממצאים התקינים נשמרו.";
+  if (code.endsWith("invalid_ai_evidence")) return prefix + "תשובת AI לא התאימה להוכחות במקורות ולא פורסמה.";
+  if (code.endsWith("attempts_exhausted")) return prefix + "הניתוח לא הושלם לאחר ניסיונות חוזרים.";
+  if (code.endsWith("ai_not_configured")) return prefix + "AI אינו מוגדר בסביבה זו.";
+  return prefix + "חלק מהמידע לא היה זמין לעיבוד; יש לעיין במקורות ובריצות AI.";
+}
 export type ReviewDisposition = typeof REVIEW_DISPOSITIONS[number];
 export type FindingInput = {
   category: string; key: string; value: unknown; sourceId: string;

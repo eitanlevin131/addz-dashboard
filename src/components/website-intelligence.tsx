@@ -1,18 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ExternalLink, Globe, Play, RefreshCw, Square, ChevronDown } from "lucide-react";
-import { CATEGORY_LABELS, SCAN_STATUS_LABELS } from "@/lib/website-intelligence/config";
+import { CATEGORY_LABELS, SCAN_STATUS_LABELS, websiteWarningLabel } from "@/lib/website-intelligence/config";
 import { clientButtonClass, clientFieldClass, clientPrimaryClass } from "./client-profile-form";
 import type { scanDetails, scanHistory } from "@/lib/website-intelligence/repository";
 type Details = Awaited<ReturnType<typeof scanDetails>>;
 type History = Awaited<ReturnType<typeof scanHistory>>;
 const terminal = (status: string) => ["completed", "completed_with_warnings", "failed", "cancelled"].includes(status);
 const reviewLabels = { normal: "רגיל", needs_review: "דורש בדיקה", ignored: "לא לשימוש" };
-const warnings: Record<string, string> = {
-  insufficient_evidence_ai_skipped: "לא נאסף מספיק תוכן שימושי להפעלת AI. מוצגים רק ממצאים ישירים.",
-  challenge: "האתר דורש אימות דפדפן; לא בוצע ניסיון לעקוף אותו.", javascript_required: "חלק מהאתר דורש JavaScript ואינו זמין לסריקה זו.",
-  noindex: "עמודים שסומנו noindex לא עובדו.", sitemap_unavailable: "מפת האתר לא הייתה זמינה; האיסוף הסתמך גם על קישורים.", text_truncated: "תוכן ארוך קוצר בהתאם למגבלות הסריקה.",
-};
 function valueText(value: unknown): string {
   if (typeof value === "string") return value;
   if (!value || typeof value !== "object") return String(value ?? "");
@@ -56,6 +51,7 @@ export function WebsiteIntelligence({ clientId }: { clientId: string }) {
         const value = await api<Details>(`${base}/${scanId}?${new URLSearchParams({ category, disposition })}`);
         if (!active) return;
         setDetails(value);
+        setHistory(history => history ? { ...history, scans: history.scans.map(scan => scan.id === value.scan.id ? { ...scan, status: value.scan.status } : scan) } : history);
         if (terminal(value.scan.status)) { setRunning(false); return; }
         if (running) await api(`${base}/${scanId}/advance`, "POST");
         if (active) timer = setTimeout(poll, 2500);
@@ -102,7 +98,7 @@ export function WebsiteIntelligence({ clientId }: { clientId: string }) {
         <span>{details?.findings.length || 0} ממצאים בתצוגה</span>
         <label className="flex items-center gap-2 text-[#667085]">היסטוריה<select aria-label="היסטוריית סריקות" className={clientFieldClass + " max-w-52"} value={scanId} onChange={event => { setRunning(false); setScanId(event.target.value); setDetails(null); }}>{history.scans.map(scan => <option key={scan.id} value={scan.id}>{new Date(scan.createdAt).toLocaleString("he-IL")} · {SCAN_STATUS_LABELS[scan.status]}</option>)}</select></label>
       </div>
-      {!!scan?.state.warnings.length && <details className="border-b border-[#e4e7ec] pb-3" open><summary className="cursor-pointer text-sm font-semibold text-amber-800">אזהרות · {scan.state.warnings.length}</summary><ul className="mt-2 space-y-1 text-sm text-[#667085]">{scan.state.warnings.map(value => <li key={value}>{warnings[value] || (/insufficient_evidence/.test(value) ? "קטגוריה ללא מספיק מקורות לא נותחה ב־AI." : value)}</li>)}</ul></details>}
+      {!!scan?.state.warnings.length && <details className="border-b border-[#e4e7ec] pb-3" open><summary className="cursor-pointer text-sm font-semibold text-amber-800">אזהרות · {scan.state.warnings.length}</summary><ul className="mt-2 space-y-1 text-sm text-[#667085]">{scan.state.warnings.map(value => <li key={value}>{websiteWarningLabel(value)}</li>)}</ul></details>}
       {scan?.errorCode && <p role="alert" className="text-sm text-red-700">הסריקה לא הושלמה: {scan.errorCode}</p>}
       <div className="flex flex-wrap gap-3"><label className="text-xs text-[#667085]">קטגוריה<select aria-label="קטגוריית ממצאים" value={category} onChange={event => setCategory(event.target.value)} className={clientFieldClass}><option value="">הכל</option>{Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><label className="text-xs text-[#667085]">תיוג בדיקה<select aria-label="סינון תיוג" value={disposition} onChange={event => setDisposition(event.target.value)} className={clientFieldClass}><option value="">הכל</option>{Object.entries(reviewLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div>
       <div className="divide-y divide-[#e4e7ec]">{details?.findings.map(finding => <article key={finding.id} className="py-4">
