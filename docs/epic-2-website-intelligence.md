@@ -135,8 +135,10 @@ DNS/request limits, compressed/decompressed byte limits and MIME limits apply.
 No custom XML entities/DOCTYPE, cookies, authenticated pages or access bypass.
 Standard sitemap XML escapes are decoded after declaration rejection.
 Connect-time tests and real HTTPS/redirect requests passed on Node 22. Vercel
-Node API compatibility was reviewed, but no Vercel deployment was made: an
-isolated Preview runtime canary remains a release prerequisite.
+Node API compatibility was reviewed during local implementation. The subsequent
+isolated Vercel Preview canary is documented in
+`docs/epic-2-preview-validation.md`, including the limits of runtime security
+testing. This is not approval for a Production deployment.
 
 ### Internal workspace
 
