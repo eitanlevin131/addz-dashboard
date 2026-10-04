@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { CLIENT_SERVICES, type ContactInput } from "@/lib/client-foundation";
 import type { ClientProfile } from "@/lib/clients";
+import { ClientPackageScope } from "@/components/client-package-scope";
 import {
   ClientProfileForm,
   ContactFields,
@@ -35,6 +36,16 @@ const money = (value: string | null) =>
         currency: "ILS",
         maximumFractionDigits: 2,
       }).format(Number(value));
+function commercialFee(client: ClientProfile) {
+  if (
+    client.monthlyRetainerAmount !== null &&
+    (Number(client.monthlyRetainerAmount) > 0 || !Number(client.oneTimeAmount))
+  )
+    return `${money(client.monthlyRetainerAmount)} / חודש`;
+  return client.oneTimeAmount !== null
+    ? `${money(client.oneTimeAmount)} חד־פעמי`
+    : "";
+}
 const eventLabels: Record<string, string> = {
   "client.created": "לקוח נוצר",
   "client.updated": "פרטי לקוח עודכנו",
@@ -294,6 +305,17 @@ export function ClientFoundation({
       </div>
     );
   if (!client) {
+    if (editing)
+      return (
+        <ClientProfileForm
+          owners={owners}
+          onCancel={() => setEditing(false)}
+          onSaved={(created) => {
+            setEditing(false);
+            onOpenClient(created.id);
+          }}
+        />
+      );
     const visible = rows.filter(
       (row) =>
         (!search ||
@@ -308,8 +330,9 @@ export function ClientFoundation({
     );
     return (
       <section className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-sm text-[#667085]">{rows.length} לקוחות</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold">לקוחות</h1>
+          <span className="text-xs text-[#667085]">{rows.length}</span>
           <button
             className={clientPrimaryClass}
             onClick={() => setEditing(true)}
@@ -318,18 +341,8 @@ export function ClientFoundation({
             לקוח חדש
           </button>
         </div>
-        {editing && (
-          <ClientProfileForm
-            owners={owners}
-            onCancel={() => setEditing(false)}
-            onSaved={(created) => {
-              setEditing(false);
-              onOpenClient(created.id);
-            }}
-          />
-        )}
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px_180px]">
-          <label className="relative">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_155px_150px]">
+          <label className="relative col-span-2 sm:col-span-1">
             <span className="sr-only">חיפוש לקוחות</span>
             <Search
               className="absolute right-3 top-4 text-[#667085]"
@@ -372,8 +385,51 @@ export function ClientFoundation({
             </select>
           </label>
         </div>
-        <div className="overflow-x-auto border-y border-[#e4e7ec]">
-          <table className="w-full min-w-[720px] text-right text-sm">
+        <div className="divide-y divide-[#eaecf0] border-y border-[#e4e7ec] sm:hidden">
+          {visible.map((row) => (
+            <button
+              key={row.id}
+              aria-label={row.name}
+              onClick={() => onOpenClient(row.id)}
+              className="block w-full space-y-2 py-3 text-right hover:bg-[#f8fafb] focus-visible:outline-2 focus-visible:outline-[#087f72]"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <span className="min-w-0 break-words text-sm font-semibold">
+                  {row.name}
+                </span>
+                <span
+                  className={
+                    row.connections.some((account) => account.active)
+                      ? "shrink-0 rounded-md bg-[#ecfdf9] px-2 py-1 text-[11px] text-[#087f72]"
+                      : "shrink-0 rounded-md bg-[#eef3f7] px-2 py-1 text-[11px] text-[#667085]"
+                  }
+                >
+                  {row.connections.some((account) => account.active)
+                    ? "מחובר"
+                    : row.connections.length
+                      ? "לא פעיל"
+                      : "טרם חובר"}
+                </span>
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[#667085]">
+                {row.industry && <span>{row.industry}</span>}
+                {row.contacts.find((contact) => contact.isPrimary)?.name && (
+                  <span>
+                    {row.contacts.find((contact) => contact.isPrimary)?.name}
+                  </span>
+                )}
+              </div>
+              {(row.packageName || commercialFee(row)) && (
+                <div className="flex flex-wrap justify-between gap-2 text-xs">
+                  <span>{row.packageName}</span>
+                  <span className="text-[#667085]">{commercialFee(row)}</span>
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+        <div className="hidden overflow-x-auto border-y border-[#e4e7ec] sm:block">
+          <table className="w-full min-w-[680px] text-right text-sm">
             <thead className="bg-[#f8fafb] text-xs text-[#667085]">
               <tr>
                 {[
@@ -384,7 +440,7 @@ export function ClientFoundation({
                   "קליטה",
                   "Flashy",
                 ].map((label) => (
-                  <th key={label} className="px-4 py-3 font-medium">
+                  <th key={label} className="px-3 py-2.5 font-medium">
                     {label}
                   </th>
                 ))}
@@ -393,31 +449,45 @@ export function ClientFoundation({
             <tbody className="divide-y divide-[#eaecf0]">
               {visible.map((row) => (
                 <tr key={row.id} className="hover:bg-[#f8fafb]">
-                  <td className="px-4 py-4">
+                  <td className="px-3 py-3">
                     <button
-                      className="font-bold text-[#111318] hover:underline"
+                      className="max-w-[230px] truncate text-right font-semibold text-[#111318] hover:underline"
                       onClick={() => onOpenClient(row.id)}
                     >
                       {row.name}
                     </button>
+                    <p className="mt-0.5 text-xs text-[#667085]">
+                      {row.industry || "—"}
+                    </p>
                   </td>
-                  <td className="px-4 py-4">
+                  <td className="px-3 py-3">
                     {row.contacts.find((contact) => contact.isPrimary)?.name ??
                       "—"}
                   </td>
-                  <td className="px-4 py-4">{row.packageName || "—"}</td>
-                  <td className="px-4 py-4">{row.ownerName || "—"}</td>
-                  <td className="px-4 py-4">
-                    {row.onboardingStage === "client_created"
-                      ? "נוצר"
-                      : "לא הוגדר"}
+                  <td className="px-3 py-3">
+                    <p className="max-w-[200px] truncate">
+                      {row.packageName || "—"}
+                    </p>
+                    <p className="mt-0.5 text-xs text-[#667085]" dir="rtl">
+                      {commercialFee(row)}
+                    </p>
                   </td>
-                  <td className="px-4 py-4">
+                  <td className="px-3 py-3 text-xs text-[#475467]">
+                    {row.ownerName || "—"}
+                  </td>
+                  <td className="px-3 py-3">
+                    <span className="inline-flex rounded-md bg-[#eef3f7] px-2 py-1 text-[11px]">
+                      {row.onboardingStage === "client_created"
+                        ? "נוצר"
+                        : "לא הוגדר"}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
                     <span
                       className={
                         row.connections.some((account) => account.active)
-                          ? "text-[#087f72]"
-                          : "text-[#667085]"
+                          ? "inline-flex items-center gap-1.5 rounded-md bg-[#ecfdf9] px-2 py-1 text-[11px] text-[#087f72]"
+                          : "inline-flex rounded-md bg-[#eef3f7] px-2 py-1 text-[11px] text-[#667085]"
                       }
                     >
                       {row.connections.some((account) => account.active)
@@ -441,7 +511,7 @@ export function ClientFoundation({
     );
   }
   return (
-    <section className="space-y-5">
+    <section className="mx-auto max-w-[1120px] space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <button className={clientButtonClass} onClick={onBack}>
           <ArrowRight size={16} />
@@ -467,17 +537,24 @@ export function ClientFoundation({
         </div>
       </div>
       <div className="border-b border-[#e4e7ec] pb-4">
-        <h2 className="text-2xl font-bold">{client.name}</h2>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="max-w-full break-words text-2xl font-bold">
+            {client.name}
+          </h1>
+          <span className="rounded-md bg-[#eef3f7] px-2 py-1 text-[11px] text-[#475467]">
+            {client.onboardingStage === "client_created"
+              ? "לקוח נוצר"
+              : "התקשרות קיימת"}
+          </span>
+        </div>
         <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-sm text-[#667085]">
           <span>{client.packageName || "ללא חבילה"}</span>
           <span>ריטיינר: {money(client.monthlyRetainerAmount)}</span>
+          {client.oneTimeAmount !== null && (
+            <span>חד־פעמי: {money(client.oneTimeAmount)}</span>
+          )}
           <span>תחילת עבודה: {date(client.startDate)}</span>
           <span>{client.ownerName || "ללא אחראי"}</span>
-          <span>
-            {client.onboardingStage === "client_created"
-              ? "לקוח נוצר"
-              : "קליטה לא הוגדרה"}
-          </span>
           {client.website && (
             <a
               href={client.website}
@@ -490,6 +567,17 @@ export function ClientFoundation({
               <ExternalLink size={13} className="shrink-0" />
             </a>
           )}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {client.includedServices.map((item) => (
+            <span
+              key={item.code}
+              className="rounded-md bg-[#eef3f7] px-2 py-1 text-xs text-[#475467]"
+            >
+              {CLIENT_SERVICES.find((service) => service.code === item.code)
+                ?.label ?? item.code}
+            </span>
+          ))}
         </div>
       </div>
       {editing && (
@@ -538,6 +626,12 @@ export function ClientFoundation({
       )}
       {tab === "overview" && (
         <div className="space-y-6">
+          {client.commercialScope && (
+            <section className="border-b border-[#e4e7ec] pb-4">
+              <h3 className="mb-3 text-sm font-semibold">scope ההתקשרות</h3>
+              <ClientPackageScope scope={client.commercialScope} />
+            </section>
+          )}
           <dl className="grid gap-5 sm:grid-cols-2">
             <div>
               <dt className="text-xs text-[#667085]">תחום</dt>
@@ -623,7 +717,7 @@ export function ClientFoundation({
           {contactForm && (
             <form
               onSubmit={saveContact}
-              className="space-y-3 border-y border-[#e4e7ec] py-4"
+              className="mx-auto max-w-[840px] space-y-3 border-y border-[#e4e7ec] py-4"
             >
               <fieldset disabled={saving}>
                 <ContactFields

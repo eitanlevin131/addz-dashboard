@@ -95,6 +95,9 @@ export async function listClients(id?: string) {
     industry: row.industry,
     website: row.website,
     packageName: row.packageName,
+    packageCode: row.packageCode,
+    commercialScope: row.commercialScope,
+    oneTimeAmount: row.oneTimeAmount,
     monthlyRetainerAmount: row.monthlyRetainerAmount,
     includedServices: row.includedServices,
     startDate: row.startDate,
@@ -183,7 +186,7 @@ export async function createClient(
 }
 export async function updateClient(id: string, body: unknown, actorId: string) {
   const existing = await requireClient(id);
-  const profile = parseClientProfile(body, true);
+  const profile = parseClientProfile(body, true, existing);
   if (profile.ownerUserId !== existing.ownerUserId)
     await checkOwner(profile.ownerUserId);
   await getDb().batch([

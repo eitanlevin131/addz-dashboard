@@ -7125,9 +7125,13 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
                 )}
               </div>
             )}
-            <h1 className="m-0 text-[clamp(26px,3vw,38px)] font-bold leading-tight tracking-normal text-[#111318]">
-              {foundationView ? "לקוחות" : activeView === "portfolio" ? "סקירת סוכנות" : activeView === "close" ? "סגירת חודש" : account.name || "ניהול מערכת"}
-            </h1>
+            {foundationView ? (
+              <span className="text-xs text-[#667085]">ניהול לקוחות</span>
+            ) : (
+              <h1 className="m-0 text-[clamp(26px,3vw,38px)] font-bold leading-tight tracking-normal text-[#111318]">
+                {activeView === "portfolio" ? "סקירת סוכנות" : activeView === "close" ? "סגירת חודש" : account.name || "ניהול מערכת"}
+              </h1>
+            )}
             {activeView === "portfolio" && (
               <p className="mt-1 text-xs text-[#667085]">{formatNumber(portfolioRows.length)} לקוחות · תמונת ביצועים מרוכזת</p>
             )}

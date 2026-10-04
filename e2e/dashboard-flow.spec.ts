@@ -125,22 +125,92 @@ test.describe("agency dashboard critical journey", () => {
     await cleanup();
   });
 
-  test("Epic 1 client workspace, structured services, contacts, activity and Flashy linking", async ({ page }) => {
+  test("Epic 1 client workspace, structured services, contacts, activity and Flashy linking", async ({
+    page,
+  }) => {
     await loginWithCode(page, foundationEmail);
-    await expect(page.getByRole("heading", { name: "סקירת סוכנות" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "סקירת סוכנות" }),
+    ).toBeVisible();
     await page.goto("/?view=clients");
-    await expect(page.getByRole("heading", { name: "לקוחות", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "לקוחות", exact: true }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "לקוח חדש", exact: true }).click();
     const name = `E2E Foundation ${suffix}`;
     await page.getByLabel("שם העסק", { exact: true }).fill(name);
     await page.getByLabel("אתר", { exact: true }).fill("https://example.test");
-    await page.getByLabel("ריטיינר חודשי (₪)", { exact: true }).fill("2500.50");
-    await page.getByLabel("דיוורי אימייל", { exact: true }).check();
-    await page.getByLabel("אוטומציות", { exact: true }).check();
-    await page.getByRole("button", { name: "הוסף איש קשר", exact: true }).click();
+    await page
+      .getByLabel("סוג התקשרות", { exact: true })
+      .selectOption("automation_setup");
+    await expect(
+      page.getByLabel("סכום חד פעמי בפועל (₪)", { exact: true }),
+    ).toHaveValue("5000.00");
+    await page
+      .getByLabel("חבילה", { exact: true })
+      .selectOption("automation_setup_6");
+    await expect(
+      page.getByLabel("סכום חד פעמי בפועל (₪)", { exact: true }),
+    ).toHaveValue("9000.00");
+    await page
+      .getByLabel("סוג התקשרות", { exact: true })
+      .selectOption("whatsapp");
+    await expect(
+      page.getByLabel("סכום חד פעמי בפועל (₪)", { exact: true }),
+    ).toHaveValue("2000.00");
+    await expect(page.getByLabel(/WhatsApp addon/)).toHaveCount(0);
+    await page
+      .getByLabel("סוג התקשרות", { exact: true })
+      .selectOption("email_management");
+    await page.getByLabel("חבילה", { exact: true }).selectOption("email_5");
+    await expect(
+      page.getByLabel("ריטיינר חודשי בפועל (₪)", { exact: true }),
+    ).toHaveValue("3500.00");
+    await page
+      .getByLabel("התחייבות ראשונית", { exact: true })
+      .selectOption("3");
+    await page.getByLabel("setup ראשוני", { exact: true }).selectOption("6");
+    await page.getByLabel(/WhatsApp addon/).check();
+    await expect(
+      page.getByLabel("סכום חד פעמי בפועל (₪)", { exact: true }),
+    ).toHaveValue("4000.00");
+    await page
+      .getByLabel("ריטיינר חודשי בפועל (₪)", { exact: true })
+      .fill("2500.50");
+    await page
+      .getByLabel("סכום חד פעמי בפועל (₪)", { exact: true })
+      .fill("3500.00");
+    await page
+      .getByRole("button", { name: "הוסף איש קשר", exact: true })
+      .click();
     await page.getByLabel("שם איש קשר", { exact: true }).fill("לקוח ראשי");
-    await page.getByLabel("אימייל", { exact: true }).fill(`contact-${suffix}@example.test`);
-    const createdResponse = page.waitForResponse(response => response.url().endsWith("/api/clients") && response.request().method() === "POST");
+    await page
+      .getByLabel("אימייל", { exact: true })
+      .fill(`contact-${suffix}@example.test`);
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(page.getByRole("button", { name: "צור לקוח", exact: true })).toBeInViewport();
+    await page.screenshot({
+      path: "output/playwright/epic1-new-client-desktop.png",
+      animations: "disabled",
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(page.getByRole("button", { name: "צור לקוח", exact: true })).toBeInViewport();
+    await page.screenshot({
+      path: "output/playwright/epic1-new-client-mobile.png",
+      animations: "disabled",
+    });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const createdResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/api/clients") &&
+        response.request().method() === "POST",
+    );
     await page.getByRole("button", { name: "צור לקוח", exact: true }).click();
     const created = await (await createdResponse).json();
     expect(created.success).toBe(true);
@@ -148,107 +218,308 @@ test.describe("agency dashboard critical journey", () => {
     foundationClientIds.push(id);
     expect(created.data.monthlyRetainerAmount).toBe("2500.50");
     expect(created.data.ownerUserId).toBe(foundationUserId);
-    expect(created.data.includedServices).toEqual([{ code: "newsletter" }, { code: "automations" }]);
+    expect(created.data.includedServices).toEqual([
+      { code: "newsletter" },
+      { code: "automations" },
+      { code: "whatsapp" },
+    ]);
+    expect(created.data.oneTimeAmount).toBe("3500.00");
+    expect(created.data.commercialScope.campaignLimit).toBe(5);
     expect(created.data.onboardingStage).toBe("client_created");
-    const [contactUser] = await db`select count(*)::integer as count from users where email = ${`contact-${suffix}@example.test`}`;
+    const [contactUser] =
+      await db`select count(*)::integer as count from users where email = ${`contact-${suffix}@example.test`}`;
     expect(contactUser.count).toBe(0);
-    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name, exact: true }),
+    ).toBeVisible();
     await page.reload();
-    await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "עריכת פרטים", exact: true }).click();
-    await page.getByLabel("חבילה", { exact: true }).fill("Growth");
-    await page.getByRole("button", { name: "שמור שינויים", exact: true }).click();
-    await expect(page.getByText("Growth", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name, exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: "עריכת פרטים", exact: true })
+      .click();
+    await page.getByLabel("חבילה", { exact: true }).selectOption("email_8");
+    await expect(
+      page.getByLabel("ריטיינר חודשי בפועל (₪)", { exact: true }),
+    ).toHaveValue("2500.50");
+    await expect(
+      page.getByLabel("סכום חד פעמי בפועל (₪)", { exact: true }),
+    ).toHaveValue("3500.00");
+    await page
+      .getByRole("button", { name: "שמור שינויים", exact: true })
+      .click();
+    await expect(
+      page.getByText("Email Marketing · 8 קמפיינים", { exact: true }),
+    ).toBeVisible();
     const updated = await (await page.request.get(`/api/clients/${id}`)).json();
     expect(updated.data.monthlyRetainerAmount).toBe("2500.50");
-    expect(updated.data.includedServices).toEqual(created.data.includedServices);
+    expect(updated.data.includedServices).toEqual(
+      created.data.includedServices,
+    );
+    expect(updated.data.packageCode).toBe("email_8");
+    expect(updated.data.commercialScope.campaignLimit).toBe(8);
+    expect(updated.data.commercialScope.automationSetupTier).toBe(6);
+    expect(updated.data.oneTimeAmount).toBe("3500.00");
     await page.getByRole("tab", { name: "אנשי קשר", exact: true }).click();
-    await page.getByRole("button", { name: "הוסף איש קשר", exact: true }).click();
+    await page
+      .getByRole("button", { name: "הוסף איש קשר", exact: true })
+      .click();
     await page.getByLabel("שם איש קשר", { exact: true }).fill("מנהלת מותג");
     await page.getByLabel("איש קשר ראשי", { exact: true }).check();
-    await page.getByRole("button", { name: "שמור איש קשר", exact: true }).click();
-    await expect(page.getByText("איש הקשר נשמר.", { exact: true })).toBeVisible();
-    const [primaryCount] = await db`select count(*)::integer as count from client_contacts where client_id = ${id} and is_primary = true`;
+    await page
+      .getByRole("button", { name: "שמור איש קשר", exact: true })
+      .click();
+    await expect(
+      page.getByText("איש הקשר נשמר.", { exact: true }),
+    ).toBeVisible();
+    const [primaryCount] =
+      await db`select count(*)::integer as count from client_contacts where client_id = ${id} and is_primary = true`;
     expect(primaryCount.count).toBe(1);
-    const [newPrimary] = await db`select name from client_contacts where client_id = ${id} and is_primary = true`;
+    const [newPrimary] =
+      await db`select name from client_contacts where client_id = ${id} and is_primary = true`;
     expect(newPrimary.name).toBe("מנהלת מותג");
-    const contactsResponse = await page.request.get(`/api/clients/${id}/contacts`);
+    const contactsResponse = await page.request.get(
+      `/api/clients/${id}/contacts`,
+    );
     expect((await contactsResponse.json()).data).toHaveLength(2);
-    const mismatch = await page.request.patch(`/api/clients/${secondaryClientId}/contacts/${created.data.contacts[0].id}`, { data: { name: "wrong", isPrimary: true } });
+    const mismatch = await page.request.patch(
+      `/api/clients/${secondaryClientId}/contacts/${created.data.contacts[0].id}`,
+      { data: { name: "wrong", isPrimary: true } },
+    );
     expect(mismatch.status()).toBe(404);
-    const deniedProvision = await page.request.post("/api/live-client", { data: { clientId: id, apiKey: "e2e-flashy-foundation", clientEmail: `forbidden-${suffix}@example.test` } });
+    const deniedProvision = await page.request.post("/api/live-client", {
+      data: {
+        clientId: id,
+        apiKey: "e2e-flashy-foundation",
+        clientEmail: `forbidden-${suffix}@example.test`,
+      },
+    });
     expect(deniedProvision.status()).toBe(403);
-    const parallel = await Promise.all([1, 2].map(index => page.request.post(`/api/clients/${id}/contacts`, { data: { name: `Concurrent ${index}`, isPrimary: true } })));
-    expect(parallel.map(response => response.status())).toEqual([201, 201]);
-    const [concurrentPrimary] = await db`select count(*)::integer as count from client_contacts where client_id = ${id} and is_primary = true`;
+    const parallel = await Promise.all(
+      [1, 2].map((index) =>
+        page.request.post(`/api/clients/${id}/contacts`, {
+          data: { name: `Concurrent ${index}`, isPrimary: true },
+        }),
+      ),
+    );
+    expect(parallel.map((response) => response.status())).toEqual([201, 201]);
+    const [concurrentPrimary] =
+      await db`select count(*)::integer as count from client_contacts where client_id = ${id} and is_primary = true`;
     expect(concurrentPrimary.count).toBe(1);
     await page.getByRole("tab", { name: "פעילות", exact: true }).click();
-    await expect(page.getByText("לקוח נוצר", { exact: true })).toBeVisible();
-    await expect(page.getByText("איש קשר ראשי הוחלף", { exact: true }).first()).toBeVisible();
-    await page.screenshot({ path: "output/playwright/epic1-activity-desktop.png", fullPage: true });
+    await expect(
+      page.getByText("לקוח נוצר", { exact: true }).last(),
+    ).toBeVisible();
+    await expect(
+      page.getByText("איש קשר ראשי הוחלף", { exact: true }).first(),
+    ).toBeVisible();
+    await page.screenshot({
+      path: "output/playwright/epic1-activity-desktop.png",
+      fullPage: true,
+    });
     await page.getByRole("tab", { name: "סקירה", exact: true }).click();
     await page.getByRole("button", { name: "חבר Flashy", exact: true }).click();
-    await page.getByLabel("API key", { exact: true }).fill("e2e-flashy-foundation");
+    await page
+      .getByLabel("API key", { exact: true })
+      .fill("e2e-flashy-foundation");
     await page.getByRole("button", { name: "חבר חשבון", exact: true }).click();
-    await expect(page.getByRole("button", { name: "פתח דוחות", exact: true })).toBeVisible({ timeout: 90000 });
-    const [linked] = await db`select count(*)::integer as count from flashy_accounts where client_id = ${id}`;
+    await expect(
+      page.getByRole("button", { name: "פתח דוחות", exact: true }),
+    ).toBeVisible({ timeout: 90000 });
+    const [linked] =
+      await db`select count(*)::integer as count from flashy_accounts where client_id = ${id}`;
     expect(linked.count).toBe(1);
-    const duplicate = await page.request.post("/api/live-client", { data: { clientId: id, apiKey: "e2e-flashy-foundation" } });
+    const duplicate = await page.request.post("/api/live-client", {
+      data: { clientId: id, apiKey: "e2e-flashy-foundation" },
+    });
     expect(duplicate.status()).toBe(409);
-    await page.screenshot({ path: "output/playwright/epic1-workspace-desktop.png", fullPage: true });
+    await page.screenshot({
+      path: "output/playwright/epic1-workspace-desktop.png",
+      fullPage: true,
+      animations: "disabled",
+    });
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: "output/playwright/epic1-workspace-mobile.png", fullPage: true });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.screenshot({
+      path: "output/playwright/epic1-workspace-mobile.png",
+      fullPage: true,
+      animations: "disabled",
+    });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= window.innerWidth,
+      ),
+    ).toBe(true);
     await page.getByRole("button", { name: "פתח דוחות", exact: true }).click();
-    await expect(page.getByRole("heading", { name: "E2E Foundation Account", exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        name: "E2E Foundation Account",
+        exact: true,
+      }),
+    ).toBeVisible();
     await page.goto("/?view=clients");
     await expect(page.getByRole("button", { name, exact: true })).toBeVisible();
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.screenshot({ path: "output/playwright/epic1-clients-desktop.png", fullPage: true });
+    await page.screenshot({
+      path: "output/playwright/epic1-clients-desktop.png",
+      fullPage: true,
+      animations: "disabled",
+    });
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.screenshot({ path: "output/playwright/epic1-clients-mobile.png", fullPage: true });
+    await page.screenshot({
+      path: "output/playwright/epic1-clients-mobile.png",
+      fullPage: true,
+      animations: "disabled",
+    });
 
-    const concurrentClient = await (await page.request.post("/api/clients", { data: { name: `E2E Concurrent ${suffix}` } })).json();
+    const concurrentClient = await (
+      await page.request.post("/api/clients", {
+        data: { name: `E2E Concurrent ${suffix}` },
+      })
+    ).json();
     expect(concurrentClient.success).toBe(true);
     foundationClientIds.push(concurrentClient.data.id);
-    const concurrentConnections = await Promise.all([1, 2].map(() => page.request.post("/api/live-client", { data: { clientId: concurrentClient.data.id, apiKey: "e2e-flashy-concurrent" } })));
-    expect(concurrentConnections.map(response => response.status()).sort()).toEqual([201, 409]);
-    const [concurrentAccounts] = await db`select count(*)::integer as count from flashy_accounts where flashy_account_id = 990005`;
+    const concurrentConnections = await Promise.all(
+      [1, 2].map(() =>
+        page.request.post("/api/live-client", {
+          data: {
+            clientId: concurrentClient.data.id,
+            apiKey: "e2e-flashy-concurrent",
+          },
+        }),
+      ),
+    );
+    expect(
+      concurrentConnections.map((response) => response.status()).sort(),
+    ).toEqual([201, 409]);
+    const [concurrentAccounts] =
+      await db`select count(*)::integer as count from flashy_accounts where flashy_account_id = 990005`;
     expect(concurrentAccounts.count).toBe(1);
 
     const rollbackId = randomUUID();
-    await expect(db.transaction([
-      db`insert into clients (id, name) values (${rollbackId}, ${"E2E rollback"})`,
-      db`insert into audit_logs (actor_user_id, client_id, action, entity_type) values (${"missing-actor"}, ${rollbackId}, ${"client.created"}, ${"client"})`,
-    ])).rejects.toThrow();
-    const [rollback] = await db`select count(*)::integer as count from clients where id = ${rollbackId}`;
+    await expect(
+      db.transaction([
+        db`insert into clients (id, name) values (${rollbackId}, ${"E2E rollback"})`,
+        db`insert into audit_logs (actor_user_id, client_id, action, entity_type) values (${"missing-actor"}, ${rollbackId}, ${"client.created"}, ${"client"})`,
+      ]),
+    ).rejects.toThrow();
+    const [rollback] =
+      await db`select count(*)::integer as count from clients where id = ${rollbackId}`;
     expect(rollback.count).toBe(0);
+
+    for (const [packageCode, monthlyAmount, oneTimeAmount] of [
+      ["email_5", "3500.00", "0.00"],
+      ["email_8", "5000.00", "0.00"],
+      ["automation_setup_3", "0.00", "5000.00"],
+      ["automation_setup_6", "0.00", "9000.00"],
+      ["whatsapp_standalone", "0.00", "2000.00"],
+    ]) {
+      const response = await page.request.post("/api/clients", {
+        data: { name: `E2E Package ${packageCode} ${suffix}`, packageCode },
+      });
+      expect(response.status()).toBe(201);
+      const payload = await response.json();
+      foundationClientIds.push(payload.data.id);
+      expect(payload.data.monthlyRetainerAmount).toBe(monthlyAmount);
+      expect(payload.data.oneTimeAmount).toBe(oneTimeAmount);
+      const badScope = await page.request.patch(
+        `/api/clients/${payload.data.id}`,
+        { data: { includedServices: [{ code: "sms" }] } },
+      );
+      expect(badScope.status()).toBe(400);
+    }
+    const legacyBefore = await (
+      await page.request.get(`/api/clients/${primaryClientId}`)
+    ).json();
+    expect(legacyBefore.data.packageCode).toBe(null);
+    await page.request.patch(`/api/clients/${primaryClientId}`, {
+      data: { internalNotes: "E2E legacy preserved" },
+    });
+    const legacyAfter = await (
+      await page.request.get(`/api/clients/${primaryClientId}`)
+    ).json();
+    expect(legacyAfter.data.packageCode).toBe(null);
+    expect(legacyAfter.data.includedServices).toEqual(
+      legacyBefore.data.includedServices,
+    );
   });
 
-  test("Epic 1 staff shell supports no report accounts and client access is denied", async ({ page, browser }) => {
+  test("Epic 1 staff shell supports no report accounts and client access is denied", async ({
+    page,
+    browser,
+  }) => {
     await loginWithCode(page, foundationEmptyEmail);
-    await expect(page.getByRole("heading", { name: "סקירת סוכנות" })).toBeVisible();
-    await page.route("**/api/dashboard-data", async route => {
-      const response = await route.fetch(); const payload = await response.json();
-      payload.data.clients = []; payload.data.accounts = [];
-      payload.data.emailReports = []; payload.data.smsReports = []; payload.data.automationReports = []; payload.data.newsletterPlans = [];
+    await expect(
+      page.getByRole("heading", { name: "סקירת סוכנות" }),
+    ).toBeVisible();
+    await page.route("**/api/dashboard-data", async (route) => {
+      const response = await route.fetch();
+      const payload = await response.json();
+      payload.data.clients = [];
+      payload.data.accounts = [];
+      payload.data.emailReports = [];
+      payload.data.smsReports = [];
+      payload.data.automationReports = [];
+      payload.data.newsletterPlans = [];
       await route.fulfill({ response, json: payload });
     });
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "לקוחות", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "לקוח חדש", exact: true })).toBeVisible();
-    const isolated = await browser.newContext(); const customer = await isolated.newPage();
+    await expect(
+      page.getByRole("heading", { name: "לקוחות", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "לקוח חדש", exact: true }),
+    ).toBeVisible();
+    const isolated = await browser.newContext();
+    const customer = await isolated.newPage();
     try {
       await loginWithCode(customer, foundationCustomerEmail);
-      await expect(customer.getByRole("heading", { name: primaryAccountName })).toBeVisible();
-      for (const path of ["/api/clients", `/api/clients/${primaryClientId}`, `/api/clients/${primaryClientId}/activity`, `/api/clients/${primaryClientId}/contacts`, "/api/clients/options"]) expect((await customer.request.get(path)).status()).toBe(403);
-      expect((await customer.request.post("/api/clients", { data: { name: "forbidden" } })).status()).toBe(403);
-      const reports = await (await customer.request.get("/api/dashboard-data")).json();
-      expect(reports.data.clients.every((client: Record<string, unknown>) => !("monthlyRetainerAmount" in client) && !("internalNotes" in client))).toBe(true);
-      await customer.goto("/?view=client-workspace&clientId=" + primaryClientId);
-      await expect(customer.getByRole("heading", { name: primaryAccountName })).toBeVisible();
-      await expect(customer.getByRole("button", { name: "עריכת פרטים", exact: true })).toHaveCount(0);
-    } finally { await isolated.close(); }
+      await expect(
+        customer.getByRole("heading", { name: primaryAccountName }),
+      ).toBeVisible();
+      for (const path of [
+        "/api/clients",
+        `/api/clients/${primaryClientId}`,
+        `/api/clients/${primaryClientId}/activity`,
+        `/api/clients/${primaryClientId}/contacts`,
+        "/api/clients/options",
+      ])
+        expect((await customer.request.get(path)).status()).toBe(403);
+      expect(
+        (
+          await customer.request.post("/api/clients", {
+            data: { name: "forbidden" },
+          })
+        ).status(),
+      ).toBe(403);
+      const reports = await (
+        await customer.request.get("/api/dashboard-data")
+      ).json();
+      expect(
+        reports.data.clients.every((client: Record<string, unknown>) =>
+          [
+            "monthlyRetainerAmount",
+            "oneTimeAmount",
+            "commercialScope",
+            "packageCode",
+            "internalNotes",
+          ].every((field) => !(field in client)),
+        ),
+      ).toBe(true);
+      await customer.goto(
+        "/?view=client-workspace&clientId=" + primaryClientId,
+      );
+      await expect(
+        customer.getByRole("heading", { name: primaryAccountName }),
+      ).toBeVisible();
+      await expect(
+        customer.getByRole("button", { name: "עריכת פרטים", exact: true }),
+      ).toHaveCount(0);
+    } finally {
+      await isolated.close();
+    }
   });
 
   test("login, client selection, range, sync, reports, planner and grounded AI", async ({ page }) => {

@@ -15,6 +15,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { IncludedService } from "@/lib/client-foundation";
+import type { PackageCode, PackageScope } from "@/lib/client-packages";
 import type { DailyMetricSnapshot, MetricSnapshotRevision } from "@/lib/types";
 import type { MonthlySummaryManualInput, MonthlySummarySnapshot } from "@/lib/monthly-summary";
 
@@ -104,6 +105,9 @@ export const clients = pgTable("clients", {
   onboardingStatus: text("onboarding_status").notNull().default("ready"),
   website: text("website"),
   packageName: text("package_name"),
+  packageCode: text("package_code").$type<PackageCode>(),
+  commercialScope: jsonb("commercial_scope").$type<PackageScope>(),
+  oneTimeAmount: numeric("one_time_amount", { precision: 12, scale: 2 }),
   monthlyRetainerAmount: numeric("monthly_retainer_amount", { precision: 12, scale: 2 }),
   includedServices: jsonb("included_services").$type<IncludedService[]>().notNull().default([]),
   startDate: date("start_date"),

@@ -1,18 +1,38 @@
 "use client";
-import { useState, type FormEvent } from "react";
-import { Plus, Save, X } from "lucide-react";
+import { useState, type FormEvent, type ReactNode } from "react";
+import {
+  Plus,
+  Save,
+  X,
+  RotateCcw,
+  Building2,
+  Users,
+  FileText,
+  Layers3,
+  Banknote,
+} from "lucide-react";
 import { CLIENT_SERVICES, type ContactInput } from "@/lib/client-foundation";
+import {
+  CLIENT_PACKAGES,
+  ENGAGEMENT_TYPES,
+  WHATSAPP_ADDON,
+  derivePackageScope,
+  packageDefinition,
+  packagePrices,
+  type PackageCode,
+  type PackageScope,
+} from "@/lib/client-packages";
 import type { ClientProfile } from "@/lib/clients";
+import { ClientPackageScope } from "@/components/client-package-scope";
 
 export const clientFieldClass =
-  "mt-1.5 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#111318] outline-none focus:border-[#087f72] focus:ring-2 focus:ring-[#42dfcf]/20";
+  "mt-1.5 h-9 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#111318] outline-none transition focus:border-[#087f72] focus:ring-2 focus:ring-[#42dfcf]/20 disabled:opacity-50";
 export const clientButtonClass =
-  "inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-[#d0d5dd] bg-white px-3 py-2 text-sm text-[#344054] disabled:opacity-50";
+  "inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-[#d0d5dd] bg-white px-3 py-2 text-sm text-[#344054] transition hover:bg-[#f8fafb] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#087f72] disabled:opacity-50";
 export const clientPrimaryClass = `${clientButtonClass} !border-[#111318] !bg-[#111318] !text-white`;
 export function emptyContact(): ContactInput {
   return { name: "", jobTitle: "", email: "", phone: "", isPrimary: false };
 }
-
 export function ContactFields({
   value,
   onChange,
@@ -30,7 +50,7 @@ export function ContactFields({
           { key: "phone", label: "טלפון", type: "tel" },
         ] as const
       ).map((field) => (
-        <label key={field.key} className="text-sm text-[#475467]">
+        <label key={field.key} className="text-xs font-medium text-[#475467]">
           {field.label}
           <input
             required={field.key === "name"}
@@ -47,7 +67,7 @@ export function ContactFields({
           />
         </label>
       ))}
-      <label className="flex items-center gap-2 text-sm">
+      <label className="flex items-center gap-2 text-xs">
         <input
           type="checkbox"
           checked={value.isPrimary}
@@ -58,6 +78,25 @@ export function ContactFields({
         איש קשר ראשי
       </label>
     </div>
+  );
+}
+function FormSection({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  icon: typeof Building2;
+  children: ReactNode;
+}) {
+  return (
+    <section className="border-b border-[#e4e7ec] py-5 last:border-0">
+      <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold">
+        <Icon size={16} className="text-[#667085]" />
+        {title}
+      </h3>
+      {children}
+    </section>
   );
 }
 export function ClientProfileForm({
@@ -71,15 +110,69 @@ export function ClientProfileForm({
   onSaved: (client: ClientProfile) => void;
   onCancel: () => void;
 }) {
-  const [services, setServices] = useState(client?.includedServices ?? []);
+  const [code, setCode] = useState<PackageCode | "">(client?.packageCode ?? "");
+  const [engagement, setEngagement] = useState<string>(
+    client && !client.packageCode
+      ? "legacy"
+      : (packageDefinition(client?.packageCode)?.type ?? "email_management"),
+  );
+  const [scope, setScope] = useState<PackageScope | null>(
+    client?.commercialScope ?? null,
+  );
+  const [monthly, setMonthly] = useState(client?.monthlyRetainerAmount ?? "");
+  const [oneTime, setOneTime] = useState(client?.oneTimeAmount ?? "");
+  const [customMonthly, setCustomMonthly] = useState(
+    client?.monthlyRetainerAmount != null,
+  );
+  const [customOneTime, setCustomOneTime] = useState(
+    client?.oneTimeAmount != null,
+  );
   const [contacts, setContacts] = useState<ContactInput[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const definition = packageDefinition(code);
+  const prices = code && scope ? packagePrices(code, scope) : null;
+  function choose(nextCode: PackageCode, config: Record<string, unknown> = {}) {
+    const nextScope = derivePackageScope(nextCode, config);
+    const nextPrices = packagePrices(nextCode, nextScope);
+    setCode(nextCode);
+    setScope(nextScope);
+    if (!customMonthly) setMonthly(nextPrices.monthlyAmount.toFixed(2));
+    if (!customOneTime) setOneTime(nextPrices.oneTimeAmount.toFixed(2));
+  }
+  function changeEngagement(type: string) {
+    setEngagement(type);
+    if (type === "legacy") {
+      setCode("");
+      setScope(null);
+      setMonthly(client?.monthlyRetainerAmount ?? "");
+      setOneTime(client?.oneTimeAmount ?? "");
+      return;
+    }
+    const next = CLIENT_PACKAGES.find((item) => item.type === type);
+    if (next) choose(next.code);
+  }
+  function changePackage(nextCode: PackageCode) {
+    const next = packageDefinition(nextCode);
+    choose(
+      nextCode,
+      definition?.type === "email_management" &&
+        next?.type === definition.type &&
+        scope
+        ? {
+            initialCommitmentMonths: scope.initialCommitmentMonths,
+            automationSetupTier: scope.automationSetupTier,
+            whatsappAddon: scope.whatsappAddon,
+          }
+        : {},
+    );
+  }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
-    const form = new FormData(event.currentTarget);
-    const body = Object.fromEntries(form.entries());
+    const body = Object.fromEntries(
+      new FormData(event.currentTarget).entries(),
+    );
     if (body.ownerUserId === "__creator__") delete body.ownerUserId;
     setBusy(true);
     setError("");
@@ -91,7 +184,9 @@ export function ClientProfileForm({
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             ...body,
-            includedServices: services,
+            monthlyRetainerAmount: monthly,
+            oneTimeAmount: oneTime,
+            ...(code ? { packageCode: code, commercialScope: scope } : {}),
             ...(client ? {} : { contacts }),
           }),
         },
@@ -109,12 +204,18 @@ export function ClientProfileForm({
   return (
     <form
       onSubmit={submit}
-      className="space-y-5 border-y border-[#e4e7ec] py-5"
+      aria-label={client ? "עריכת לקוח" : "יצירת לקוח"}
+      className="mx-auto w-full max-w-[840px] pb-24"
     >
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold">
-          {client ? "עריכת פרטי לקוח" : "לקוח חדש"}
-        </h2>
+      <div className="flex items-start justify-between gap-3 border-b border-[#e4e7ec] pb-4">
+        <div className="min-w-0 break-words">
+          <p className="mb-1 text-xs text-[#667085]">
+            לקוחות / {client ? client.name : "יצירה"}
+          </p>
+          <h2 className="text-xl font-bold">
+            {client ? "עריכת פרטי לקוח" : "לקוח חדש"}
+          </h2>
+        </div>
         <button
           type="button"
           disabled={busy}
@@ -126,184 +227,361 @@ export function ClientProfileForm({
           <X size={16} />
         </button>
       </div>
-      <fieldset disabled={busy} className="grid gap-4 md:grid-cols-2">
-        {(
-          [
-            {
-              name: "name",
-              label: "שם העסק",
-              type: "text",
-              value: client?.name,
-            },
-            {
-              name: "website",
-              label: "אתר",
-              type: "url",
-              value: client?.website,
-            },
-            {
-              name: "industry",
-              label: "תחום",
-              type: "text",
-              value: client?.industry,
-            },
-            {
-              name: "packageName",
-              label: "חבילה",
-              type: "text",
-              value: client?.packageName,
-            },
-            {
-              name: "monthlyRetainerAmount",
-              label: "ריטיינר חודשי (₪)",
-              type: "number",
-              value: client?.monthlyRetainerAmount,
-            },
-            {
-              name: "startDate",
-              label: "תאריך התחלה",
-              type: "date",
-              value: client?.startDate,
-            },
-          ] as const
-        ).map((field) => (
-          <label key={field.name} className="text-sm text-[#475467]">
-            {field.label}
-            <input
-              name={field.name}
-              defaultValue={field.value ?? ""}
-              required={field.name === "name"}
-              type={field.type}
-              min={field.type === "number" ? "0" : undefined}
-              max={field.type === "number" ? "9999999999.99" : undefined}
-              step={field.type === "number" ? "0.01" : undefined}
-              maxLength={field.name === "website" ? 2048 : 180}
-              dir={
-                field.type === "url" ||
-                field.type === "number" ||
-                field.type === "date"
-                  ? "ltr"
-                  : "rtl"
-              }
-              className={clientFieldClass}
-            />
-          </label>
-        ))}
-        <label className="text-sm text-[#475467]">
-          אחראי פנימי
-          <select
-            name="ownerUserId"
-            defaultValue={client ? (client.ownerUserId ?? "") : "__creator__"}
-            className={clientFieldClass}
-          >
-            {!client && <option value="__creator__">אני (יוצר הלקוח)</option>}
-            <option value="">ללא שיוך</option>
-            {client?.ownerUserId &&
-              !owners.some((owner) => owner.id === client.ownerUserId) && (
-                <option value={client.ownerUserId}>אחראי קודם (לא פעיל)</option>
-              )}
-            {owners.map((owner) => (
-              <option key={owner.id} value={owner.id}>
-                {owner.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <fieldset>
-          <legend className="mb-2 text-sm text-[#475467]">
-            שירותים כלולים
-          </legend>
-          <div className="flex flex-wrap gap-x-5 gap-y-3">
-            {CLIENT_SERVICES.map((service) => (
+      <fieldset disabled={busy}>
+        <FormSection title="פרטי העסק" icon={Building2}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {(
+              [
+                {
+                  name: "name",
+                  label: "שם העסק",
+                  type: "text",
+                  value: client?.name,
+                },
+                {
+                  name: "website",
+                  label: "אתר",
+                  type: "url",
+                  value: client?.website,
+                },
+                {
+                  name: "industry",
+                  label: "תחום",
+                  type: "text",
+                  value: client?.industry,
+                },
+              ] as const
+            ).map((field) => (
               <label
-                key={service.code}
-                className="flex items-center gap-2 text-sm"
+                key={field.name}
+                className="text-xs font-medium text-[#475467]"
               >
+                {field.label}
                 <input
-                  type="checkbox"
-                  checked={services.some((item) => item.code === service.code)}
-                  onChange={(event) =>
-                    setServices((current) =>
-                      event.target.checked
-                        ? [...current, { code: service.code }]
-                        : current.filter((item) => item.code !== service.code),
-                    )
-                  }
+                  name={field.name}
+                  defaultValue={field.value ?? ""}
+                  required={field.name === "name"}
+                  type={field.type}
+                  maxLength={field.name === "website" ? 2048 : 180}
+                  dir={field.type === "url" ? "ltr" : "rtl"}
+                  className={clientFieldClass}
                 />
-                {service.label}
               </label>
             ))}
-          </div>
-        </fieldset>
-        <label className="text-sm text-[#475467] md:col-span-2">
-          הערה פנימית
-          <textarea
-            name="internalNotes"
-            maxLength={5000}
-            defaultValue={client?.internalNotes ?? ""}
-            className={`${clientFieldClass} !h-24 py-2`}
-          />
-        </label>
-      </fieldset>
-      {!client && (
-        <fieldset disabled={busy} className="space-y-4">
-          <legend className="mb-3 text-sm font-bold">אנשי קשר</legend>
-          {contacts.map((contact, index) => (
-            <div key={index} className="border-b border-[#e4e7ec] pb-4">
-              <ContactFields
-                value={contact}
-                onChange={(value) =>
-                  setContacts((current) =>
-                    current.map((item, i) =>
-                      i === index
-                        ? value
-                        : value.isPrimary
-                          ? { ...item, isPrimary: false }
-                          : item,
-                    ),
-                  )
+            <label className="text-xs font-medium text-[#475467]">
+              אחראי פנימי
+              <select
+                name="ownerUserId"
+                aria-label="אחראי פנימי"
+                defaultValue={
+                  client ? (client.ownerUserId ?? "") : "__creator__"
                 }
-              />
-              <button
-                type="button"
-                title="הסר מהטיוטה"
-                aria-label={`הסר איש קשר ${index + 1} מהטיוטה`}
-                className="mt-2 text-sm text-[#667085]"
-                onClick={() =>
-                  setContacts((current) =>
-                    current.filter((_, i) => i !== index),
-                  )
+                className={clientFieldClass}
+              >
+                {!client && (
+                  <option value="__creator__">אני (יוצר הלקוח)</option>
+                )}
+                <option value="">ללא שיוך</option>
+                {client?.ownerUserId &&
+                  !owners.some((owner) => owner.id === client.ownerUserId) && (
+                    <option value={client.ownerUserId}>
+                      אחראי קודם (לא פעיל)
+                    </option>
+                  )}
+                {owners.map((owner) => (
+                  <option key={owner.id} value={owner.id}>
+                    {owner.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </FormSection>
+        <FormSection title="מסחר והתקשרות" icon={Banknote}>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="text-xs font-medium text-[#475467]">
+              סוג התקשרות
+              <select
+                aria-label="סוג התקשרות"
+                className={clientFieldClass}
+                value={engagement}
+                onChange={(event) => changeEngagement(event.target.value)}
+              >
+                {client && !client.packageCode && (
+                  <option value="legacy">התקשרות קיימת</option>
+                )}
+                {ENGAGEMENT_TYPES.map((type) => (
+                  <option key={type.code} value={type.code}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-xs font-medium text-[#475467]">
+              חבילה
+              <select
+                aria-label="חבילה"
+                required={engagement !== "legacy"}
+                className={clientFieldClass}
+                value={code}
+                disabled={engagement === "legacy"}
+                onChange={(event) =>
+                  changePackage(event.target.value as PackageCode)
                 }
               >
-                <X size={16} />
+                <option value="" disabled>
+                  {engagement === "legacy"
+                    ? client?.packageName || "ללא חבילה מובנית"
+                    : "בחירת חבילה"}
+                </option>
+                {CLIENT_PACKAGES.filter((item) => item.type === engagement).map(
+                  (item) => (
+                    <option key={item.code} value={item.code}>
+                      {item.label}
+                    </option>
+                  ),
+                )}
+              </select>
+            </label>
+            <label className="text-xs font-medium text-[#475467]">
+              תאריך התחלה
+              <input
+                name="startDate"
+                type="date"
+                dir="ltr"
+                defaultValue={client?.startDate ?? ""}
+                className={clientFieldClass}
+              />
+            </label>
+            {definition?.type === "email_management" && scope && (
+              <label className="text-xs font-medium text-[#475467]">
+                התחייבות ראשונית
+                <select
+                  aria-label="התחייבות ראשונית"
+                  className={clientFieldClass}
+                  value={scope.initialCommitmentMonths ?? 1}
+                  onChange={(event) =>
+                    choose(definition.code, {
+                      initialCommitmentMonths: Number(event.target.value),
+                      whatsappAddon: scope.whatsappAddon,
+                    })
+                  }
+                >
+                  <option value={1}>חודשי</option>
+                  <option value={3}>3 חודשים · setup ראשוני כלול</option>
+                </select>
+              </label>
+            )}
+            {definition?.type === "email_management" &&
+              scope?.initialCommitmentMonths === 3 && (
+                <label className="text-xs font-medium text-[#475467]">
+                  setup ראשוני
+                  <select
+                    aria-label="setup ראשוני"
+                    className={clientFieldClass}
+                    value={scope.automationSetupTier}
+                    onChange={(event) =>
+                      choose(definition.code, {
+                        ...scope,
+                        automationSetupTier: Number(event.target.value),
+                      })
+                    }
+                  >
+                    <option value={3}>3 אוטומציות + Popup · כלול</option>
+                    <option value={6}>
+                      6 אוטומציות + Popup · תוספת ₪
+                      {definition.setupUpgradeAmount.toLocaleString("he-IL")}
+                    </option>
+                  </select>
+                </label>
+              )}
+            {definition && definition.type !== "whatsapp" && scope && (
+              <label className="flex items-center gap-2 self-end pb-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={scope.whatsappAddon}
+                  onChange={(event) =>
+                    choose(definition.code, {
+                      ...scope,
+                      whatsappAddon: event.target.checked,
+                    })
+                  }
+                />
+                WhatsApp addon{" "}
+                <span className="text-xs text-[#667085]">
+                  ₪{WHATSAPP_ADDON.oneTimeAmount.toLocaleString("he-IL")}{" "}
+                  חד־פעמי
+                </span>
+              </label>
+            )}
+          </div>
+          <div className="mt-5 grid gap-4 border-t border-[#eaecf0] pt-4 sm:grid-cols-2">
+            {[
+              {
+                label: "ריטיינר חודשי בפועל (₪)",
+                value: monthly,
+                onChange: setMonthly,
+                dirty: setCustomMonthly,
+                defaultValue: prices?.monthlyAmount,
+              },
+              {
+                label: "סכום חד פעמי בפועל (₪)",
+                value: oneTime,
+                onChange: setOneTime,
+                dirty: setCustomOneTime,
+                defaultValue: prices?.oneTimeAmount,
+              },
+            ].map((field) => (
+              <div key={field.label}>
+                <label className="text-xs font-semibold text-[#475467]">
+                  {field.label}
+                  <input
+                    type="number"
+                    required={Boolean(code)}
+                    min="0"
+                    max="9999999999.99"
+                    step="0.01"
+                    dir="ltr"
+                    value={field.value}
+                    className={`${clientFieldClass} !h-11 !text-base font-semibold tabular-nums`}
+                    onChange={(event) => {
+                      field.dirty(true);
+                      field.onChange(event.target.value);
+                    }}
+                  />
+                </label>
+                {field.defaultValue !== undefined && (
+                  <div className="mt-1.5 flex items-center justify-between gap-2 text-xs text-[#667085]">
+                    <span>
+                      מחירון: ₪{field.defaultValue.toLocaleString("he-IL")}
+                    </span>
+                    <button
+                      type="button"
+                      title="החזר למחיר ברירת המחדל"
+                      aria-label={`איפוס ${field.label} למחירון`}
+                      onClick={() => {
+                        field.dirty(false);
+                        field.onChange(field.defaultValue!.toFixed(2));
+                      }}
+                    >
+                      <RotateCcw size={13} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </FormSection>
+        <FormSection title="חבילה ו־scope" icon={Layers3}>
+          {scope ? (
+            <ClientPackageScope scope={scope} />
+          ) : (
+            <p className="text-sm text-[#667085]">
+              {engagement === "legacy"
+                ? `${client?.packageName || "התקשרות קיימת"} · ${client?.includedServices.map((item) => CLIENT_SERVICES.find((service) => service.code === item.code)?.label ?? item.code).join(" · ") || "ללא שירותים מוגדרים"}`
+                : "טרם נבחרה חבילה"}
+            </p>
+          )}
+        </FormSection>
+        <FormSection title="אנשי קשר" icon={Users}>
+          {client ? (
+            <div className="flex flex-wrap gap-3 text-sm">
+              {client.contacts.map((contact) => (
+                <span key={contact.id}>
+                  {contact.name}
+                  {contact.isPrimary && (
+                    <span className="mr-1 text-xs text-[#087f72]">ראשי</span>
+                  )}
+                </span>
+              ))}
+              {!client.contacts.length && (
+                <span className="text-[#667085]">לא נוספו אנשי קשר</span>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {contacts.map((contact, index) => (
+                <div
+                  key={index}
+                  className="relative border-b border-[#eaecf0] pb-4"
+                >
+                  <ContactFields
+                    value={contact}
+                    onChange={(value) =>
+                      setContacts((current) =>
+                        current.map((item, i) =>
+                          i === index
+                            ? value
+                            : value.isPrimary
+                              ? { ...item, isPrimary: false }
+                              : item,
+                        ),
+                      )
+                    }
+                  />
+                  <button
+                    type="button"
+                    title="הסר מהטיוטה"
+                    aria-label={`הסר איש קשר ${index + 1} מהטיוטה`}
+                    className="mt-2 text-[#667085]"
+                    onClick={() =>
+                      setContacts((current) =>
+                        current.filter((_, i) => i !== index),
+                      )
+                    }
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ))}
+              <button
+                disabled={contacts.length >= 30}
+                type="button"
+                className={clientButtonClass}
+                onClick={() =>
+                  setContacts((current) => [
+                    ...current,
+                    { ...emptyContact(), isPrimary: current.length === 0 },
+                  ])
+                }
+              >
+                <Plus size={16} />
+                הוסף איש קשר
               </button>
             </div>
-          ))}
-          <button
-            disabled={contacts.length >= 30}
-            type="button"
-            className={clientButtonClass}
-            onClick={() =>
-              setContacts((current) => [
-                ...current,
-                { ...emptyContact(), isPrimary: current.length === 0 },
-              ])
-            }
-          >
-            <Plus size={16} />
-            הוסף איש קשר
-          </button>
-        </fieldset>
-      )}
-      {error && (
-        <p role="alert" className="text-sm text-[#b42318]">
-          {error}
-        </p>
-      )}
-      <button disabled={busy} className={clientPrimaryClass}>
-        <Save size={16} />
-        {busy ? "שומר..." : client ? "שמור שינויים" : "צור לקוח"}
-      </button>
+          )}
+        </FormSection>
+        <FormSection title="הערות פנימיות" icon={FileText}>
+          <label className="block text-xs text-[#667085]">
+            הערה פנימית
+            <textarea
+              name="internalNotes"
+              maxLength={5000}
+              defaultValue={client?.internalNotes ?? ""}
+              className={`${clientFieldClass} !h-20 py-2`}
+            />
+          </label>
+        </FormSection>
+      </fieldset>
+      <div className="fixed inset-x-3 bottom-0 z-30 mx-auto flex max-w-[840px] flex-wrap items-center gap-3 border-t border-[#e4e7ec] bg-white px-3 py-3 lg:left-6 lg:right-[220px]">
+        <button disabled={busy} className={clientPrimaryClass}>
+          <Save size={16} />
+          {busy ? "שומר..." : client ? "שמור שינויים" : "צור לקוח"}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          className={clientButtonClass}
+          onClick={onCancel}
+        >
+          ביטול
+        </button>
+        {error && (
+          <p role="alert" className="basis-full text-sm text-[#b42318]">
+            {error}
+          </p>
+        )}
+      </div>
     </form>
   );
 }

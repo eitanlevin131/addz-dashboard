@@ -98,6 +98,13 @@ for (const key of applyTest
       migrationHistoryTables: history,
       duplicateFlashyIds: duplicates[0].groups,
       missingRelatedFoundationSchema: missingRelatedSchema,
+      missingCommercialColumns: [
+        "package_code",
+        "commercial_scope",
+        "one_time_amount",
+      ].filter(
+        (name) => !columns.some((column) => column.column_name === name),
+      ),
     }),
   );
   if (!applyTest) continue;
@@ -158,4 +165,35 @@ for (const key of applyTest
       "Applied additive 0017 to isolated E2E database only. Production was not modified.",
     );
   } else console.log("Epic 1 columns already present; no migration applied.");
+  const commercialColumns = [
+    "package_code",
+    "commercial_scope",
+    "one_time_amount",
+  ];
+  const commercialPresent = commercialColumns.filter((name) =>
+    columns.some((column) => column.column_name === name),
+  );
+  if (
+    commercialPresent.length &&
+    commercialPresent.length !== commercialColumns.length
+  )
+    throw new Error(
+      "Partial package refinement schema detected. Refusing automatic repair.",
+    );
+  if (!commercialPresent.length) {
+    const sql = await readFile(
+      new URL("../db/migrations/0018_worried_spitfire.sql", import.meta.url),
+      "utf8",
+    );
+    await db.transaction(
+      sql
+        .split("--> statement-breakpoint")
+        .filter((part) => part.trim())
+        .map((part) => db.query(part, [])),
+    );
+    console.log(
+      "Applied additive 0018 to isolated E2E database only. No legacy data was backfilled.",
+    );
+  } else
+    console.log("Commercial columns already present; no migration applied.");
 }

@@ -1,13 +1,19 @@
-// This registry is shared by validation, types and all service selectors.
-export const CLIENT_SERVICES = [
-  { code: "newsletter", label: "דיוורי אימייל" },
-  { code: "automations", label: "אוטומציות" },
-  { code: "sms", label: "SMS" },
-  { code: "whatsapp", label: "WhatsApp" },
-] as const;
-
-export type ServiceCode = (typeof CLIENT_SERVICES)[number]["code"];
-export type IncludedService = { code: ServiceCode };
+import {
+  CLIENT_SERVICES,
+  derivePackageScope,
+  packageDefinition,
+  packagePrices,
+  servicesFromPackage,
+  type ServiceCode,
+  type IncludedService,
+  type PackageCode,
+  type PackageScope,
+} from "./client-packages.ts";
+export {
+  CLIENT_SERVICES,
+  type ServiceCode,
+  type IncludedService,
+} from "./client-packages.ts";
 export type ContactInput = {
   name: string;
   jobTitle: string | null;
@@ -21,6 +27,9 @@ export type ClientProfileInput = {
   industry: string | null;
   packageName: string | null;
   monthlyRetainerAmount: string | null;
+  oneTimeAmount: string | null;
+  packageCode: PackageCode | null;
+  commercialScope: PackageScope | null;
   includedServices: IncludedService[];
   startDate: string | null;
   ownerUserId: string | null;
@@ -69,6 +78,7 @@ export function parseIncludedServices(value: unknown): IncludedService[] {
 export function parseClientProfile(
   value: unknown,
   partial = false,
+  existing?: Partial<ClientProfileInput>,
 ): Partial<ClientProfileInput> {
   const body = object(value);
   const result: Partial<ClientProfileInput> = {};
@@ -78,6 +88,9 @@ export function parseClientProfile(
     "industry",
     "packageName",
     "monthlyRetainerAmount",
+    "oneTimeAmount",
+    "packageCode",
+    "commercialScope",
     "includedServices",
     "startDate",
     "ownerUserId",
@@ -94,8 +107,9 @@ export function parseClientProfile(
       result.name = name;
     } else if (field === "includedServices")
       result.includedServices = parseIncludedServices(value ?? []);
-    else if (field === "monthlyRetainerAmount") {
-      if (value == null || value === "") result.monthlyRetainerAmount = null;
+    else if (field === "packageCode" || field === "commercialScope") continue;
+    else if (field === "monthlyRetainerAmount" || field === "oneTimeAmount") {
+      if (value == null || value === "") result[field] = null;
       else {
         if (
           (typeof value !== "number" && typeof value !== "string") ||
@@ -104,9 +118,9 @@ export function parseClientProfile(
           Number(value) > 9999999999.99
         )
           throw new ClientInputError(
-            "הריטיינר צריך להיות סכום לא שלילי בשקלים, עד שתי ספרות אחרי הנקודה.",
+            "המחיר צריך להיות סכום לא שלילי בשקלים, עד שתי ספרות אחרי הנקודה.",
           );
-        result.monthlyRetainerAmount = Number(value).toFixed(2);
+        result[field] = Number(value).toFixed(2);
       }
     } else if (field === "ownerUserId")
       result.ownerUserId =
@@ -146,6 +160,84 @@ export function parseClientProfile(
         "הפרטים",
       );
   }
+  const code = Object.hasOwn(body, "packageCode")
+    ? body.packageCode
+    : existing?.packageCode;
+  if (!code) {
+    if (existing?.packageCode)
+      throw new ClientInputError(
+        "אי אפשר להסיר חבילה מובנית. יש לבחור חבילה אחרת.",
+      );
+    if (body.commercialScope != null)
+      throw new ClientInputError("יש לבחור חבילה לפני הגדרת scope.");
+    return result;
+  }
+  const definition = packageDefinition(code);
+  if (!definition) throw new ClientInputError("יש לבחור חבילה מהרשימה.");
+  const samePackage = existing?.packageCode === code;
+  const previous = existing?.commercialScope;
+  const input: Record<string, unknown> =
+    body.commercialScope === undefined
+      ? samePackage
+        ? (previous ?? {})
+        : {}
+      : {
+          ...(samePackage ? (previous ?? {}) : {}),
+          ...object(body.commercialScope),
+        };
+  if (input.version !== undefined && input.version !== 1)
+    throw new ClientInputError("גרסת החבילה אינה נתמכת.");
+  const unchanged =
+    samePackage &&
+    previous &&
+    ["initialCommitmentMonths", "automationSetupTier", "whatsappAddon"].every(
+      (key) =>
+        !Object.hasOwn(input, key) ||
+        input[key] === previous[key as keyof PackageScope],
+    );
+  let scope: PackageScope;
+  try {
+    scope = unchanged ? previous : derivePackageScope(code, input);
+  } catch (error) {
+    throw new ClientInputError(
+      error instanceof Error ? error.message : "פרטי החבילה אינם תקינים.",
+    );
+  }
+  if (
+    unchanged &&
+    Object.hasOwn(input, "campaignLimit") &&
+    input.campaignLimit !== previous.campaignLimit
+  )
+    throw new ClientInputError("מכסת הקמפיינים נגזרת מהחבילה.");
+  const services = unchanged
+    ? (existing.includedServices ?? servicesFromPackage(definition.code, scope))
+    : servicesFromPackage(definition.code, scope);
+  if (
+    Object.hasOwn(body, "includedServices") &&
+    JSON.stringify(result.includedServices) !== JSON.stringify(services)
+  )
+    throw new ClientInputError("השירותים נגזרים מהחבילה, ולא נבחרים בנפרד.");
+  result.packageCode = definition.code;
+  result.commercialScope = scope;
+  result.packageName = unchanged
+    ? (existing.packageName ?? definition.label)
+    : definition.label;
+  result.includedServices = services;
+  const defaults = packagePrices(definition.code, scope);
+  if (!partial && !Object.hasOwn(body, "monthlyRetainerAmount"))
+    result.monthlyRetainerAmount = defaults.monthlyAmount.toFixed(2);
+  if (!partial && !Object.hasOwn(body, "oneTimeAmount"))
+    result.oneTimeAmount = defaults.oneTimeAmount.toFixed(2);
+  const effectiveMonthly = Object.hasOwn(result, "monthlyRetainerAmount")
+    ? result.monthlyRetainerAmount
+    : existing?.monthlyRetainerAmount;
+  const effectiveOneTime = Object.hasOwn(result, "oneTimeAmount")
+    ? result.oneTimeAmount
+    : existing?.oneTimeAmount;
+  if (effectiveMonthly == null || effectiveOneTime == null)
+    throw new ClientInputError(
+      "יש להזין את המחירים שסוכמו בפועל; עבור רכיב ללא עלות אפשר להזין 0.",
+    );
   return result;
 }
 export function parseContact(value: unknown): ContactInput {
