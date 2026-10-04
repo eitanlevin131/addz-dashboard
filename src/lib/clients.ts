@@ -1,6 +1,7 @@
 import { and, desc, eq, or, sql } from "drizzle-orm";
 import { auditInsert } from "@/lib/audit";
 import { getDb } from "@/lib/db";
+import { initialScanStatements } from "@/lib/website-intelligence/repository";
 import {
   auditLogs,
   clientContacts,
@@ -174,15 +175,17 @@ export async function createClient(
       metadata: { isPrimary: contact.isPrimary },
     }),
   );
+  const scan = initialScanStatements(id, profile.website, actorId);
   if (contactRows.length)
     await db.batch([
       insert,
       db.insert(clientContacts).values(contactRows),
       event,
       ...contactEvents,
+      ...(scan?.statements || []),
     ]);
-  else await db.batch([insert, event]);
-  return (await listClients(id))[0];
+  else await db.batch([insert, event, ...(scan?.statements || [])]);
+  return { ...(await listClients(id))[0], initialWebsiteScanId: scan?.id || null };
 }
 export async function updateClient(id: string, body: unknown, actorId: string) {
   const existing = await requireClient(id);

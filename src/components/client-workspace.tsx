@@ -13,6 +13,7 @@ import {
 import { CLIENT_SERVICES, type ContactInput } from "@/lib/client-foundation";
 import type { ClientProfile } from "@/lib/clients";
 import { ClientPackageScope } from "@/components/client-package-scope";
+import { WebsiteIntelligence } from "@/components/website-intelligence";
 import {
   ClientProfileForm,
   ContactFields,
@@ -47,6 +48,13 @@ function commercialFee(client: ClientProfile) {
     : "";
 }
 const eventLabels: Record<string, string> = {
+  "website_scan.requested": "סריקת אתר התבקשה",
+  "website_scan.started": "סריקת אתר התחילה",
+  "website_scan.completed": "סריקת אתר הושלמה",
+  "website_scan.completed_with_warnings": "סריקת אתר הושלמה עם אזהרות",
+  "website_scan.failed": "סריקת אתר נכשלה",
+  "website_scan.cancelled": "סריקת אתר נעצרה",
+  "website_scan.review_tagged": "ממצא אתר תויג",
   "client.created": "לקוח נוצר",
   "client.updated": "פרטי לקוח עודכנו",
   "contact.created": "איש קשר נוסף",
@@ -194,8 +202,8 @@ export function ClientFoundation({
   const [search, setSearch] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [connectionFilter, setConnectionFilter] = useState("");
-  const [tab, setTab] = useState<"overview" | "contacts" | "activity">(
-    "overview",
+  const [tab, setTab] = useState<"overview" | "contacts" | "activity" | "website">(
+    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "website" ? "website" : "overview",
   );
   const [contactForm, setContactForm] = useState<{
     id?: string;
@@ -595,13 +603,14 @@ export function ClientFoundation({
       <div
         role="tablist"
         aria-label="פרטי לקוח"
-        className="flex gap-6 border-b border-[#e4e7ec]"
+        className="flex flex-wrap gap-x-5 border-b border-[#e4e7ec]"
       >
         {(
           [
             { key: "overview", label: "סקירה" },
             { key: "contacts", label: "אנשי קשר" },
             { key: "activity", label: "פעילות" },
+            { key: "website", label: "סריקת אתר" },
           ] as const
         ).map((item) => (
           <button
@@ -624,6 +633,7 @@ export function ClientFoundation({
           {notice}
         </p>
       )}
+      {tab === "website" && <WebsiteIntelligence key={client.id} clientId={client.id} />}
       {tab === "overview" && (
         <div className="space-y-6">
           {client.commercialScope && (

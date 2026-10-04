@@ -1,7 +1,9 @@
 import {
   boolean,
+  check,
   date,
   integer,
+  foreignKey,
   index,
   jsonb,
   numeric,
@@ -18,6 +20,7 @@ import type { IncludedService } from "@/lib/client-foundation";
 import type { PackageCode, PackageScope } from "@/lib/client-packages";
 import type { DailyMetricSnapshot, MetricSnapshotRevision } from "@/lib/types";
 import type { MonthlySummaryManualInput, MonthlySummarySnapshot } from "@/lib/monthly-summary";
+import type { ScanState } from "@/lib/website-intelligence/state";
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
@@ -541,3 +544,83 @@ export const aiContentDrafts = pgTable(
     index("ai_content_drafts_client_status_idx").on(table.clientId, table.status),
   ],
 );
+
+// 0019 defers the NO ACTION history/AI-run references until transaction commit,
+// preserving provenance while allowing a client's complete cascade to finish.
+export const websiteScans = pgTable("website_scans", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clientId: uuid("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  requestedBy: text("requested_by").references(() => users.id, { onDelete: "set null" }),
+  previousScanId: uuid("previous_scan_id"),
+  websiteUrl: text("website_url").notNull(),
+  finalUrl: text("final_url"),
+  version: text("version").notNull(),
+  configuration: jsonb("configuration").$type<Record<string, unknown>>().notNull(),
+  status: text("status").notNull().default("pending"),
+  state: jsonb("state").$type<ScanState>().notNull(),
+  requestCount: integer("request_count").notNull().default(0),
+  stepAttempts: integer("step_attempts").notNull().default(0),
+  leaseToken: uuid("lease_token"),
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+  nextRequestAt: timestamp("next_request_at", { withTimezone: true }),
+  errorCode: text("error_code"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  index("website_scans_client_time_idx").on(table.clientId, table.createdAt),
+  uniqueIndex("website_scans_active_client_idx").on(table.clientId).where(sql`${table.status} in ('pending','running','processing')`),
+  unique("website_scans_client_id_idx").on(table.clientId, table.id),
+  check("website_scans_status_check", sql`${table.status} in ('pending','running','processing','completed','completed_with_warnings','failed','cancelled')`),
+  foreignKey({ columns: [table.clientId, table.previousScanId], foreignColumns: [table.clientId, table.id], name: "website_scans_previous_fk" }),
+]);
+export const websiteScanSources = pgTable("website_scan_sources", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  scanId: uuid("scan_id").notNull().references(() => websiteScans.id, { onDelete: "cascade" }),
+  url: text("url").notNull(), canonicalUrl: text("canonical_url").notNull(), urlHash: text("url_hash").notNull(),
+  pageType: text("page_type").notNull(), depth: integer("depth").notNull().default(0),
+  status: text("status").notNull().default("pending"), attempts: integer("attempts").notNull().default(0),
+  title: text("title"), language: text("language"), text: text("text"), contentHash: text("content_hash"),
+  extracted: jsonb("extracted").$type<Record<string, unknown>>().notNull().default({}),
+  httpStatus: integer("http_status"), bytes: integer("bytes"), errorCode: text("error_code"),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }),
+}, table => [
+  uniqueIndex("website_scan_sources_url_idx").on(table.scanId, table.urlHash),
+  unique("website_scan_sources_scan_id_idx").on(table.scanId, table.id),
+  index("website_scan_sources_status_idx").on(table.scanId, table.status),
+]);
+export const aiRuns = pgTable("ai_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clientId: uuid("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  scanId: uuid("scan_id").notNull(), task: text("task").notNull(), attempt: integer("attempt").notNull(),
+  model: text("model").notNull(), skillName: text("skill_name").notNull(), skillVersion: text("skill_version").notNull(),
+  promptVersion: text("prompt_version").notNull(), schemaVersion: text("schema_version").notNull(),
+  sourceIds: jsonb("source_ids").$type<string[]>().notNull(), inputHash: text("input_hash").notNull(),
+  output: jsonb("output"), status: text("status").notNull(), errorCode: text("error_code"),
+  durationMs: integer("duration_ms"), inputTokens: integer("input_tokens"), outputTokens: integer("output_tokens"), providerRequestId: text("provider_request_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  foreignKey({ columns: [table.clientId, table.scanId], foreignColumns: [websiteScans.clientId, websiteScans.id], name: "ai_runs_scan_client_fk" }).onDelete("cascade"),
+  unique("ai_runs_scan_id_idx").on(table.scanId, table.id),
+  uniqueIndex("ai_runs_task_attempt_idx").on(table.scanId, table.task, table.attempt),
+]);
+export const websiteFindings = pgTable("website_findings", {
+  id: uuid("id").primaryKey().defaultRandom(), scanId: uuid("scan_id").notNull().references(() => websiteScans.id, { onDelete: "cascade" }),
+  sourceId: uuid("source_id").notNull(), aiRunId: uuid("ai_run_id"),
+  category: text("category").notNull(), key: text("key").notNull(), value: jsonb("value").notNull(),
+  evidence: text("evidence").notNull(), locator: text("locator"), sourceType: text("source_type").notNull(),
+  observationStatus: text("observation_status").notNull(), confidence: text("confidence").notNull(),
+  findingHash: text("finding_hash").notNull(), reviewDisposition: text("review_disposition").notNull().default("normal"),
+  reviewedBy: text("reviewed_by").references(() => users.id, { onDelete: "set null" }), reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  foreignKey({ columns: [table.scanId, table.sourceId], foreignColumns: [websiteScanSources.scanId, websiteScanSources.id], name: "website_findings_source_fk" }).onDelete("cascade"),
+  foreignKey({ columns: [table.scanId, table.aiRunId], foreignColumns: [aiRuns.scanId, aiRuns.id], name: "website_findings_ai_run_fk" }),
+  index("website_findings_category_idx").on(table.scanId, table.category),
+  uniqueIndex("website_findings_hash_idx").on(table.scanId, table.findingHash),
+  check("website_findings_observation_check", sql`${table.observationStatus} in ('observed','inferred')`),
+  check("website_findings_review_check", sql`${table.reviewDisposition} in ('normal','needs_review','ignored')`),
+  check("website_findings_confidence_check", sql`${table.confidence} in ('high','medium','low')`),
+]);

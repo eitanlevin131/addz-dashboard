@@ -41,7 +41,10 @@ const server = createServer(async (request, response) => {
       return json(response, 401, { message: "Invalid E2E Resend key" });
     }
     const body = await requestBody(request);
-    resendMessages.push({ ...body, id: `e2e-email-${resendMessages.length + 1}` });
+    const key = request.headers["idempotency-key"];
+    const existing = key && resendMessages.find(message => message.key === key);
+    if (existing) return json(response, 200, { id: existing.id });
+    resendMessages.push({ ...body, key, id: `e2e-email-${resendMessages.length + 1}` });
     return json(response, 200, { id: resendMessages.at(-1).id });
   }
 
@@ -54,7 +57,15 @@ const server = createServer(async (request, response) => {
   }
 
   if (url.pathname === "/v1/responses" && request.method === "POST") {
-    await requestBody(request);
+    const body = await requestBody(request);
+    if (body.text?.format?.name === "website_observations") {
+      const input = JSON.parse(body.input);
+      const mapping = { brand_voice: ["brand", "brand_description"], products_commercial: ["products", "benefits"], audience_problems: ["audience", "audience_likely"], differentiation_operations: ["operations", "shipping"] };
+      const [category, key] = mapping[input.task];
+      const source = input.sources[0];
+      const findings = [{ category, key, value: { summary: "ממצא מבוסס ממקור האתר", details: [] }, sourceId: source.id, evidence: source.untrustedWebsiteText.slice(0, 120), observationStatus: key === "audience_likely" ? "inferred" : "observed", confidence: "high" }];
+      return json(response, 200, { output_text: JSON.stringify({ findings }), usage: { input_tokens: 1000, output_tokens: 100 }, status: "completed" });
+    }
     const answer = {
       answer: "בדיקת E2E הושלמה: הנתונים, החישוב והמקור זמינים.",
       facts: [{ text: "הסיכום מבוסס על מדדי הטווח הנבחר.", evidenceIds: ["summary:current-range"] }],

@@ -1,5 +1,9 @@
 import { eq, sql } from "drizzle-orm";
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
+import { initialScanStatements } from "@/lib/website-intelligence/repository";
+import { advanceScan } from "@/lib/website-intelligence/worker";
+import { safeWebsiteUrl } from "@/lib/website-intelligence/safe-fetch";
+export const runtime = "nodejs";
 import { auditInsert } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth/access";
 import { isOwnerEmail } from "@/lib/auth/owner";
@@ -69,6 +73,11 @@ export async function POST(request: Request) {
   if (!context.ok) return context.response;
   const body = await request.json().catch(() => ({}));
   const existingClientId = typeof body.clientId === "string" ? body.clientId : null;
+  let website: string | null = null;
+  if (!existingClientId && body.website) {
+    try { website = safeWebsiteUrl(String(body.website)).href; }
+    catch { return NextResponse.json({ success: false, message: "כתובת האתר אינה תקינה." }, { status: 400 }); }
+  }
   let existingClient;
   if (existingClientId) {
     try { existingClient = await requireClient(existingClientId); }
@@ -113,7 +122,7 @@ export async function POST(request: Request) {
   const userId = clientEmail ? crypto.randomUUID() : null;
   const insertClient = existingClientId
     ? db.update(clients).set({ onboardingStatus: "syncing" }).where(eq(clients.id, clientId))
-    : db.insert(clients).values({ id: clientId, name: clientName, owner: clientEmail || null, industry: industry || "לקוח Flashy", visibleModules, onboardingStatus: "syncing", onboardingStage: "client_created", ownerUserId: context.access.userId === "dev-admin" ? null : context.access.userId });
+    : db.insert(clients).values({ id: clientId, name: clientName, website, owner: clientEmail || null, industry: industry || "לקוח Flashy", visibleModules, onboardingStatus: "syncing", onboardingStage: "client_created", ownerUserId: context.access.userId === "dev-admin" ? null : context.access.userId });
   const insertAccount = db.insert(flashyAccounts).values({
       // A concurrent duplicate deliberately collides with the existing PK.
       id: sql`coalesce((select id from flashy_accounts where flashy_account_id = ${flashyAccount.id} limit 1), ${accountId}::uuid)`,
@@ -132,6 +141,7 @@ export async function POST(request: Request) {
     });
   const insertMemory = db.insert(aiAccountMemory).values({ clientId, ...memoryFromOnboarding(documents, onboarding) }).onConflictDoNothing();
   const event = auditInsert({ actorUserId: context.access.userId, actorType: "user", clientId, action: existingClientId ? "flashy.connected" : "client.created", entityType: "client", entityId: clientId, metadata: { flashyAccountId: flashyAccount.id, documents: documents.length, userCreated: Boolean(userId), ...(!existingClientId ? { onboardingStage: "client_created" } : {}) } });
+  const scan = !existingClientId ? initialScanStatements(clientId, website, context.access.userId) : null;
 
   try {
     const lock = db.execute(sql`select pg_advisory_xact_lock(${flashyAccount.id}::bigint)`);
@@ -144,14 +154,16 @@ export async function POST(request: Request) {
         db.insert(users).values({ id: userId, email: clientEmail, name: clientUserName || clientName, role: "client", status: "active", mustChangePassword: false }),
         db.insert(clientUsers).values({ clientId, userId }),
         event,
+        ...(scan?.statements || []),
       ]);
     } else {
-      await db.batch([lock, insertClient, insertAccount, insertMemory, event]);
+      await db.batch([lock, insertClient, insertAccount, insertMemory, event, ...(scan?.statements || [])]);
     }
   } catch {
     return NextResponse.json({ success: false, message: "שמירת הלקוח נכשלה. לא נוצרו רשומות חלקיות." }, { status: 409 });
   }
 
+  if (scan) after(() => advanceScan(clientId, scan.id).then(() => {}));
   try {
     const sync = await syncPersistedFlashyAccount(accountId, {
       lookbackDays: 365,
