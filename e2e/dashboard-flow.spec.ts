@@ -163,13 +163,17 @@ test.describe("agency dashboard critical journey", () => {
       .getByLabel("סוג התקשרות", { exact: true })
       .selectOption("email_management");
     await page.getByLabel("חבילה", { exact: true }).selectOption("email_5");
+    await expect(page.getByLabel("חבילה", { exact: true }).locator("option:checked")).toHaveText("5 קמפיינים בחודש");
+    await expect(page.getByLabel("שדרוג ל-6 אוטומציות + פופאפ")).toHaveCount(0);
     await expect(
       page.getByLabel("ריטיינר חודשי בפועל (₪)", { exact: true }),
     ).toHaveValue("3500.00");
     await page
       .getByLabel("התחייבות ראשונית", { exact: true })
       .selectOption("3");
-    await page.getByLabel("setup ראשוני", { exact: true }).selectOption("6");
+    await expect(page.getByText("כולל הקמת 3 אוטומציות + פופאפ ללא עלות הקמה", { exact: true })).toBeVisible();
+    await expect(page.getByText("+₪3,000", { exact: true })).toBeVisible();
+    await page.getByLabel("שדרוג ל-6 אוטומציות + פופאפ").check();
     await page.getByLabel(/WhatsApp addon/).check();
     await expect(
       page.getByLabel("סכום חד פעמי בפועל (₪)", { exact: true }),
@@ -180,6 +184,13 @@ test.describe("agency dashboard critical journey", () => {
     await page
       .getByLabel("סכום חד פעמי בפועל (₪)", { exact: true })
       .fill("3500.00");
+    const commercialSummary = page.getByRole("region", { name: "סיכום התקשרות", exact: true });
+    await expect(commercialSummary.getByRole("heading", { name: "5 קמפיינים בחודש", exact: true })).toBeVisible();
+    await expect(commercialSummary).toContainText("2,500.5");
+    await expect(commercialSummary).toContainText("3,500");
+    await expect(commercialSummary).toContainText("6 אוטומציות + פופאפ");
+    await expect(commercialSummary).toContainText("כלול כתוספת");
+    await commercialSummary.screenshot({ path: "output/playwright/epic1-commercial-summary-desktop.png", animations: "disabled" });
     await page
       .getByRole("button", { name: "הוסף איש קשר", exact: true })
       .click();
@@ -194,6 +205,7 @@ test.describe("agency dashboard critical journey", () => {
       animations: "disabled",
     });
     await page.setViewportSize({ width: 390, height: 844 });
+    await commercialSummary.screenshot({ path: "output/playwright/epic1-commercial-summary-mobile.png", animations: "disabled" });
     await page.evaluate(() => window.scrollTo(0, 0));
     await expect(page.getByRole("button", { name: "צור לקוח", exact: true })).toBeInViewport();
     await page.screenshot({
@@ -240,6 +252,8 @@ test.describe("agency dashboard critical journey", () => {
       .getByRole("button", { name: "עריכת פרטים", exact: true })
       .click();
     await page.getByLabel("חבילה", { exact: true }).selectOption("email_8");
+    await expect(page.getByLabel("חבילה", { exact: true }).locator("option:checked")).toHaveText("8 קמפיינים בחודש");
+    await expect(page.getByText("+₪2,000", { exact: true })).toBeVisible();
     await expect(
       page.getByLabel("ריטיינר חודשי בפועל (₪)", { exact: true }),
     ).toHaveValue("2500.50");

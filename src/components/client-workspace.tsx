@@ -345,7 +345,7 @@ export function ClientFoundation({
           <label className="relative col-span-2 sm:col-span-1">
             <span className="sr-only">חיפוש לקוחות</span>
             <Search
-              className="absolute right-3 top-4 text-[#667085]"
+              className="absolute right-3 top-3 text-[#667085]"
               size={16}
             />
             <input

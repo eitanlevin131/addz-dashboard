@@ -28,9 +28,9 @@ export const DELIVERABLE_DEFINITIONS = [
   { code: "whatsapp_setup", label: "הקמת WhatsApp" },
 ] as const;
 export const ENGAGEMENT_TYPES = [
-  { code: "email_management", label: "ניהול Email Marketing" },
-  { code: "automation_setup", label: "הקמת אוטומציות" },
-  { code: "whatsapp", label: "הקמת WhatsApp" },
+  { code: "email_management", label: "ניהול Email Marketing חודשי" },
+  { code: "automation_setup", label: "פרויקט הקמת אוטומציות" },
+  { code: "whatsapp", label: "אוטומציות WhatsApp בלבד" },
 ] as const;
 export type EngagementType = (typeof ENGAGEMENT_TYPES)[number]["code"];
 export const CLIENT_PACKAGES = [
@@ -103,6 +103,14 @@ export type PackageScope = {
 };
 export function packageDefinition(code: unknown) {
   return CLIENT_PACKAGES.find((item) => item.code === code);
+}
+export function packageDisplayLabel(code: PackageCode) {
+  const definition = packageDefinition(code)!;
+  if (definition.type === "email_management")
+    return `${definition.campaignLimit} קמפיינים בחודש`;
+  if (definition.type === "automation_setup")
+    return `${definition.setupTier} אוטומציות + פופאפ`;
+  return "אוטומציות WhatsApp בלבד";
 }
 export function derivePackageScope(
   code: unknown,

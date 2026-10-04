@@ -59,3 +59,10 @@ Read the actual target schema and migration history before any production migrat
 - The catalog has compact filters and desktop rows, and a mobile list without horizontal scrolling. The constrained form has five sections, conditional package controls, a persistent bottom save/cancel bar and separate actual-price inputs. Workspace headers show the engagement, actual prices and services; overview/contacts/activity tabs are unchanged.
 - Extended E2E coverage exercises every package's prices, incompatible services, email commitment/upgrade/addon selection, negotiated-price preservation after package change, legacy preservation, client isolation, mobile overflow and save-button visibility.
 - Updated desktop/mobile artifacts: `output/playwright/epic1-clients-{desktop,mobile}.png`, `epic1-new-client-{desktop,mobile}.png`, `epic1-workspace-{desktop,mobile}.png`. All contain isolated test fixtures.
+
+### Commercial UX clarification
+
+- Engagement names distinguish monthly Email Marketing, a standalone automation project and WhatsApp-only automations. Email package selectors show only the monthly campaign count; persisted package names/codes, pricing and configuration remain unchanged.
+- Existing commitment value `1` is presented as "ללא התחייבות ראשונית"; value `3` as "התחייבות ראשונית ל-3 חודשים". No data-model conversion is required. The bundled setup has explicit helper text, with an optional six-automation upgrade and its package-specific price beside it.
+- The form's commercial summary shows the selected package, actual monthly and one-time fees, commitment, setup tier, WhatsApp status and operational deliverables. It updates from form state, never reprices negotiated fees, and uses the existing ADDZ colors with tighter field/section spacing.
+- No API, permission, pricing-rule or migration changes were made in this clarification. Summary screenshots are `output/playwright/epic1-commercial-summary-{desktop,mobile}.png`.

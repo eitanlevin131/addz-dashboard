@@ -5,31 +5,39 @@ import {
   type PackageScope,
 } from "@/lib/client-packages";
 
-export function ClientPackageScope({ scope }: { scope: PackageScope }) {
+export function ClientPackageScope({
+  scope,
+  showConfiguration = true,
+}: {
+  scope: PackageScope;
+  showConfiguration?: boolean;
+}) {
   return (
     <div className="space-y-3 text-sm">
-      <div className="flex flex-wrap gap-2">
-        {scope.campaignLimit !== null && (
-          <span className="rounded-md bg-[#eef3f7] px-2.5 py-1 font-medium">
-            {scope.campaignLimit} קמפיינים בחודש
-          </span>
-        )}
-        {scope.initialCommitmentMonths === 3 && (
-          <span className="rounded-md bg-[#eef3f7] px-2.5 py-1">
-            התחייבות ל־3 חודשים
-          </span>
-        )}
-        {scope.automationSetupTier > 0 && (
-          <span className="rounded-md bg-[#ecfdf9] px-2.5 py-1 text-[#087f72]">
-            {scope.automationSetupTier} אוטומציות + Popup
-          </span>
-        )}
-        {scope.whatsappAddon && (
-          <span className="rounded-md bg-[#ecfdf9] px-2.5 py-1 text-[#087f72]">
-            WhatsApp addon
-          </span>
-        )}
-      </div>
+      {showConfiguration && (
+        <div className="flex flex-wrap gap-2">
+          {scope.campaignLimit !== null && (
+            <span className="rounded-md bg-[#eef3f7] px-2.5 py-1 font-medium">
+              {scope.campaignLimit} קמפיינים בחודש
+            </span>
+          )}
+          {scope.initialCommitmentMonths === 3 && (
+            <span className="rounded-md bg-[#eef3f7] px-2.5 py-1">
+              התחייבות ל־3 חודשים
+            </span>
+          )}
+          {scope.automationSetupTier > 0 && (
+            <span className="rounded-md bg-[#ecfdf9] px-2.5 py-1 text-[#087f72]">
+              {scope.automationSetupTier} אוטומציות + פופאפ
+            </span>
+          )}
+          {scope.whatsappAddon && (
+            <span className="rounded-md bg-[#ecfdf9] px-2.5 py-1 text-[#087f72]">
+              WhatsApp addon
+            </span>
+          )}
+        </div>
+      )}
       {scope.deliverables.length > 0 && (
         <ul className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-[#475467]">
           {scope.deliverables.map((code) => (

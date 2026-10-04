@@ -18,15 +18,16 @@ import {
   WHATSAPP_ADDON,
   derivePackageScope,
   packageDefinition,
+  packageDisplayLabel,
   packagePrices,
   type PackageCode,
   type PackageScope,
 } from "@/lib/client-packages";
 import type { ClientProfile } from "@/lib/clients";
-import { ClientPackageScope } from "@/components/client-package-scope";
+import { ClientCommercialSummary } from "@/components/client-commercial-summary";
 
 export const clientFieldClass =
-  "mt-1.5 h-9 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#111318] outline-none transition focus:border-[#087f72] focus:ring-2 focus:ring-[#42dfcf]/20 disabled:opacity-50";
+  "mt-1 h-8 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#111318] outline-none transition focus:border-[#087f72] focus:ring-2 focus:ring-[#42dfcf]/20 disabled:opacity-50";
 export const clientButtonClass =
   "inline-flex min-h-9 items-center justify-center gap-2 rounded-md border border-[#d0d5dd] bg-white px-3 py-2 text-sm text-[#344054] transition hover:bg-[#f8fafb] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#087f72] disabled:opacity-50";
 export const clientPrimaryClass = `${clientButtonClass} !border-[#111318] !bg-[#111318] !text-white`;
@@ -90,8 +91,8 @@ function FormSection({
   children: ReactNode;
 }) {
   return (
-    <section className="border-b border-[#e4e7ec] py-5 last:border-0">
-      <h3 className="mb-4 flex items-center gap-2 text-sm font-semibold">
+    <section className="border-b border-[#e4e7ec] py-4 last:border-0">
+      <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
         <Icon size={16} className="text-[#667085]" />
         {title}
       </h3>
@@ -229,7 +230,7 @@ export function ClientProfileForm({
       </div>
       <fieldset disabled={busy}>
         <FormSection title="פרטי העסק" icon={Building2}>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             {(
               [
                 {
@@ -298,7 +299,7 @@ export function ClientProfileForm({
           </div>
         </FormSection>
         <FormSection title="מסחר והתקשרות" icon={Banknote}>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-xs font-medium text-[#475467]">
               סוג התקשרות
               <select
@@ -337,7 +338,7 @@ export function ClientProfileForm({
                 {CLIENT_PACKAGES.filter((item) => item.type === engagement).map(
                   (item) => (
                     <option key={item.code} value={item.code}>
-                      {item.label}
+                      {packageDisplayLabel(item.code)}
                     </option>
                   ),
                 )}
@@ -358,6 +359,11 @@ export function ClientProfileForm({
                 התחייבות ראשונית
                 <select
                   aria-label="התחייבות ראשונית"
+                  aria-describedby={
+                    scope.initialCommitmentMonths === 3
+                      ? "commitment-included-setup"
+                      : undefined
+                  }
                   className={clientFieldClass}
                   value={scope.initialCommitmentMonths ?? 1}
                   onChange={(event) =>
@@ -367,33 +373,46 @@ export function ClientProfileForm({
                     })
                   }
                 >
-                  <option value={1}>חודשי</option>
-                  <option value={3}>3 חודשים · setup ראשוני כלול</option>
+                  <option value={1}>ללא התחייבות ראשונית</option>
+                  <option value={3}>התחייבות ראשונית ל-3 חודשים</option>
                 </select>
+                {scope.initialCommitmentMonths === 3 && (
+                  <p
+                    id="commitment-included-setup"
+                    className="mt-1.5 text-xs font-normal leading-5 text-[#087f72]"
+                  >
+                    כולל הקמת 3 אוטומציות + פופאפ ללא עלות הקמה
+                  </p>
+                )}
               </label>
             )}
             {definition?.type === "email_management" &&
               scope?.initialCommitmentMonths === 3 && (
-                <label className="text-xs font-medium text-[#475467]">
-                  setup ראשוני
-                  <select
-                    aria-label="setup ראשוני"
-                    className={clientFieldClass}
-                    value={scope.automationSetupTier}
-                    onChange={(event) =>
-                      choose(definition.code, {
-                        ...scope,
-                        automationSetupTier: Number(event.target.value),
-                      })
-                    }
-                  >
-                    <option value={3}>3 אוטומציות + Popup · כלול</option>
-                    <option value={6}>
-                      6 אוטומציות + Popup · תוספת ₪
-                      {definition.setupUpgradeAmount.toLocaleString("he-IL")}
-                    </option>
-                  </select>
-                </label>
+                <div className="sm:col-span-2 border-y border-[#eaecf0] py-3">
+                  <p className="mb-2 text-xs font-medium text-[#475467]">
+                    שדרוג setup (אופציונלי)
+                  </p>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      aria-label="שדרוג ל-6 אוטומציות + פופאפ"
+                      checked={scope.automationSetupTier === 6}
+                      onChange={(event) =>
+                        choose(definition.code, {
+                          ...scope,
+                          automationSetupTier: event.target.checked ? 6 : 3,
+                        })
+                      }
+                    />
+                    <span>6 אוטומציות + פופאפ</span>
+                    <bdi
+                      dir="ltr"
+                      className="mr-auto shrink-0 font-medium text-[#087f72]"
+                    >
+                      +₪{definition.setupUpgradeAmount.toLocaleString("he-IL")}
+                    </bdi>
+                  </label>
+                </div>
               )}
             {definition && definition.type !== "whatsapp" && scope && (
               <label className="flex items-center gap-2 self-end pb-2 text-sm">
@@ -415,7 +434,7 @@ export function ClientProfileForm({
               </label>
             )}
           </div>
-          <div className="mt-5 grid gap-4 border-t border-[#eaecf0] pt-4 sm:grid-cols-2">
+          <div className="mt-3 grid gap-3 border-t border-[#eaecf0] pt-3 sm:grid-cols-2">
             {[
               {
                 label: "ריטיינר חודשי בפועל (₪)",
@@ -443,7 +462,7 @@ export function ClientProfileForm({
                     step="0.01"
                     dir="ltr"
                     value={field.value}
-                    className={`${clientFieldClass} !h-11 !text-base font-semibold tabular-nums`}
+                    className={`${clientFieldClass} !h-10 !text-base font-semibold tabular-nums`}
                     onChange={(event) => {
                       field.dirty(true);
                       field.onChange(event.target.value);
@@ -472,9 +491,14 @@ export function ClientProfileForm({
             ))}
           </div>
         </FormSection>
-        <FormSection title="חבילה ו־scope" icon={Layers3}>
-          {scope ? (
-            <ClientPackageScope scope={scope} />
+        <FormSection title="סיכום ההתקשרות" icon={Layers3}>
+          {scope && code ? (
+            <ClientCommercialSummary
+              packageCode={code}
+              scope={scope}
+              monthly={monthly}
+              oneTime={oneTime}
+            />
           ) : (
             <p className="text-sm text-[#667085]">
               {engagement === "legacy"

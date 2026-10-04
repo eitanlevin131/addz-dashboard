@@ -4,6 +4,7 @@ import {
   CLIENT_PACKAGES,
   derivePackageScope,
   packagePrices,
+  packageDisplayLabel,
   servicesFromPackage,
 } from "../src/lib/client-packages.ts";
 import { parseClientProfile } from "../src/lib/client-foundation.ts";
@@ -26,6 +27,12 @@ test("ADDZ package registry defines the five commercial offers with exact prices
     assert.equal(prices.oneTimeAmount, oneTime);
     assert.equal(scope.campaignLimit, campaigns);
   }
+  assert.equal(packageDisplayLabel("email_5"), "5 קמפיינים בחודש");
+  assert.equal(packageDisplayLabel("email_8"), "8 קמפיינים בחודש");
+  assert.equal(
+    packageDisplayLabel("automation_setup_3"),
+    "3 אוטומציות + פופאפ",
+  );
 });
 test("three month email commitment includes three flows and Popup; six flow upgrade uses package pricing", () => {
   for (const [code, upgrade] of [
