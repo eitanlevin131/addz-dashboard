@@ -71,8 +71,10 @@ const server = createServer(async (request, response) => {
     return json(response, 401, { success: false, message: "Invalid E2E API key" });
   }
   const primary = apiKey === "e2e-flashy-primary";
-  const accountId = primary ? 990001 : 990002;
-  const accountName = primary ? "E2E Alpha Account" : "E2E Beta Account";
+  const foundation = apiKey === "e2e-flashy-foundation";
+  const concurrent = apiKey === "e2e-flashy-concurrent";
+  const accountId = concurrent ? 990005 : foundation ? 990004 : primary ? 990001 : 990002;
+  const accountName = foundation ? "E2E Foundation Account" : primary ? "E2E Alpha Account" : "E2E Beta Account";
 
   if (url.pathname === "/account") {
     return json(response, 200, {

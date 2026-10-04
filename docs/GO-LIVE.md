@@ -151,3 +151,13 @@ npm run build
 4. לבדוק כניסת owner, admin ו־client.
 5. לוודא בידוד לקוחות והרשאות מסכי אדמין.
 6. לפרוס ל־Production ולבצע כניסה אמיתית אחת עם קוד שנשלח מ־Resend.
+# Epic 1 rollout gate
+
+Before deploying Epic 1, run `node scripts/epic1-preflight.mjs` (read-only).
+The application database currently has no Drizzle migration history table, and the repository is missing the SQL file for journal entry 0001. Do not replay the complete journal or run unrestricted `db:push`.
+
+For isolated test setup only: `node scripts/epic1-preflight.mjs --apply-test`. This refuses the application database and repairs only the known missing 0016 baseline before applying 0017.
+
+Production prerequisites: verify the actual Vercel DATABASE_URL target, obtain a verified Neon backup/restore point, compare schema/constraints and test upgrade on a clone. Then apply only `db/migrations/0017_public_jazinda.sql` atomically through the approved database procedure, verify the new columns/table/indexes, and deploy the application. No production application command is provided by the test script.
+
+Old application code is compatible with the additive schema. New application code requires 0017; do not push to auto-deploy main before the production schema rollout is approved. Roll back the application if needed, not the new data/table. Long-standing migration history reconciliation remains a separate task.

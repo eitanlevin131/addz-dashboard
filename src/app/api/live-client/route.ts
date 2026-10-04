@@ -1,7 +1,9 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
-import { recordAudit } from "@/lib/audit";
+import { auditInsert } from "@/lib/audit";
 import { requireAdmin } from "@/lib/auth/access";
+import { isOwnerEmail } from "@/lib/auth/owner";
+import { requireClient } from "@/lib/clients";
 import { encryptSecret } from "@/lib/crypto";
 import { getDb, isDatabaseConfigured } from "@/lib/db";
 import { validateFlashyAccount } from "@/lib/flashy";
@@ -66,10 +68,17 @@ export async function POST(request: Request) {
   const context = await requireAdmin();
   if (!context.ok) return context.response;
   const body = await request.json().catch(() => ({}));
+  const existingClientId = typeof body.clientId === "string" ? body.clientId : null;
+  let existingClient;
+  if (existingClientId) {
+    try { existingClient = await requireClient(existingClientId); }
+    catch { return NextResponse.json({ success: false, message: "הלקוח לא נמצא." }, { status: 404 }); }
+  }
   const apiKey = String(body.apiKey ?? "").trim();
-  const clientName = String(body.clientName ?? "").trim();
+  const clientName = existingClient?.name ?? String(body.clientName ?? "").trim();
   const industry = String(body.industry ?? "").trim();
   const clientEmail = String(body.clientEmail ?? "").trim().toLowerCase();
+  if (clientEmail && !isOwnerEmail(context.access.email)) return NextResponse.json({ success: false, message: "רק בעל המערכת יכול ליצור משתמש כניסה." }, { status: 403 });
   const clientUserName = String(body.clientUserName ?? clientName).trim();
   const visibleModules = Array.isArray(body.visibleModules)
     ? body.visibleModules.filter((module: unknown) => ["reports", "planner", "ai"].includes(String(module)))
@@ -99,12 +108,15 @@ export async function POST(request: Request) {
     if (duplicateUser) return NextResponse.json({ success: false, code: "USER_EXISTS", message: "כבר קיים משתמש עם האימייל הזה. אפשר לשייך אותו ללקוח אחרי ההקמה." }, { status: 409 });
   }
 
-  const clientId = crypto.randomUUID();
+  const clientId = existingClientId ?? crypto.randomUUID();
   const accountId = crypto.randomUUID();
   const userId = clientEmail ? crypto.randomUUID() : null;
-  const insertClient = db.insert(clients).values({ id: clientId, name: clientName, owner: clientEmail || null, industry: industry || "לקוח Flashy", visibleModules, onboardingStatus: "syncing" });
+  const insertClient = existingClientId
+    ? db.update(clients).set({ onboardingStatus: "syncing" }).where(eq(clients.id, clientId))
+    : db.insert(clients).values({ id: clientId, name: clientName, owner: clientEmail || null, industry: industry || "לקוח Flashy", visibleModules, onboardingStatus: "syncing", onboardingStage: "client_created", ownerUserId: context.access.userId === "dev-admin" ? null : context.access.userId });
   const insertAccount = db.insert(flashyAccounts).values({
-      id: accountId,
+      // A concurrent duplicate deliberately collides with the existing PK.
+      id: sql`coalesce((select id from flashy_accounts where flashy_account_id = ${flashyAccount.id} limit 1), ${accountId}::uuid)`,
       clientId,
       flashyAccountId: flashyAccount.id,
       name: flashyAccount.name || flashyAccount.account || clientName,
@@ -118,24 +130,27 @@ export async function POST(request: Request) {
       agencyRetainerCostIls: String(numeric(body.agencyRetainerCostIls)),
       active: true,
     });
-  const insertMemory = db.insert(aiAccountMemory).values({ clientId, ...memoryFromOnboarding(documents, onboarding) });
+  const insertMemory = db.insert(aiAccountMemory).values({ clientId, ...memoryFromOnboarding(documents, onboarding) }).onConflictDoNothing();
+  const event = auditInsert({ actorUserId: context.access.userId, actorType: "user", clientId, action: existingClientId ? "flashy.connected" : "client.created", entityType: "client", entityId: clientId, metadata: { flashyAccountId: flashyAccount.id, documents: documents.length, userCreated: Boolean(userId), ...(!existingClientId ? { onboardingStage: "client_created" } : {}) } });
 
   try {
+    const lock = db.execute(sql`select pg_advisory_xact_lock(${flashyAccount.id}::bigint)`);
     if (clientEmail && userId) {
       await db.batch([
+        lock,
         insertClient,
         insertAccount,
         insertMemory,
         db.insert(users).values({ id: userId, email: clientEmail, name: clientUserName || clientName, role: "client", status: "active", mustChangePassword: false }),
         db.insert(clientUsers).values({ clientId, userId }),
+        event,
       ]);
     } else {
-      await db.batch([insertClient, insertAccount, insertMemory]);
+      await db.batch([lock, insertClient, insertAccount, insertMemory, event]);
     }
   } catch {
     return NextResponse.json({ success: false, message: "שמירת הלקוח נכשלה. לא נוצרו רשומות חלקיות." }, { status: 409 });
   }
-  await recordAudit({ actorUserId: context.access.userId, action: "client.created", entityType: "client", entityId: clientId, metadata: { flashyAccountId: flashyAccount.id, documents: documents.length, userCreated: Boolean(userId) } });
 
   try {
     const sync = await syncPersistedFlashyAccount(accountId, {

@@ -62,6 +62,7 @@ import {
   type SmsTrendPoint,
 } from "@/components/reporting-charts";
 import { ClientOnboardingWizard } from "@/components/client-onboarding-wizard";
+import { ClientFoundation } from "@/components/client-workspace";
 import { BrandLogo } from "@/components/brand-logo";
 import { AgencyPortfolio, type AgencyPortfolioRow } from "@/components/agency-portfolio";
 import { AiWorkspace } from "@/components/ai-workspace";
@@ -137,6 +138,8 @@ import type {
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
 
 type ViewKey =
+  | "clients"
+  | "client-workspace"
   | "portfolio"
   | "close"
   | "overview"
@@ -354,6 +357,7 @@ function LiveDataIssue({ message }: { message: string }) {
 }
 
 const views: { key: ViewKey; label: string; icon: typeof Activity; module?: ModuleKey }[] = [
+  { key: "clients", label: "לקוחות", icon: Users },
   { key: "portfolio", label: "סוכנות", icon: Building2 },
   { key: "close", label: "סגירת חודש", icon: CheckCircle2 },
   { key: "overview", label: "כללי", icon: LineChart, module: "reports" },
@@ -392,7 +396,7 @@ const navigationGroups: Array<{
     key: "management",
     label: "ניהול",
     icon: Settings,
-    views: ["close", "settings", "admin"],
+    views: ["clients", "client-workspace", "close", "settings", "admin"],
   },
 ];
 
@@ -1938,6 +1942,7 @@ function Sidebar({
   onSelectView: (view: ViewKey) => void;
 }) {
   const [navigationState, setNavigationState] = useState<{ view: ViewKey; openGroup: NavigationGroupKey }>(() => {
+    if (view === "clients" || view === "client-workspace") return { view, openGroup: "management" };
     if (typeof window === "undefined") return { view, openGroup: navigationGroupForView(view) };
     const savedGroup = window.localStorage.getItem("addz-navigation-group");
     const openGroup = navigationGroups.some((group) => group.key === savedGroup)
@@ -2007,10 +2012,10 @@ function Sidebar({
                         key={item.key}
                         type="button"
                         onClick={() => selectView(item.key)}
-                        aria-current={view === item.key ? "page" : undefined}
+                        aria-current={view === item.key || (view === "client-workspace" && item.key === "clients") ? "page" : undefined}
                         className={classNames(
                           "relative flex min-h-9 items-center gap-2 rounded-md px-2.5 py-2 text-right text-sm font-medium transition",
-                          view === item.key
+                          view === item.key || (view === "client-workspace" && item.key === "clients")
                             ? "bg-[#FFE045] font-bold text-[#080123]"
                             : "text-white/60 hover:bg-white/5 hover:text-white",
                         )}
@@ -4888,6 +4893,8 @@ function FloatingAiChat({
   const [grounding, setGrounding] = useState<AiGroundedResponse | null>(null);
   const [conversation, setConversation] = useState<Array<{ id: string; role: "user" | "assistant"; content: string; createdAt: string }>>([]);
   const viewLabels: Record<ViewKey, string> = {
+    clients: "לקוחות",
+    "client-workspace": "פרטי לקוח",
     portfolio: "סוכנות",
     close: "סגירת חודש",
     overview: "כללי",
@@ -5719,6 +5726,14 @@ function AdminActivityLog() {
 }
 
 function AdminWorkspace({ clients, canManageUsers }: { clients: Client[]; canManageUsers: boolean }) {
+  const [catalogClients, setCatalogClients] = useState(clients);
+  useEffect(() => {
+    let cancelled = false;
+    if (canManageUsers) void fetch("/api/clients", { cache: "no-store" }).then(response => response.json()).then(payload => {
+      if (!cancelled && payload.success) setCatalogClients(payload.data.map((client: { id: string; name: string; industry: string | null }) => ({ id: client.id, name: client.name, industry: client.industry ?? "", owner: "", visibleModules: ["reports", "planner", "ai"] })));
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [canManageUsers]);
   const [tab, setTab] = useState<"clients" | "users" | "activity">("clients");
   const [digestSending, setDigestSending] = useState(false);
   const [digestMessage, setDigestMessage] = useState("");
@@ -5784,8 +5799,8 @@ function AdminWorkspace({ clients, canManageUsers }: { clients: Client[]; canMan
           {canManageUsers ? "ניהול מערכת · בעלים" : "חיבור והקמת חשבונות"}
         </p>
       </div>
-      {tab === "clients" && <ClientOnboardingWizard />}
-      {tab === "users" && <UserAccessManager clients={clients} />}
+      {tab === "clients" && <ClientOnboardingWizard canManageUsers={canManageUsers} />}
+      {tab === "users" && <UserAccessManager clients={catalogClients} />}
       {tab === "activity" && <AdminActivityLog />}
     </div>
   );
@@ -6524,6 +6539,7 @@ function AccountSettings({
 }
 
 export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }) {
+  const [workspaceClientId, setWorkspaceClientId] = useState<string>();
   const [localClients, setLocalClients] = useState<Client[]>(clients);
   const [localAccounts, setLocalAccounts] = useState<FlashyAccount[]>(flashyAccounts);
   const [localEmailReports, setLocalEmailReports] = useState<EmailCampaignReport[]>(emailReports);
@@ -6533,7 +6549,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
   const [localNewsletterPlans, setLocalNewsletterPlans] =
     useState<NewsletterPlan[]>(newsletterPlans);
   const [localSyncHistory, setLocalSyncHistory] = useState<SyncHistoryEntry[]>([]);
-  const [selectedClientId, setSelectedClientId] = useState(localClients[0].id);
+  const [selectedClientId, setSelectedClientId] = useState(localClients[0]?.id ?? "");
   const [selectedMonthlySummaryId, setSelectedMonthlySummaryId] = useState<string | undefined>(initialSummaryId);
   const [view, setView] = useState<ViewKey>(initialSummaryId ? "monthly" : "overview");
   const [timeRange, setTimeRange] = useState<TimeRangeKey>("30d");
@@ -6556,9 +6572,11 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
       : "light",
   );
   const selectedClient =
-    localClients.find((client) => client.id === selectedClientId) ?? localClients[0];
+    localClients.find((client) => client.id === selectedClientId) ?? localClients[0] ?? { id: "", name: "", owner: "", industry: "", visibleModules: [] };
+  const hasReportAccount = localAccounts.some(item => item.clientId === selectedClient.id);
+  // An inert calculation input, never a fallback to another client's account.
   const account =
-    localAccounts.find((item) => item.clientId === selectedClient.id) ?? localAccounts[0];
+    localAccounts.find((item) => item.clientId === selectedClient.id) ?? { id: "", clientId: "", flashyAccountId: 0, name: "", website: "", currency: "ILS", timezone: "Asia/Jerusalem", credits: 0, usdIlsRate: 0, smsCreditPriceUsd: 0, monthlySubscriptionCostUsd: 0, agencyRetainerCostIls: 0, active: false, lastSyncAt: "", syncStatus: "never" as const };
 
   useEffect(() => {
     window.localStorage.setItem("addz-growth-os-theme", theme);
@@ -6728,6 +6746,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
   }[visibleSyncStatus];
 
   const visibleViews = views.filter((item) => {
+    if (item.key === "clients" && !viewerIsStaff) return false;
     if (item.key === "portfolio" && !viewerIsStaff) return false;
     if (item.key === "close" && !viewerIsStaff) return false;
     if (item.key === "changes" && !viewerIsStaff) return false;
@@ -6736,7 +6755,8 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
     return !item.module || selectedClient.visibleModules.includes(item.module) || item.key === "admin";
   });
   const effectiveShowDeepAnalysis = showDeepAnalysis;
-  const activeView = isRestrictedUser && (view === "portfolio" || view === "close" || view === "changes" || view === "settings" || view === "admin") ? "overview" : view;
+  const activeView = isRestrictedUser && (view === "clients" || view === "client-workspace" || view === "portfolio" || view === "close" || view === "changes" || view === "settings" || view === "admin") ? "overview" : view;
+  const foundationView = activeView === "clients" || activeView === "client-workspace";
   const showTimeRange = activeView === "portfolio" || costViewKeys.includes(activeView);
 
   useEffect(() => {
@@ -6771,7 +6791,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
         const incomingRole = data.viewer?.role ?? "admin";
         setCanManageUsers(data.viewer?.canManageUsers === true);
         setCanConnectAccounts(data.viewer?.canConnectAccounts === true);
-        if (!data.clients.length || !data.accounts.length) {
+        if ((!data.clients.length || !data.accounts.length) && incomingRole === "client") {
           setDataSource("loading");
           setLiveDataIssue(
             "התחברת בהצלחה, אבל המשתמש לא משויך עדיין ללקוח או שאין חשבונות שמורים ב-Neon.",
@@ -6780,11 +6800,20 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
         }
 
         setViewerRole(incomingRole);
-        const linkedPlan = data.newsletterPlans.find((plan) => plan.id === new URLSearchParams(window.location.search).get("planId"));
+        const params = new URLSearchParams(window.location.search);
+        const requestedView = params.get("view");
+        const linkedPlan = data.newsletterPlans.find((plan) => plan.id === params.get("planId"));
         if (initialSummaryId) {
           setView("monthly");
         } else if (linkedPlan) {
           setView("planner");
+        } else if (incomingRole !== "client" && (requestedView === "clients" || requestedView === "client-workspace")) {
+          setView(requestedView);
+          setWorkspaceClientId(params.get("clientId") ?? undefined);
+        } else if (incomingRole !== "client" && (!data.clients.length || !data.accounts.length)) {
+          setView("clients");
+        } else if (requestedView === "overview" && data.clients.some(client => client.id === params.get("clientId"))) {
+          setView("overview");
         } else if (incomingRole === "client") {
           setShowDeepAnalysis(false);
           setView((current) => (current === "portfolio" || current === "settings" || current === "admin" ? "overview" : current));
@@ -6798,7 +6827,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
         setLocalAutomationReports(data.automationReports);
         setLocalNewsletterPlans(data.newsletterPlans);
         setLocalSyncHistory(data.syncHistory ?? []);
-        setSelectedClientId(linkedPlan?.clientId ?? data.clients[0].id);
+        setSelectedClientId(linkedPlan?.clientId ?? data.clients.find(client => client.id === params.get("clientId"))?.id ?? data.clients[0]?.id ?? "");
         setAuthRequired(false);
         setLiveDataIssue("");
         setDataSource("neon");
@@ -6834,7 +6863,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
   }, [dataSource, initialSummaryId]);
 
   async function refreshDashboardData() {
-    if (isRefreshing) return;
+    if (isRefreshing || !hasReportAccount) return;
     setIsRefreshing(true);
     setRefreshState("מסנכרן מול Flashy...");
     try {
@@ -6984,12 +7013,52 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
     setSelectedClientId(clientId);
     setSelectedMonthlySummaryId(undefined);
     setRefreshState("");
-    setView("overview");
+    navigateView("overview", clientId);
   };
 
   async function logout() {
     await signOut({ callbackUrl: "/" });
   }
+
+  function navigateView(next: ViewKey, clientId?: string) {
+    setView(next);
+    setWorkspaceClientId(clientId);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("planId");
+    if (next === "clients" || next === "client-workspace") {
+      url.searchParams.set("view", next);
+      if (clientId) url.searchParams.set("clientId", clientId); else url.searchParams.delete("clientId");
+    } else if (next === "overview" && clientId) {
+      setSelectedClientId(clientId);
+      url.searchParams.set("view", "overview");
+      url.searchParams.set("clientId", clientId);
+    } else { url.searchParams.delete("view"); url.searchParams.delete("clientId"); }
+    window.history.pushState({}, "", url);
+  }
+  async function openClientReports(clientId: string) {
+    try {
+      const response = await fetch("/api/dashboard-data", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "טעינת הדוחות נכשלה.");
+      const data = payload.data as DashboardDataPayload;
+      if (!data.accounts.some(item => item.clientId === clientId)) throw new Error("אין ללקוח חיבור פעיל.");
+      setLocalClients(data.clients); setLocalAccounts(data.accounts);
+      setLocalEmailReports(data.emailReports); setLocalSmsReports(data.smsReports);
+      setLocalAutomationReports(data.automationReports); setLocalNewsletterPlans(data.newsletterPlans);
+      setLocalSyncHistory(data.syncHistory ?? []);
+      navigateView("overview", clientId);
+    } catch (error) { setRefreshState(error instanceof Error ? error.message : "טעינת הדוחות נכשלה."); }
+  }
+  useEffect(() => {
+    function restore() {
+      const params = new URLSearchParams(window.location.search);
+      const target = params.get("view");
+      if (viewerIsStaff && (target === "clients" || target === "client-workspace")) { setView(target); setWorkspaceClientId(params.get("clientId") ?? undefined); }
+      else if (!initialSummaryId) { setView("overview"); const clientId = params.get("clientId"); if (clientId) setSelectedClientId(clientId); }
+    }
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, [viewerIsStaff, initialSummaryId]);
 
   if (authRequired) {
     return <LoginGate message={dataNotice} />;
@@ -7018,15 +7087,15 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
         selectedClientId={selectedClientId}
         visibleViews={visibleViews}
         view={activeView}
-        hideClientSelector={localClients.length < 2}
+        hideClientSelector={foundationView || localClients.length < 2}
         onSelectClient={selectClient}
-        onSelectView={setView}
+        onSelectView={navigateView}
       />
 
-      <MobileNavigation visibleViews={visibleViews} view={activeView} onSelectView={setView} />
+      <MobileNavigation visibleViews={visibleViews} view={activeView} onSelectView={navigateView} />
 
       <main className="dashboard-content relative min-w-0 p-3 text-[#111318] md:p-5 lg:p-6">
-        {localClients.length > 1 && activeView !== "portfolio" && activeView !== "close" && (
+        {localClients.length > 1 && !foundationView && activeView !== "portfolio" && activeView !== "close" && (
           <ClientSelector
             clients={localClients}
             selectedClientId={selectedClientId}
@@ -7036,7 +7105,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
         )}
         <header className="mb-4 flex flex-col items-start justify-between gap-3 border-b border-[#e4e7ec] pb-4 lg:flex-row lg:items-end">
           <div>
-            {!isRestrictedUser && activeView !== "portfolio" && activeView !== "close" && (
+            {!isRestrictedUser && hasReportAccount && !foundationView && activeView !== "portfolio" && activeView !== "close" && (
               <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-[#667085]">
                 <span>Flashy Account #{account.flashyAccountId}</span>
                 <button
@@ -7057,7 +7126,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
               </div>
             )}
             <h1 className="m-0 text-[clamp(26px,3vw,38px)] font-bold leading-tight tracking-normal text-[#111318]">
-              {activeView === "portfolio" ? "סקירת סוכנות" : activeView === "close" ? "סגירת חודש" : account.name}
+              {foundationView ? "לקוחות" : activeView === "portfolio" ? "סקירת סוכנות" : activeView === "close" ? "סגירת חודש" : account.name || "ניהול מערכת"}
             </h1>
             {activeView === "portfolio" && (
               <p className="mt-1 text-xs text-[#667085]">{formatNumber(portfolioRows.length)} לקוחות · תמונת ביצועים מרוכזת</p>
@@ -7070,7 +7139,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {!isRestrictedUser && activeView !== "portfolio" && activeView !== "close" && <button
+            {!isRestrictedUser && hasReportAccount && !foundationView && activeView !== "portfolio" && activeView !== "close" && <button
               onClick={refreshDashboardData}
               disabled={isRefreshing}
               className="h-9 rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#344054] transition hover:bg-[#f8fafb] disabled:cursor-wait disabled:opacity-60"
@@ -7099,7 +7168,9 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
         </header>
 
         <div>
-          {showTimeRange && (
+          {foundationView && viewerIsStaff && <ClientFoundation key={workspaceClientId ?? "catalog"} clientId={activeView === "client-workspace" ? workspaceClientId : undefined} onOpenClient={id => navigateView("client-workspace", id)} onBack={() => navigateView("clients")} onOpenReports={openClientReports} />}
+          {!hasReportAccount && !foundationView && activeView !== "admin" && activeView !== "close" && activeView !== "portfolio" && <p className="py-8 text-sm text-[#667085]">אין חשבון פעיל להצגת דוחות. אפשר לנהל לקוחות מתוך מסך הלקוחות.</p>}
+          {showTimeRange && (hasReportAccount || activeView === "portfolio") && (
             <section className="mb-4 rounded-lg border border-[#e4e7ec] bg-white px-3 py-2.5">
               {activeView !== "portfolio" && activeRangeBounds.start && activeRangeBounds.end && <p className="mb-2 text-xs tabular-nums text-[#667085]">
                 {new Date(activeRangeBounds.start).toLocaleDateString("he-IL", { timeZone: account.timezone })} עד {new Date(activeRangeBounds.end).toLocaleDateString("he-IL", { timeZone: account.timezone })}
@@ -7179,7 +7250,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
               setView("monthly");
             }} />
           )}
-          {activeView === "overview" && (
+          {hasReportAccount && activeView === "overview" && (
             <Overview
                 account={account}
                 summary={summary}
@@ -7195,7 +7266,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
                 rangeEnd={activeRangeBounds.end}
               />
           )}
-          {activeView === "sms" && (
+          {hasReportAccount && activeView === "sms" && (
             <SmsDashboard
                 account={account}
                 sms={accountSms}
@@ -7208,7 +7279,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
                 showDeepAnalysis={effectiveShowDeepAnalysis}
               />
           )}
-          {activeView === "automations" && (
+          {hasReportAccount && activeView === "automations" && (
             <AutomationDashboard
                 account={account}
                 automations={accountAutomations}
@@ -7222,7 +7293,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
                 previousRangeLabel={previousRangeLabel}
               />
           )}
-          {activeView === "campaigns" && (
+          {hasReportAccount && activeView === "campaigns" && (
             <CampaignDashboard
                 account={account}
                 emails={accountEmails}
@@ -7237,7 +7308,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
                 showDeepAnalysis={effectiveShowDeepAnalysis}
               />
           )}
-          {activeView === "planner" && (
+          {hasReportAccount && activeView === "planner" && (
             <Planner
               client={selectedClient}
               account={account}
@@ -7249,7 +7320,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
               onEditorOpenChange={setPlannerEditorOpen}
             />
           )}
-          {activeView === "changes" && viewerIsStaff && (
+          {hasReportAccount && activeView === "changes" && viewerIsStaff && (
             <AccountChangeLog
               key={account.id}
               clientId={selectedClient.id}
@@ -7258,7 +7329,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
               timezone={account.timezone}
             />
           )}
-          {activeView === "monthly" && (
+          {hasReportAccount && activeView === "monthly" && (
             <MonthlySummaryDashboard
               key={`${account.id}-${selectedMonthlySummaryId ?? "archive"}`}
               client={selectedClient}
@@ -7267,7 +7338,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
               initialSummaryId={selectedMonthlySummaryId}
             />
           )}
-          {activeView === "ai" && (
+          {hasReportAccount && activeView === "ai" && (
             isRestrictedUser ? (
               <ClientAiSummary
                 account={account}
@@ -7294,7 +7365,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
               />
             )
           )}
-          {activeView === "settings" && !isRestrictedUser && (
+          {hasReportAccount && activeView === "settings" && !isRestrictedUser && (
             <AccountSettings
               key={account.id}
               client={selectedClient}
@@ -7316,7 +7387,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
           )}
         </div>
       </main>
-      {!isRestrictedUser && activeView !== "portfolio" && activeView !== "close" && !plannerEditorOpen && (
+      {hasReportAccount && !foundationView && !isRestrictedUser && activeView !== "portfolio" && activeView !== "close" && !plannerEditorOpen && (
         <FloatingAiChat
           key={selectedClient.id}
           clientId={selectedClient.id}

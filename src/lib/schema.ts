@@ -10,8 +10,11 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import type { IncludedService } from "@/lib/client-foundation";
 import type { DailyMetricSnapshot, MetricSnapshotRevision } from "@/lib/types";
 import type { MonthlySummaryManualInput, MonthlySummarySnapshot } from "@/lib/monthly-summary";
 
@@ -99,18 +102,41 @@ export const clients = pgTable("clients", {
   industry: text("industry"),
   visibleModules: text("visible_modules").array().notNull().default(["reports", "planner", "ai"]),
   onboardingStatus: text("onboarding_status").notNull().default("ready"),
+  website: text("website"),
+  packageName: text("package_name"),
+  monthlyRetainerAmount: numeric("monthly_retainer_amount", { precision: 12, scale: 2 }),
+  includedServices: jsonb("included_services").$type<IncludedService[]>().notNull().default([]),
+  startDate: date("start_date"),
+  ownerUserId: text("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+  internalNotes: text("internal_notes"),
+  onboardingStage: text("onboarding_stage"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const clientContacts = pgTable("client_contacts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clientId: uuid("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  jobTitle: text("job_title"),
+  email: text("email"),
+  phone: text("phone"),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [index("client_contacts_client_idx").on(table.clientId), uniqueIndex("client_contacts_primary_idx").on(table.clientId).where(sql`${table.isPrimary} = true`)]);
 
 export const auditLogs = pgTable("audit_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
   actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  clientId: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+  actorType: text("actor_type"),
   action: text("action").notNull(),
   entityType: text("entity_type").notNull(),
   entityId: text("entity_id"),
   metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, table => [index("audit_logs_client_time_idx").on(table.clientId, table.createdAt)]);
 
 export const clientUsers = pgTable(
   "client_users",
