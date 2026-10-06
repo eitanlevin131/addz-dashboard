@@ -202,7 +202,7 @@ export function ClientFoundation({
   onOpenReports,
 }: {
   clientId?: string;
-  onOpenClient: (id: string) => void;
+  onOpenClient: (id: string, scanId?: string) => void;
   onBack: () => void;
   onOpenReports: (id: string) => void;
 }) {
@@ -332,9 +332,9 @@ export function ClientFoundation({
         <ClientProfileForm
           owners={owners}
           onCancel={() => setEditing(false)}
-          onSaved={(created) => {
+          onSaved={(created, scanId) => {
             setEditing(false);
-            onOpenClient(created.id);
+            onOpenClient(created.id, scanId);
           }}
         />
       );
@@ -649,7 +649,13 @@ export function ClientFoundation({
           {notice}
         </p>
       )}
-      {tab === "website" && <WebsiteIntelligence key={client.id} clientId={client.id} />}
+      {tab === "website" && <WebsiteIntelligence key={client.id} clientId={client.id} onOpenQuestionnaire={() => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("tab", "questionnaire");
+        url.searchParams.delete("scanId"); url.searchParams.delete("resumeScan");
+        window.history.replaceState({}, "", url);
+        setTab("questionnaire");
+      }} />}
       {tab === "questionnaire" && <ClientQuestionnaire key={client.id} clientId={client.id} />}
       {tab === "kickoff" && <ClientKickoff key={client.id} clientId={client.id} />}
       {tab === "overview" && (

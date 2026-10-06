@@ -228,6 +228,9 @@ test.describe("agency dashboard critical journey", () => {
     expect(created.success).toBe(true);
     const id = created.data.id;
     foundationClientIds.push(id);
+    await expect(page.getByRole("dialog", { name: "להתחיל סריקת אתר?" })).toBeVisible();
+    expect(created.data.initialWebsiteScanId).toBeNull();
+    await page.getByRole("button", { name: "לא עכשיו", exact: true }).click();
     expect(created.data.monthlyRetainerAmount).toBe("2500.50");
     expect(created.data.ownerUserId).toBe(foundationUserId);
     expect(created.data.includedServices).toEqual([

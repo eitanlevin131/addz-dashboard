@@ -9,6 +9,27 @@ browser rendering service, queue infrastructure or Production migration/deployme
 
 ## Initial onboarding scan
 
+### Onboarding UX refinement (local, not yet deployed)
+
+The new-client form saves the client first with `startWebsiteScan: false`, then
+asks whether to start scanning when a website is present. Confirming uses the
+existing scan POST/after() workflow and opens the Website tab with explicit resume
+intent; declining creates no scan. Scan-start failures retain the saved client and
+allow retry without recreating it. Existing API consumers keep automatic initial
+scans when the optional boolean is omitted; no schema/auth/crawler changes.
+
+The Workspace displays persisted stages, processed/selected pages, elapsed wall
+time (including interruptions), a planning estimate of 5-20 minutes rather than
+a promised ETA, and explicit terminal feedback. Its completion summary projects
+published findings only, preserves observed/inferred/review labels and source
+references, excludes ignored findings, and does not change with list filters.
+The questionnaire action creates a normal draft or opens an existing one without
+approval, sharing, delivery or answers. Historical/stale-site scans cannot initiate
+this action. The summary does not use Research Intelligence as evidence.
+
+The automatic initial-scan behavior below remains the compatibility default for
+API consumers and the existing Flashy onboarding entry point.
+
 New client + explicitly supplied valid website -> persisted initial scan -> first
 processing chunk after commit. Client/scan/requested events must be atomic. Cover
 both client-creation entry points; attaching Flashy to an existing client does not

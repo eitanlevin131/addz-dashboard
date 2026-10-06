@@ -7020,11 +7020,17 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
     await signOut({ callbackUrl: "/" });
   }
 
-  function navigateView(next: ViewKey, clientId?: string) {
+  function navigateView(next: ViewKey, clientId?: string, scanId?: string) {
     setView(next);
     setWorkspaceClientId(clientId);
     const url = new URL(window.location.href);
     url.searchParams.delete("planId");
+    for (const key of ["tab", "scanId", "resumeScan"]) url.searchParams.delete(key);
+    if (next === "client-workspace" && scanId) {
+      url.searchParams.set("tab", "website");
+      url.searchParams.set("scanId", scanId);
+      url.searchParams.set("resumeScan", "1");
+    }
     if (next === "clients" || next === "client-workspace") {
       url.searchParams.set("view", next);
       if (clientId) url.searchParams.set("clientId", clientId); else url.searchParams.delete("clientId");
@@ -7172,7 +7178,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
         </header>
 
         <div>
-          {foundationView && viewerIsStaff && <ClientFoundation key={workspaceClientId ?? "catalog"} clientId={activeView === "client-workspace" ? workspaceClientId : undefined} onOpenClient={id => navigateView("client-workspace", id)} onBack={() => navigateView("clients")} onOpenReports={openClientReports} />}
+          {foundationView && viewerIsStaff && <ClientFoundation key={workspaceClientId ?? "catalog"} clientId={activeView === "client-workspace" ? workspaceClientId : undefined} onOpenClient={(id, scanId) => navigateView("client-workspace", id, scanId)} onBack={() => navigateView("clients")} onOpenReports={openClientReports} />}
           {!hasReportAccount && !foundationView && activeView !== "admin" && activeView !== "close" && activeView !== "portfolio" && <p className="py-8 text-sm text-[#667085]">אין חשבון פעיל להצגת דוחות. אפשר לנהל לקוחות מתוך מסך הלקוחות.</p>}
           {showTimeRange && (hasReportAccount || activeView === "portfolio") && (
             <section className="mb-4 rounded-lg border border-[#e4e7ec] bg-white px-3 py-2.5">

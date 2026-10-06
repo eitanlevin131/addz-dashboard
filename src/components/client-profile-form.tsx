@@ -1,5 +1,5 @@
 "use client";
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   Plus,
   Save,
@@ -10,6 +10,8 @@ import {
   FileText,
   Layers3,
   Banknote,
+  Globe,
+  Play,
 } from "lucide-react";
 import { CLIENT_SERVICES, type ContactInput } from "@/lib/client-foundation";
 import {
@@ -108,7 +110,7 @@ export function ClientProfileForm({
 }: {
   client?: ClientProfile;
   owners: { id: string; name: string }[];
-  onSaved: (client: ClientProfile) => void;
+  onSaved: (client: ClientProfile, scanId?: string) => void;
   onCancel: () => void;
 }) {
   const [code, setCode] = useState<PackageCode | "">(client?.packageCode ?? "");
@@ -131,6 +133,11 @@ export function ClientProfileForm({
   const [contacts, setContacts] = useState<ContactInput[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [created, setCreated] = useState<ClientProfile | null>(null);
+  const scanDialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (created && !scanDialog.current?.open) scanDialog.current?.showModal();
+  }, [created]);
   const definition = packageDefinition(code);
   const prices = code && scope ? packagePrices(code, scope) : null;
   function choose(nextCode: PackageCode, config: Record<string, unknown> = {}) {
@@ -188,20 +195,47 @@ export function ClientProfileForm({
             monthlyRetainerAmount: monthly,
             oneTimeAmount: oneTime,
             ...(code ? { packageCode: code, commercialScope: scope } : {}),
-            ...(client ? {} : { contacts }),
+            ...(client ? {} : { contacts, startWebsiteScan: false }),
           }),
         },
       );
       const payload = await response.json();
       if (!response.ok || !payload.success)
         throw new Error(payload.message || "שמירת הלקוח נכשלה.");
-      onSaved(payload.data);
+      if (!client && payload.data.website) setCreated(payload.data);
+      else onSaved(payload.data);
     } catch (error) {
       setError(error instanceof Error ? error.message : "השמירה נכשלה.");
     } finally {
       setBusy(false);
     }
   }
+  async function startScan() {
+    if (!created || busy) return;
+    setBusy(true); setError("");
+    try {
+      const response = await fetch(`/api/clients/${created.id}/website-scans`, { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.message || "הסריקה לא התחילה. הלקוח כבר נשמר.");
+      onSaved(created, payload.data.id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "הסריקה לא התחילה. הלקוח כבר נשמר.");
+    } finally { setBusy(false); }
+  }
+  if (created) return <dialog ref={scanDialog} aria-labelledby="initial-scan-title" dir="rtl"
+    onCancel={event => { event.preventDefault(); if (!busy) onSaved(created); }}
+    className="m-auto w-[calc(100%_-_2rem)] max-w-md rounded-lg border border-[#e4e7ec] bg-white p-6 text-[#111318] shadow-xl backdrop:bg-black/30">
+    <Globe className="mb-3 text-[#087f72]" size={24} />
+    <p className="text-xs font-semibold text-[#087f72]">הלקוח נשמר בהצלחה</p>
+    <h2 id="initial-scan-title" className="mt-2 text-lg font-bold">להתחיל סריקת אתר?</h2>
+    <p className="mt-2 break-words text-sm text-[#667085]">נאסוף מידע מהאתר של {created.name} כהכנה לשאלון האפיון. אפשר גם להתחיל מאוחר יותר.</p>
+    <p dir="ltr" className="mt-3 break-all text-xs text-[#667085]">{created.website}</p>
+    {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
+    <div className="mt-5 flex flex-wrap gap-2">
+      <button type="button" disabled={busy} className={clientPrimaryClass} onClick={() => void startScan()}><Play size={15} />{busy ? "מתחיל סריקה..." : "התחל סריקת אתר"}</button>
+      <button type="button" disabled={busy} className={clientButtonClass} onClick={() => onSaved(created)}>לא עכשיו</button>
+    </div>
+  </dialog>;
   return (
     <form
       onSubmit={submit}

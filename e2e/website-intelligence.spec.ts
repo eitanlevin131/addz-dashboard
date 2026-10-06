@@ -7,6 +7,7 @@ if (target.hostname !== "ep-summer-waterfall-aprx73rb.c-7.us-east-1.aws.neon.tec
 const db = neon(target.toString());
 const staff = "website-" + randomUUID();
 const secondStaff = "website-resume-" + randomUUID();
+const onboardingStaff = "website-onboarding-" + randomUUID();
 const customer = "website-client-" + randomUUID();
 const email = staff + "@example.test";
 const customerEmail = customer + "@example.test";
@@ -31,7 +32,7 @@ async function settle(page: Page, clientId: string, scanId: string) {
   throw Error("Scan did not complete: " + JSON.stringify(result?.scan.state));
 }
 test.beforeAll(async () => {
-  await db`insert into users(id,email,role,status) values (${staff},${email},'admin','active'),(${customer},${customerEmail},'client','active'),(${secondStaff},${secondStaff + "@example.test"},'admin','active')`;
+  await db`insert into users(id,email,role,status) values (${staff},${email},'admin','active'),(${customer},${customerEmail},'client','active'),(${secondStaff},${secondStaff + "@example.test"},'admin','active'),(${onboardingStaff},${onboardingStaff + "@example.test"},'admin','active')`;
 });
 test.afterAll(async () => {
   for (const id of clientIds) {
@@ -39,8 +40,65 @@ test.afterAll(async () => {
     await db`delete from audit_logs where client_id=${id}`;
     await db`delete from clients where id=${id}`;
   }
-  await db`delete from audit_logs where actor_user_id in (${staff},${customer},${secondStaff})`;
-  await db`delete from users where id in (${staff},${customer},${secondStaff})`;
+  await db`delete from audit_logs where actor_user_id in (${staff},${customer},${secondStaff},${onboardingStaff})`;
+  await db`delete from users where id in (${staff},${customer},${secondStaff},${onboardingStaff})`;
+});
+test("client scan consent, save-safe retry, live progress, completion summary and questionnaire review", async ({ page }) => {
+  test.setTimeout(180000);
+  await login(page, onboardingStaff + "@example.test");
+  await page.goto("/?view=clients");
+  await page.getByRole("button", { name: "לקוח חדש", exact: true }).click();
+  await page.getByLabel("שם העסק", { exact: true }).fill("[TEST] Scan consent journey");
+  await page.getByLabel("אתר", { exact: true }).fill("https://website-fixture.example.com/");
+  await page.getByLabel("חבילה", { exact: true }).selectOption("email_5");
+  const response = page.waitForResponse(r => r.url().endsWith("/api/clients") && r.request().method() === "POST");
+  await page.getByRole("button", { name: "צור לקוח", exact: true }).click();
+  const client = (await (await response).json()).data; clientIds.push(client.id);
+  expect(client.initialWebsiteScanId).toBeNull();
+  await expect(page.getByRole("dialog", { name: "להתחיל סריקת אתר?" })).toBeVisible();
+  expect((await db`select count(*)::int as count from website_scans where client_id=${client.id}`)[0].count).toBe(0);
+  fs.mkdirSync("output/playwright/onboarding-scan", { recursive: true });
+  await page.screenshot({ path: "output/playwright/onboarding-scan/consent-desktop.png" });
+  await page.route(`**/api/clients/${client.id}/website-scans`, route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ success: false, message: "שגיאת סריקה זמנית" }) }), { times: 1 });
+  await page.getByRole("button", { name: "התחל סריקת אתר", exact: true }).click();
+  await expect(page.getByRole("dialog").getByRole("alert")).toHaveText("שגיאת סריקה זמנית");
+  expect((await db`select count(*)::int as count from clients where id=${client.id}`)[0].count).toBe(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: "output/playwright/onboarding-scan/consent-mobile.png" });
+  const started = page.waitForResponse(r => r.url().endsWith(`/api/clients/${client.id}/website-scans`) && r.request().method() === "POST" && r.status() === 201);
+  await page.getByRole("button", { name: "התחל סריקת אתר", exact: true }).click();
+  const scan = (await (await started).json()).data;
+  await expect(page.getByRole("heading", { name: "מודיעין אתר" })).toBeVisible();
+  await expect(page.getByLabel("שלבי הסריקה")).toBeVisible();
+  await expect(page.getByText(/הערכה ראשונית:/)).toBeVisible();
+  await expect(page.getByText(/הערכה ראשונית:/)).toBeInViewport();
+  await page.screenshot({ path: "output/playwright/onboarding-scan/progress-mobile.png" });
+  const result = await settle(page, client.id, scan.id);
+  expect(result.scan.status).toBe("completed");
+  await expect(page.getByRole("heading", { name: "הסריקה הסתיימה בהצלחה" })).toBeVisible();
+  const summary = page.getByRole("region", { name: "תמצית המידע שנאסף" });
+  await expect(summary).toBeVisible();
+  await expect(summary.getByText("הסקות לאימות", { exact: true })).toBeVisible();
+  const totals = await summary.locator("dl").innerText();
+  const filtered = page.waitForResponse(r => r.url().includes(`/website-scans/${scan.id}?`) && r.url().includes("category=operations"));
+  await page.getByLabel("קטגוריית ממצאים").selectOption("operations");
+  await filtered;
+  expect(await summary.locator("dl").innerText()).toBe(totals);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+  await page.screenshot({ path: "output/playwright/onboarding-scan/completed-mobile.png", fullPage: true });
+  await summary.screenshot({ path: "output/playwright/onboarding-scan/summary-mobile.png" });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.screenshot({ path: "output/playwright/onboarding-scan/completed-desktop.png", fullPage: true });
+  await summary.screenshot({ path: "output/playwright/onboarding-scan/summary-desktop.png" });
+  await page.getByRole("button", { name: "להכנת שאלון אפיון", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "שאלון והכנה לפגישה" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "אשר לשיתוף", exact: true })).toBeVisible();
+  const q = (await (await page.request.get(`/api/clients/${client.id}/questionnaire`)).json()).data;
+  expect(q.status).toBe("draft"); expect(q.snapshot.scanId).toBe(scan.id); expect(q.answers).toEqual({});
+  await page.screenshot({ path: "output/playwright/onboarding-scan/questionnaire-review.png", fullPage: true });
+  await page.getByRole("tab", { name: "סריקת אתר", exact: true }).click();
+  await page.getByRole("button", { name: "להכנת שאלון אפיון", exact: true }).click();
+  expect((await db`select count(*)::int as count from client_questionnaires where client_id=${client.id}`)[0].count).toBe(1);
 });
 test("automatic onboarding, persisted resume, evidence, review, re-scan history, cancellation and staff-only RTL workspace", async ({ page, browser }) => {
   test.setTimeout(180000);

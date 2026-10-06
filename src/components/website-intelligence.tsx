@@ -1,29 +1,22 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ExternalLink, Globe, Play, RefreshCw, Square, ChevronDown } from "lucide-react";
 import { CATEGORY_LABELS, SCAN_STATUS_LABELS, websiteWarningLabel } from "@/lib/website-intelligence/config";
 import { clientButtonClass, clientFieldClass, clientPrimaryClass } from "./client-profile-form";
 import type { scanDetails, scanHistory } from "@/lib/website-intelligence/repository";
+import { findingText as valueText, sameWebsiteForQuestionnaire } from "@/lib/website-intelligence/overview";
+import { WebsiteScanOverview } from "./website-scan-overview";
 type Details = Awaited<ReturnType<typeof scanDetails>>;
 type History = Awaited<ReturnType<typeof scanHistory>>;
 const terminal = (status: string) => ["completed", "completed_with_warnings", "failed", "cancelled"].includes(status);
 const reviewLabels = { normal: "רגיל", needs_review: "דורש בדיקה", ignored: "לא לשימוש" };
-function valueText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (!value || typeof value !== "object") return String(value ?? "");
-  const row = value as Record<string, unknown>;
-  if (typeof row.summary === "string") return row.summary;
-  if (typeof row.text === "string") return row.text;
-  if (row.name) return [row.name, row.price != null ? `${row.price} ${row.currency || ""}` : "", row.description].filter(Boolean).join(" · ");
-  return Object.entries(row).filter(([, value]) => typeof value === "string" || typeof value === "number").map(([key, value]) => `${key}: ${value}`).join(" · ");
-}
 async function api<T>(url: string, method = "GET", body?: unknown): Promise<T> {
   const response = await fetch(url, { method, cache: "no-store", ...(body ? { headers: { "content-type": "application/json" }, body: JSON.stringify(body) } : {}) });
   const result = await response.json();
   if (!response.ok || !result.success) throw new Error(result.message || "טעינת הסריקה נכשלה.");
   return result.data;
 }
-export function WebsiteIntelligence({ clientId }: { clientId: string }) {
+export function WebsiteIntelligence({ clientId, onOpenQuestionnaire }: { clientId: string; onOpenQuestionnaire: () => void }) {
   const base = `/api/clients/${clientId}/website-scans`;
   const [history, setHistory] = useState<History | null>(null);
   const [scanId, setScanId] = useState("");
@@ -34,14 +27,30 @@ export function WebsiteIntelligence({ clientId }: { clientId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [questionnaireBusy, setQuestionnaireBusy] = useState(false);
+  const sectionRef = useRef<HTMLElement>(null);
+  const resumeScroll = useRef(false);
   useEffect(() => {
     let active = true;
     api<History>(base).then(value => { if (active) {
       const requested = new URLSearchParams(window.location.search).get("scanId");
       setHistory(value); setScanId(value.scans.find(scan => scan.id === requested)?.id || value.scans[0]?.id || "");
+      const url = new URL(window.location.href);
+      if (requested && url.searchParams.get("resumeScan") === "1" && value.scans.some(scan => scan.id === requested && !terminal(scan.status))) {
+        setRunning(true);
+        url.searchParams.delete("resumeScan");
+        window.history.replaceState({}, "", url);
+        resumeScroll.current = true;
+      }
     } }).catch(error => { if (active) setError(error.message); });
     return () => { active = false; };
   }, [base]);
+  useEffect(() => {
+    if (details && resumeScroll.current) {
+      resumeScroll.current = false;
+      sectionRef.current?.scrollIntoView({ block: "start" });
+    }
+  }, [details]);
   useEffect(() => {
     if (!scanId) return;
     let active = true;
@@ -80,9 +89,21 @@ export function WebsiteIntelligence({ clientId }: { clientId: string }) {
       setDetails(await api<Details>(`${base}/${scanId}?${new URLSearchParams({ category, disposition })}`)); setNotice("תיוג הממצא נשמר.");
     } catch (error) { setError(error instanceof Error ? error.message : "התיוג לא נשמר."); }
   }
+  async function openQuestionnaire() {
+    if (questionnaireBusy) return;
+    setQuestionnaireBusy(true); setError("");
+    try {
+      const url = `/api/clients/${clientId}/questionnaire`;
+      const existing = await api<unknown>(url);
+      if (!existing) await api(url, "POST");
+      onOpenQuestionnaire();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "יצירת הטיוטה נכשלה.");
+    } finally { setQuestionnaireBusy(false); }
+  }
   const scan = details?.scan;
   const sources = new Map(details?.sources.map(source => [source.id, source]));
-  return <section dir="rtl" className="min-w-0 space-y-5 py-4" aria-label="סריקת אתר">
+  return <section ref={sectionRef} dir="rtl" className="min-w-0 scroll-mt-20 space-y-5 py-4" aria-label="סריקת אתר">
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div><h2 className="flex items-center gap-2 text-lg font-semibold"><Globe size={18} /> מודיעין אתר</h2>
         {history?.website && <a href={history.website} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex max-w-full items-center gap-1 break-all text-sm text-[#087f72]"><span dir="ltr">{history.website}</span><ExternalLink size={13} /></a>}</div>
@@ -98,6 +119,9 @@ export function WebsiteIntelligence({ clientId }: { clientId: string }) {
         <span>{details?.findings.length || 0} ממצאים בתצוגה</span>
         <label className="flex items-center gap-2 text-[#667085]">היסטוריה<select aria-label="היסטוריית סריקות" className={clientFieldClass + " max-w-52"} value={scanId} onChange={event => { setRunning(false); setScanId(event.target.value); setDetails(null); }}>{history.scans.map(scan => <option key={scan.id} value={scan.id}>{new Date(scan.createdAt).toLocaleString("he-IL")} · {SCAN_STATUS_LABELS[scan.status]}</option>)}</select></label>
       </div>
+      {details && <WebsiteScanOverview details={details} running={running} questionnaireBusy={questionnaireBusy}
+        questionnaireAllowed={history.scans.find(item => ["completed", "completed_with_warnings"].includes(item.status))?.id === details.scan.id && sameWebsiteForQuestionnaire(history.website, details.scan.websiteUrl)}
+        onQuestionnaire={() => void openQuestionnaire()} />}
       {!!scan?.state.warnings.length && <details className="border-b border-[#e4e7ec] pb-3" open><summary className="cursor-pointer text-sm font-semibold text-amber-800">אזהרות · {scan.state.warnings.length}</summary><ul className="mt-2 space-y-1 text-sm text-[#667085]">{scan.state.warnings.map(value => <li key={value}>{websiteWarningLabel(value)}</li>)}</ul></details>}
       {scan?.errorCode && <p role="alert" className="text-sm text-red-700">הסריקה לא הושלמה: {scan.errorCode}</p>}
       <div className="flex flex-wrap gap-3"><label className="text-xs text-[#667085]">קטגוריה<select aria-label="קטגוריית ממצאים" value={category} onChange={event => setCategory(event.target.value)} className={clientFieldClass}><option value="">הכל</option>{Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><label className="text-xs text-[#667085]">תיוג בדיקה<select aria-label="סינון תיוג" value={disposition} onChange={event => setDisposition(event.target.value)} className={clientFieldClass}><option value="">הכל</option>{Object.entries(reviewLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div>

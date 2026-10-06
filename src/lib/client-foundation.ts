@@ -42,6 +42,11 @@ export class ClientInputError extends Error {
     this.status = status;
   }
 }
+export function shouldStartInitialWebsiteScan(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (typeof value !== "boolean") throw new ClientInputError("בחירת התחלת הסריקה אינה תקינה.");
+  return value;
+}
 export function requireUuid(value: string) {
   if (
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(

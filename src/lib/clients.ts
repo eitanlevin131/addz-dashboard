@@ -14,6 +14,7 @@ import {
   parseClientProfile,
   parseContact,
   requireUuid,
+  shouldStartInitialWebsiteScan,
 } from "@/lib/client-foundation";
 import {
   resolveEffectiveRole,
@@ -124,6 +125,7 @@ export async function createClient(
   actorId: string,
 ) {
   const profile = parseClientProfile(body);
+  const startWebsiteScan = shouldStartInitialWebsiteScan(body.startWebsiteScan);
   const ownerId = !Object.hasOwn(body, "ownerUserId")
     ? actorId === "dev-admin"
       ? null
@@ -175,7 +177,7 @@ export async function createClient(
       metadata: { isPrimary: contact.isPrimary },
     }),
   );
-  const scan = initialScanStatements(id, profile.website, actorId);
+  const scan = startWebsiteScan ? initialScanStatements(id, profile.website, actorId) : null;
   if (contactRows.length)
     await db.batch([
       insert,

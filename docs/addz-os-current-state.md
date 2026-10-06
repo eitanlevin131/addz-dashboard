@@ -1,5 +1,21 @@
 # ADDZ OS Current State
 
+Local onboarding refinement (not in the validated Preview deployment or Production):
+the new-client form now saves first and asks whether to start its website scan;
+the existing API auto-start remains the default for compatibility. Website Workspace
+adds persisted-stage/page progress, elapsed time, a non-guaranteed planning estimate,
+explicit terminal feedback and a source-backed overview of published findings.
+The overview opens/creates a normal questionnaire draft for team review, never
+approves/shares/sends it or supplies answers. No schema, crawler, AI or auth change.
+This additional application diff requires separate deployment validation; the
+Preview candidate recorded below does not include it.
+Focused validation on Node 22: 17/17 unit tests; lint 0 errors (3 pre-existing
+warnings); typecheck/build passed; 3/3 isolated E2E in one clean run (2.8m),
+including save-safe scan retry, desktop/mobile progress, summary, draft handoff,
+legacy client/Flashy flow, resume/history/cancel and client-role restrictions.
+No Production writes, migrations, provider changes or deployment. Next action is
+isolated Preview validation of this extra UX diff, not immediate Production rollout.
+
 Preview validation update (2026-10-06): **Epic 4 Kickoff / Characterization is an
 isolated Preview validated candidate, NOT LIVE**. Branch `codex/addz-os-epic-4` extends the
 exact Epic 3 application release below, carrying forward only its separate release
