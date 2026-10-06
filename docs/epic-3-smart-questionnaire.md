@@ -1,5 +1,40 @@
 # Epic 3 - Smart Questionnaire and Pre-Kickoff Intelligence
 
+## Production release - LIVE, 2026-10-06
+
+- Exact approved application: `ad4947f635a19657261bfe75c65ea81a43a1611d`;
+  canonical `addz-dashboard`, `main`, deployment
+  `dpl_CbzVsHfJ2D7xyMhcBd5JcfMh73bB`, READY 09:57:59.985 UTC.
+- Previous application rollback target: `e2fc5058c8220ad47944aa7ffdf9db2acd53110d`,
+  deployment `dpl_919qqKKXPmVuADXHqHX7Efff2BCp`.
+- Validated Preview: `dpl_8oWD6jCYXRzoTd2GbMnUpc2QC3JZ`. Fresh Production-state
+  rehearsal: `br-cold-frost-aphsgvnp`. Only `0020` executed in Production, using
+  the exact rehearsed atomic wrapper, ON_ERROR_STOP, lock 5s and statement 60s.
+  All 20 columns, 8 constraints and 5 indexes matched the rehearsal schema.
+- Fresh preserved recovery: `br-solitary-river-apfj405m`,
+  `addz-epic3-approved-recovery-20261006`, created 09:40:09 UTC. Consistent portable
+  backup and all 30 archive table entries verified before migration. Previous
+  artifacts retained; private backup details are in the operational handoff.
+- Product Owner explicitly waived the pending post-Epic-2 Cron cycle as a blocker.
+  It remains operational follow-up; no scheduled success/delivery is asserted.
+- Normal live Gantt creates/edits were explicitly approved, correlated with API
+  activity and excluded from unrelated migration drift. Deletions, changed
+  relationships/schema and unrelated record changes remained blockers.
+- Synthetic Production smoke only: generate/approve/share, correction/new input,
+  autosave, close/reopen, submit/read-only and structured Pre-Kickoff all passed.
+  24 selected items answered; one completion audit. Original Website Intelligence
+  evidence unchanged; all 27 protected legacy-table count/hash markers unchanged.
+- Real client session: team questionnaire and website-scans both 403 in canonical
+  request logs, reports still visible. Anonymous team questionnaire 401.
+  Clients/packages/contacts/reports/Gantt/summaries/AI-history regression passed.
+- Bounded runtime sample through 10:07 UTC: 48 requests, no error-level/5xx records.
+  No provider secrets/config changes, forced sync/crawl/AI or customer messages.
+- Retained `[TEST] Epic 2 rollout 2026-10-06` was not deleted because operational
+  Cron closure remains unverified. No Epic 4 work started.
+
+The sections below record the original design and local validation history;
+their pre-release restrictions are historical, not the current deployment status.
+
 ## Authority and scope
 
 Website Intelligence -> Smart Questionnaire -> Pre-Kickoff Intelligence ->
@@ -96,7 +131,7 @@ retains additive schema and any new questionnaire answers; never drop them.
   5 http/https references. Runtime schema checks reject coerced state/priority
   arrays/objects. Rate budget: 120 requests per hashed client-IP/minute.
 
-## Recommended release sequence (Not Executed)
+## Original Recommended Release Sequence (Executed as Recorded Above)
 
 1. Approve isolated Vercel Preview preparation first: inspect its actual schema,
    recovery point, external-provider isolation and apply only missing `0020`.
