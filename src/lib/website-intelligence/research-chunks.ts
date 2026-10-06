@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
+import { SCAN_LIMITS, COVERAGE_LIMITS } from "./config.ts";
 
 export const RESEARCH_CHUNK_VERSION = "2";
 export const RESEARCH_CHUNK_LIMITS = {
-  sources: 20, sourceCharacters: 20000, chunkCharacters: 2000,
+  sources: SCAN_LIMITS.pages, sourceCharacters: 20000, chunkCharacters: 2000,
   chunks: 32, payloadCharacters: 48000, structuredItemsPerSource: 8,
 } as const;
 type Limits = { [K in keyof typeof RESEARCH_CHUNK_LIMITS]: number };
@@ -187,6 +188,18 @@ function assemble(sources: StoredResearchSource[], options: Partial<Limits>, exh
       if (serialized.length <= limits.chunkCharacters)
         push(source, serialized, "structured", { jsonPaths: ["extracted.inventory"] });
       else warnings.push({ sourceId: source.id, code: "inventory_signal_budget" });
+    }
+    if (Array.isArray(extracted.catalog)) {
+      let entries: unknown[] = [], paths: string[] = [];
+      const flush = () => { if (entries.length) push(source, stableJson({ catalogProducts: entries }), "structured", { jsonPaths: paths }); entries = []; paths = []; };
+      extracted.catalog.slice(0, COVERAGE_LIMITS.catalogPerSource).forEach((entry, index) => {
+        const { name, url, price, currency, category } = entry;
+        const projected = { name, url, price, currency, category };
+        if (stableJson({ catalogProducts: [projected] }).length > limits.chunkCharacters) { warnings.push({ sourceId: source.id, code: "catalog_entry_over_budget" }); return; }
+        if (stableJson({ catalogProducts: [...entries, projected] }).length > limits.chunkCharacters) flush();
+        entries.push(projected); paths.push(`extracted.catalog[${index}]`);
+      });
+      flush();
     }
     if (extracted.htmlProduct && typeof extracted.htmlProduct === "object") {
       const serialized = stableJson(extracted.htmlProduct);

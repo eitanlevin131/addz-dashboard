@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { load } from "cheerio";
 import { XMLParser } from "fast-xml-parser";
 import robotsParser from "robots-parser";
-import { SCAN_LIMITS, type FindingInput } from "./config.ts";
+import { COVERAGE_LIMITS, SCAN_LIMITS, type FindingInput } from "./config.ts";
+import { productIdentity, collectionIdentity, representativeProducts, discoveryPages, type CatalogProduct } from "./catalog.ts";
 import { safeWebsiteUrl, sameSite } from "./safe-fetch.ts";
 import { crawlDelayPolicy } from "./state.ts";
 
@@ -40,7 +41,7 @@ export function inventoryAssessment(structured: Record<string, unknown>[], visib
 }
 export function returnsEvidence(text: string) {
   const source = normalizeText(text);
-  const heading = /מדיניות (?:ביטולים והחזרות|החזרות|ביטולים)|(?:return(?:s)? (?:and refund )?policy|refund policy|cancellation and returns)/i.exec(source);
+  const heading = /מדיניות (?:ביטול עסקאות|ביטולים והחזרות|החזרות|ביטולים)|(?:return(?:s)? (?:and refund )?policy|refund policy|cancellation and returns)/i.exec(source);
   if (!heading) return null;
   const section = source.slice(heading.index);
   if (!/ביטול|להחזיר|החזרת|החזר|\b(?:return|refund|cancel)/i.test(section)) return null;
@@ -87,7 +88,7 @@ export function pageType(url: string, label = "") {
   if (/\/products?\//.test(decoded.toLowerCase())) return "product";
   if (/\/collections\/|product-category|\/categor|קטגור/.test(decoded.toLowerCase())) return /best.seller|bestseller|הנמכרים/.test(value) ? "best_sellers" : "category";
   if (/shipping|delivery|משלוח/.test(value)) return "shipping";
-  if (/refund|return|החזר|החזרות|ביטול עסקה/.test(value)) return "returns";
+  if (/refund|return|החזר|ביטול[- ]?(?:עסק(?:ה|אות)|העסקה)/.test(value)) return "returns";
   if (generalPolicyCandidate(url, label)) return "returns";
   if (/contact|support|customer.service|יצירת קשר|צור קשר/.test(value)) return "contact";
   if (/faq|frequently|שאלות/.test(value)) return "faq";
@@ -99,6 +100,7 @@ export function pageType(url: string, label = "") {
   if (/^\/shop\/[^/]+/.test(decoded.toLowerCase())) return "product";
   if (/collection|categor|^\/shop\/?\s|קטגור/.test(value)) return "category";
   if (/blog|article|journal|בלוג|מאמר/.test(value)) return "blog";
+  if (/ingredients|specification|how.to.use|רכיבים|מפרט|הוראות שימוש/.test(value)) return "usage";
   return new URL(url).pathname === "/" ? "home" : "other";
 }
 export function sitemapLinks(body: string, root: string) {
@@ -125,15 +127,8 @@ export function robotsRules(body: string, root: string) {
     sitemaps: parsed.getSitemaps().flatMap(value => { try { const url = crawlUrl(value, root); return url ? [url] : []; } catch { return []; } }) };
 }
 export function selectPages(candidates: { url: string; type: string; depth: number }[]) {
-  const limits: Record<string, number> = { home: 1, about: 1, category: 3, product: 5, faq: 1, shipping: 1, returns: 1, contact: 1, reviews: 1, subscription: 1, offers: 2, blog: 2, best_sellers: 1, other: 0 };
-  const priority = ["home", "about", "shipping", "returns", "contact", "faq", "product", "category", "best_sellers", "offers", "subscription", "reviews", "blog"];
-  const seen = new Set<string>();
-  const counts: Record<string, number> = {};
-  return [...candidates].sort((a, b) => priority.indexOf(a.type) - priority.indexOf(b.type) || a.depth - b.depth).filter(item => {
-    const identity = canonicalUrl(item.url, item.url)!;
-    if (seen.has(identity) || item.depth > SCAN_LIMITS.depth || (counts[item.type] || 0) >= (limits[item.type] || 0) || seen.size >= SCAN_LIMITS.pages) return false;
-    seen.add(identity); counts[item.type] = (counts[item.type] || 0) + 1; return true;
-  });
+  const discovery = discoveryPages(candidates, []);
+  return [...discovery, ...representativeProducts(candidates, [], SCAN_LIMITS.pages - discovery.length)];
 }
 export function coveragePages(candidates: { url: string; type: string; depth: number }[], existing: { url: string; type: string; depth: number }[]) {
   const current = new Set(existing.map(item => canonicalUrl(item.url, item.url)));
@@ -196,6 +191,11 @@ export function extractWebsitePage(body: string, url: string, headers: Record<st
   else if (types.includes("FAQPage")) type = "faq";
   else if (types.includes("Article") || types.includes("BlogPosting") || /(?:^|\s)category(?:\s|$)/.test($("body").attr("class") || "") && !/post-type-archive-product|tax-product_cat/.test($("body").attr("class") || "")) type = "blog";
   else if (!["shipping", "returns", "contact", "faq", "about", "blog"].includes(type) && (types.includes("CollectionPage") || types.includes("ItemList") || /archive.*post-type-archive-product|tax-product_cat/.test($("body").attr("class") || ""))) type = "category";
+  const declaredCanonicalUrl = canonical;
+  const fetchedUrl = new URL(url);
+  const pageNumber = fetchedUrl.pathname.match(/\/page\/(\d+)\/?$/)?.[1];
+  const pagination = ["page", "paged"].some(key => /^[1-9]\d*$/.test(fetchedUrl.searchParams.get(key) || "") && Number(fetchedUrl.searchParams.get(key)) > 1) || Number(pageNumber) > 1;
+  if (["category", "best_sellers"].includes(type) && pagination && collectionIdentity(url) === collectionIdentity(canonical)) canonical = canonicalUrl(url, url)!;
   const primaryContainer = $("h1.product_title,h1").first().closest("[itemtype$='/Product'],.product[id^='product-'],.product[data-product_id]");
   const primaryForms = primaryContainer.find("form.cart,form[action*='/cart/add']").filter((_index, el) => $(el).closest("[itemtype$='/Product'],.product")[0] === primaryContainer[0]);
   const htmlProduct = type === "product" && !types.includes("Product") ? {
@@ -215,6 +215,43 @@ export function extractWebsitePage(body: string, url: string, headers: Record<st
     });
   }
   const inventory = inventoryAssessment(structured, inventorySignals);
+  const catalog: CatalogProduct[] = [];
+  const addCatalog = (item: CatalogProduct) => {
+    if (!item.name || catalog.length >= COVERAGE_LIMITS.catalogPerSource) return;
+    const identity = productIdentity(item.url);
+    if (!catalog.some(row => productIdentity(row.url) === identity)) catalog.push({ ...item, url: identity });
+  };
+  structured.forEach((row, index) => {
+    if (!(Array.isArray(row["@type"]) ? row["@type"] : [row["@type"]]).includes("Product") || typeof row.name !== "string") return;
+    const offers = row.offers as Record<string, unknown> | Record<string, unknown>[] | undefined;
+    const offer = Array.isArray(offers) ? offers[0] : offers;
+    try {
+      const target = canonicalUrl(String(row.url || offer?.url || (type === "product" ? canonical : "")), canonical);
+      if (!target || pageType(target) !== "product") return;
+      const rawPrice = offer?.price ?? offer?.lowPrice;
+      const price = typeof rawPrice === "number" || typeof rawPrice === "string" ? String(rawPrice).slice(0, 40) : null;
+      const highPrice = typeof offer?.highPrice === "number" || typeof offer?.highPrice === "string" ? String(offer.highPrice).slice(0, 40) : null;
+      const evidence = JSON.stringify({ name: row.name, url: row.url, offers: { price: offer?.price, lowPrice: offer?.lowPrice, highPrice: offer?.highPrice, priceCurrency: offer?.priceCurrency } });
+      addCatalog({ name: row.name.slice(0, 300), url: target,
+        price: price != null && highPrice != null && highPrice !== price ? `${price} - ${highPrice}` : price,
+        currency: typeof offer?.priceCurrency === "string" ? offer.priceCurrency : null,
+        category: ["category", "best_sellers"].includes(type) ? heading || title : typeof row.category === "string" ? row.category : null,
+        featured: type === "best_sellers", evidence, locator: `json_ld[${index}]`, sourceType: "json_ld" });
+    } catch { /* Unsafe product links are never catalog entries. */ }
+  });
+  $(".card-wrapper,.product-card,li.product,.product-item,.grid-product,.product-grid .grid__item,.collection .grid__item").each((index, el) => {
+    const card = $(el), anchor = card.find("a[href]").toArray().find(a => { try { return pageType(new URL($(a).attr("href")!, canonical).href) === "product"; } catch { return false; } });
+    if (!anchor) return;
+    try {
+      const target = canonicalUrl($(anchor).attr("href")!, canonical);
+      if (!target) return;
+      const name = normalizeText(card.find(".card__heading,.product-card__title,.woocommerce-loop-product__title,.product-item__title,.grid-product__title,h2,h3").first().text() || $(anchor).attr("aria-label") || $(anchor).text()).slice(0, 300);
+      const price = normalizeText(card.find(".price,.money,[itemprop='price']").first().text()).slice(0, 160) || null;
+      if (!name || /^(?:view|shop now|ראה|הוסף לסל)$/i.test(name)) return;
+      addCatalog({ name, url: target, price, currency: null, category: ["category", "best_sellers"].includes(type) ? heading || title : null,
+        featured: type === "best_sellers", evidence: normalizeText(card.text()).slice(0, 2000), locator: `product_card[${index}]`, sourceType: "html" });
+    } catch { /* Unsafe listing links cannot become products. */ }
+  });
   $("script,style,noscript,nav,footer,header,form,svg,[aria-hidden='true']").remove();
   const main = $("main,[role='main']").first();
   const fullText = normalizeText(main.length ? main.text() : $("body").text());
@@ -228,8 +265,8 @@ export function extractWebsitePage(body: string, url: string, headers: Record<st
   const shell = !challenge && text.length < 200 && scriptCount > 3;
   const blocked = noindex ? "noindex" : challenge ? "challenge" : shell ? "javascript_required" : text.length < 200 ? "insufficient_content" : null;
   return { title, text: blocked ? "" : text, language: $("html").attr("lang")?.slice(0, 20) || null,
-    structured: blocked ? [] : structured, links, blocked, canonicalUrl: canonical, pageType: type, platform, htmlProduct,
-    inventory, warnings: inventory.conflict ? ["inventory_conflict"] : [],
+    structured: blocked ? [] : structured, links, blocked, canonicalUrl: canonical, declaredCanonicalUrl, pageType: type, platform, htmlProduct,
+    inventory, catalog: blocked ? [] : catalog, warnings: inventory.conflict ? ["inventory_conflict"] : [],
     contentHash: checksum(text), truncated: fullText.length > SCAN_LIMITS.textCharacters };
 }
 export function deterministicFindings(sourceId: string, url: string, type: string, page: ReturnType<typeof extractWebsitePage>): FindingInput[] {
@@ -264,7 +301,12 @@ export function deterministicFindings(sourceId: string, url: string, type: strin
     const { priceLocator, ...value } = page.htmlProduct;
     add("products", "product", { ...value, priceFormat: "display_text" }, `${value.name} | ${value.price}`, priceLocator);
   }
-  return findings.slice(0, 15);
+  if (["category", "best_sellers", "home", "offers"].includes(type) && page.catalog.length) {
+    const value = { name: page.title, products: page.catalog.map(({ name, url, price, currency }) => ({ name, url, price, currency })), productCount: page.catalog.length, partial: true };
+    // One source-backed listing, not hundreds of invented product-page findings.
+    add("products", "catalog_listing", value, JSON.stringify(page.catalog.map(p => ({ name: p.name, url: p.url, evidence: p.evidence, locator: p.locator }))), "extracted.catalog");
+  }
+  return findings.sort((a, b) => Number(b.key === "catalog_listing") - Number(a.key === "catalog_listing")).slice(0, 15);
 }
 export function evidenceThreshold(sources: { text: string; type: string; contentHash: string }[]) {
   const unique = [...new Map(sources.filter(source => source.text.length >= 200).map(source => [source.contentHash, source])).values()];

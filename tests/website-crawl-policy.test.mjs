@@ -7,7 +7,7 @@ import { EventEmitter } from "node:events";
 import { sql } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import { robotsRules } from "../src/lib/website-intelligence/extraction.ts";
-import { websiteWarningLabel } from "../src/lib/website-intelligence/config.ts";
+import { websiteWarningLabel, SCAN_LIMITS } from "../src/lib/website-intelligence/config.ts";
 import { crawlDelayPolicy, initialScanState, retryAfterDeadline, retryAt, transientWebsiteStatus, websiteRequestsPending } from "../src/lib/website-intelligence/state.ts";
 import { WebsiteFetchError } from "../src/lib/website-intelligence/safe-fetch.ts";
 
@@ -50,7 +50,7 @@ test("the crawler clock applies only while website requests remain, not AI or fi
   assert.equal(websiteRequestsPending(state, false), true);
   state.stage = "sitemaps"; assert.equal(websiteRequestsPending(state, false), false);
   state.sitemapQueue = [root + "sitemap.xml"]; assert.equal(websiteRequestsPending(state, false), true);
-  state.sitemapVisited = Array(6).fill(root); assert.equal(websiteRequestsPending(state, false), false);
+  state.sitemapVisited = Array(SCAN_LIMITS.sitemaps).fill(root); assert.equal(websiteRequestsPending(state, false), false);
   state.stage = "fetch"; assert.equal(websiteRequestsPending(state, true), true); assert.equal(websiteRequestsPending(state, false), false);
   for (const stage of ["ai", "finalize"]) { state.stage = stage; assert.equal(websiteRequestsPending(state, true), false); }
 });
@@ -78,7 +78,7 @@ let source = await readFile(new URL("../src/lib/website-intelligence/worker.ts",
 for (const path of ["@/lib/db", "@/lib/schema", "@/lib/audit", "./repository", "./notification", "./test-fixture"]) source = source.replace(JSON.stringify(path), JSON.stringify(adapter));
 source = source.replace('import { safeWebsiteFetch, WebsiteFetchError } from "./safe-fetch";', `import { safeWebsiteFetch } from ${JSON.stringify(adapter)}; import { WebsiteFetchError } from ${JSON.stringify(new URL("../src/lib/website-intelligence/safe-fetch.ts", import.meta.url).href)};`);
 source = source.replace('"drizzle-orm"', JSON.stringify(import.meta.resolve("drizzle-orm")));
-for (const path of ["./config", "./extraction", "./ai", "./state", "./research-map", "./research-candidates", "./finding-review"]) source = source.replace(JSON.stringify(path), JSON.stringify(new URL(`../src/lib/website-intelligence/${path.slice(2)}.ts`, import.meta.url).href));
+for (const path of ["./config", "./extraction", "./ai", "./state", "./research-map", "./research-candidates", "./finding-review", "./catalog"]) source = source.replace(JSON.stringify(path), JSON.stringify(new URL(`../src/lib/website-intelligence/${path.slice(2)}.ts`, import.meta.url).href));
 const worker = await import(moduleUrl(source + "\nexport { request as policyRequest };"));
 let fetchSource = await readFile(new URL("../src/lib/website-intelligence/safe-fetch.ts", import.meta.url), "utf8");
 for (const path of ["./config.ts", "./state.ts"]) fetchSource = fetchSource.replace(JSON.stringify(path), JSON.stringify(new URL(`../src/lib/website-intelligence/${path.slice(2)}`, import.meta.url).href));
@@ -136,7 +136,7 @@ test("worker resumes an old capped checkpoint and persists both original/effecti
   assert.match(claim.sql, /websiteRetryAfterAt/);
 });
 test("worker clears the crawler deadline on fetch completion and does not defer the AI transition", async () => {
-  const f = fixture({ ...initialScanState(), stage: "fetch", robotsRoot: root }, ["home", "about"].map((pageType, n) => ({
+  const f = fixture({ ...initialScanState(), stage: "fetch", crawlPhase: "deep", robotsRoot: root }, ["home", "about"].map((pageType, n) => ({
     id: `source-${n}`, status: "completed", pageType, text: "Useful public ecommerce content. ".repeat(100), contentHash: `hash-${n}`,
   })));
   await worker.advanceScan("client", "scan");

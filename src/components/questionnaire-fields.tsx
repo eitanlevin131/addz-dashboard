@@ -18,7 +18,7 @@ export function QuestionEvidence({ question }: { question: { source?: DisplaySou
       </span>
       {question.source.unresolved && <span className="text-amber-700">דורש בירור</span>}
     </div>
-    {Boolean(question.presentation?.facts.length) && <dl className="mt-4 divide-y divide-[#e4e7ec]">{question.presentation!.facts.map(fact => <div key={fact.label} className="grid grid-cols-[110px_minmax(0,1fr)] gap-3 py-2.5 text-sm"><dt className="text-[#667085]">{fact.label}</dt><dd dir="auto" className="break-words font-medium">{fact.value}</dd></div>)}</dl>}
+    {Boolean(question.presentation?.facts.length) && <dl className="mt-4 divide-y divide-[#e4e7ec]">{question.presentation!.facts.map((fact, index) => <div key={`${fact.label}:${index}`} className="grid grid-cols-[110px_minmax(0,1fr)] gap-3 py-2.5 text-sm"><dt className="text-[#667085]">{fact.label}</dt><dd dir="auto" className="break-words font-medium">{fact.value}</dd></div>)}</dl>}
     {text && (text.length > 420 ? <details className="mt-4 rounded-md border border-[#e4e7ec] bg-[#f8fafb] p-3 text-sm"><summary className="cursor-pointer font-medium text-[#344054]">לקריאת הפרטים המלאים מהאתר</summary><p dir="auto" className="mt-3 whitespace-pre-wrap break-words leading-7">{text}</p></details>
       : <p dir="auto" className="mt-4 whitespace-pre-wrap break-words text-base leading-7 text-[#344054]">{text}</p>)}
     <div className="mt-3 flex flex-wrap items-start justify-between gap-3 text-xs text-[#667085]">

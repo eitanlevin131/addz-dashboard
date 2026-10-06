@@ -18,6 +18,14 @@ export function questionPresentation(question: QuestionItem): QuestionPresentati
   const raw = source.value;
   const row = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
   const facts: QuestionPresentation["facts"] = [];
+  if (source.key === "catalog_listing") {
+    if (typeof row.name === "string") facts.push({ label: "עמוד קטלוג שנקרא", value: row.name });
+    if (typeof row.productCount === "number") facts.push({ label: "מוצרים עם מידע בעמוד הזה בלבד", value: String(row.productCount) });
+    if (Array.isArray(row.products)) for (const product of row.products.slice(0, 5)) {
+      if (product && typeof product.name === "string") facts.push({ label: "דוגמה מהמגוון", value: [product.name, product.price].filter(v => v != null && v !== "").join(" · ") });
+    }
+    return { prompt: "האם המגוון הזה מייצג אתכם? מה חשוב להוסיף או לתעדף?", facts, text: "זהו מידע מעמוד קטלוג, לא רשימת כל המוצרים ולא בקשה לאשר כל מוצר בנפרד." };
+  }
   if (source.key === "product") {
     if (typeof row.name === "string") facts.push({ label: "מוצר לדוגמה", value: row.name });
     if ((typeof row.price === "string" || typeof row.price === "number") && row.price !== "") {

@@ -39,9 +39,13 @@ test("personalized team review, secure public link, autosave/resume, corrections
   await login(page, email);
   const client = await create(page, "[TEST] תבלינים ושאלון", true);
   await page.request.patch(`/api/clients/${client.id}`, { data: { website: "https://questionnaire-fixture.example.com" } });
-  const scan = randomUUID(), source = randomUUID(), shipping = randomUUID(), audience = randomUUID(), ignored = randomUUID(), unresolved = randomUUID(), product = randomUUID(), returns = randomUUID();
+  const scan = randomUUID(), source = randomUUID(), catalogSource = randomUUID(), catalogFinding = randomUUID(), shipping = randomUUID(), audience = randomUUID(), ignored = randomUUID(), unresolved = randomUUID(), product = randomUUID(), returns = randomUUID();
   await db`insert into website_scans(id,client_id,website_url,version,configuration,state,status) values(${scan},${client.id},'https://questionnaire-fixture.example.com','website-v3','{}','{}','completed')`;
   await db`insert into website_scan_sources(id,scan_id,url,canonical_url,url_hash,page_type,status,text) values(${source},${scan},'https://questionnaire-fixture.example.com/shipping','https://questionnaire-fixture.example.com/shipping',${source},'shipping','completed','משלוח לבית חינם מעל 300 ₪. בשלנים ביתיים מוצאים כאן תבלינים.')`;
+  const catalog = Array.from({ length: 100 }, (_, index) => ({ name: "תבלין " + index, url: `https://questionnaire-fixture.example.com/products/${index}`, price: 20, currency: "ILS", category: "תבלינים", evidence: "תבלין " + index + " במחיר 20 ₪", locator: "product_card[" + index + "]", sourceType: "html", featured: false }));
+  await db.query("update website_scans set state=$1 where id=$2", [JSON.stringify({ candidates: catalog.map(p => ({ url: p.url, type: "product", depth: 1 })), stage: "finalize" }), scan]);
+  await db.query("insert into website_scan_sources(id,scan_id,url,canonical_url,url_hash,page_type,status,text,extracted) values($1::uuid,$2,$3,$3,$1::text,'category','completed',$4,$5)", [catalogSource, scan, "https://questionnaire-fixture.example.com/collections/spices", "תבלינים ומגוון מוצרים", JSON.stringify({ catalog })]);
+  await db.query("insert into website_findings(id,scan_id,source_id,category,key,value,evidence,source_type,observation_status,confidence,finding_hash) values($1::uuid,$2,$3,'products','catalog_listing',$4,$5,'html','observed','high',$1::text)", [catalogFinding, scan, catalogSource, JSON.stringify({ name: "תבלינים", productCount: 100, products: catalog, partial: true }), "תבלינים: " + catalog.map(p => p.evidence).join("; ")]);
   const fixture = [
     { id: shipping, category: "operations", key: "shipping_text", value: { text: "משלוח לבית חינם מעל 300 ₪" }, evidence: "משלוח לבית חינם מעל 300 ₪", status: "observed", review: "normal" },
     { id: audience, category: "audience", key: "likely_audience", value: { summary: "ייתכן שבשלנים ביתיים הם קהל רלוונטי" }, evidence: "בשלנים ביתיים מוצאים כאן תבלינים", status: "inferred", review: "normal" },
@@ -55,6 +59,9 @@ test("personalized team review, secure public link, autosave/resume, corrections
   expect((await page.request.post(`/api/clients/${client.id}/questionnaire`)).status()).toBe(201);
   const url = `/api/clients/${client.id}/questionnaire`;
   const detail = (await (await page.request.get(url)).json()).data;
+  expect(detail.snapshot.catalogContext.catalogued).toBe(100);
+  expect(detail.snapshot.catalogContext.discovered).toBe(100);
+  expect(detail.snapshot.items.filter((q: { source?: { key: string } }) => q.source?.key === "catalog_listing")).toHaveLength(1);
   expect(detail.status).toBe("draft"); expect(detail.snapshot.items.some((q: { id: string }) => q.id === `finding:${ignored}`)).toBe(false);
   expect(detail.selectedIds).not.toContain(`finding:${unresolved}`);
   expect(detail.snapshot.items.some((q: { id: string }) => q.id === "calendar")).toBe(true);
@@ -76,6 +83,7 @@ test("personalized team review, secure public link, autosave/resume, corrections
   const publicPage = await publicContext.newPage();
   expect((await publicPage.request.get(url)).status()).toBe(401);
   await publicPage.goto(link); await expect(publicPage.getByRole("heading", { name: "מתחילים ממה שכבר למדנו" })).toBeVisible();
+  await expect(publicPage.getByText(/קראנו מידע על 100 מוצרים/)).toBeVisible();
   await publicPage.screenshot({ path: "output/playwright/epic3/public-intro-mobile.png", fullPage: true });
   expect(await publicPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   const projection = await (await publicPage.request.get("/api/public/questionnaire", { headers: publicHeaders(token) })).json();

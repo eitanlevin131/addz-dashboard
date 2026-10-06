@@ -13,6 +13,7 @@ import { notifyScanRequester } from "./notification";
 import { createResearchMap, RESEARCH_MAP_VERSION, type ResearchRun } from "./research-map";
 import { prepareResearchCandidates } from "./research-candidates";
 import { findingReviewInput, reviewWebsiteFindings, FINDING_REVIEW_VERSION } from "./finding-review";
+import { discoveryPages, representativeProducts, productIdentity } from "./catalog";
 
 type Scan = typeof websiteScans.$inferSelect;
 function errorCode(error: unknown) {
@@ -60,8 +61,12 @@ function warn(state: ScanState, value: string) { if (!state.warnings.includes(va
 function sourceRows(scanId: string, state: ScanState, existing: (typeof websiteScanSources.$inferSelect)[] = []) {
   const rules = robotsRules(state.robots, state.robotsRoot!);
   const candidates = state.candidates.filter(item => rules.allowed(item.url));
-  return coveragePages(candidates, existing.map(item => ({ url: item.url, type: item.pageType, depth: item.depth }))).map(item => {
-    const identity = canonicalUrl(item.url, state.robotsRoot!)!;
+  const selected = state.crawlPhase === "discovery" ? discoveryPages(candidates, existing)
+    : state.crawlPhase === "deep" ? representativeProducts(candidates, existing, SCAN_LIMITS.pages - existing.length)
+    : coveragePages(candidates, existing.map(item => ({ url: item.url, type: item.pageType, depth: item.depth })));
+  const current = new Set(existing.map(item => productIdentity(item.url)));
+  return selected.filter(item => !current.has(productIdentity(item.url))).map(item => {
+    const identity = item.type === "product" ? productIdentity(item.url) : canonicalUrl(item.url, state.robotsRoot!)!;
     return { scanId, url: item.url, canonicalUrl: identity, urlHash: checksum(identity), pageType: item.type, depth: item.depth };
   });
 }
@@ -154,6 +159,12 @@ export async function advanceScan(clientId: string, scanId: string) {
       const sources = await db.select().from(websiteScanSources).where(eq(websiteScanSources.scanId, scanId));
       const source = sources.find(item => item.status === "pending");
       if (!source) {
+        if (state.crawlPhase === "discovery") {
+          state.crawlPhase = "deep";
+          const rows = sourceRows(scanId, state, sources);
+          await checkpoint(scan, token, state, rows.length ? [db.insert(websiteScanSources).values(rows).onConflictDoNothing()] : []);
+          return { advanced: true };
+        }
         state.evidence = evidenceThreshold(sources.map(item => ({ text: item.text || "", type: item.pageType, contentHash: item.contentHash || item.id })));
         if (!state.evidence.sufficient) { warn(state, "insufficient_evidence_ai_skipped"); state.stage = "finalize"; }
         else state.stage = "ai";
@@ -170,14 +181,20 @@ export async function advanceScan(clientId: string, scanId: string) {
         for (const warning of page.warnings) warn(state, warning);
         const duplicate = sources.some(item => item.id !== source.id && item.status === "completed" && item.canonicalUrl === page.canonicalUrl);
         const writes: unknown[] = [db.update(websiteScanSources).set({ status: blocked || duplicate ? "skipped" : "completed", attempts: source.attempts + 1, canonicalUrl: page.canonicalUrl, pageType: page.pageType, title: page.title, language: page.language,
-          text: blocked || duplicate ? null : page.text, contentHash: page.contentHash, extracted: blocked ? {} : { structured: page.structured, redirects: response.redirects, platform: page.platform, htmlProduct: page.htmlProduct, inventory: page.inventory, warnings: page.warnings, textTruncated: page.truncated }, httpStatus: response.status, bytes: response.bytes, errorCode: blocked || (duplicate ? "duplicate_canonical" : null), fetchedAt: new Date() }).where(eq(websiteScanSources.id, source.id))];
+          text: blocked || duplicate ? null : page.text, contentHash: page.contentHash, extracted: blocked ? {} : { structured: page.structured, catalog: page.catalog, declaredCanonicalUrl: page.declaredCanonicalUrl, redirects: response.redirects, platform: page.platform, htmlProduct: page.htmlProduct, inventory: page.inventory, warnings: page.warnings, textTruncated: page.truncated }, httpStatus: response.status, bytes: response.bytes, errorCode: blocked || (duplicate ? "duplicate_canonical" : null), fetchedAt: new Date() }).where(eq(websiteScanSources.id, source.id))];
         if (!blocked) {
           const findings = duplicate ? [] : deterministicFindings(source.id, response.url, page.pageType, page);
           if (findings.length) writes.push(findingsInsert(scanId, findings));
           const current = new Set(sources.map(item => canonicalUrl(item.url, scan.websiteUrl)));
-          state.candidates.push(...page.links.map(item => ({ ...item, depth: source.depth + 1 })));
-          state.candidates = [...new Map(state.candidates.map(item => [canonicalUrl(item.url, scan.websiteUrl), item])).values()].slice(0, SCAN_LIMITS.candidates);
-          const rows = sourceRows(scanId, state, sources).filter(item => !current.has(item.canonicalUrl)).slice(0, Math.max(0, SCAN_LIMITS.pages - sources.length));
+          state.candidates.push(...page.links.map(item => ({ ...item, depth: source.depth + 1 })), ...page.catalog.map(item => ({ url: item.url, type: "product", depth: source.depth + 1 })));
+          const merged = new Map<string | null, typeof state.candidates[number]>();
+          for (const item of state.candidates) {
+            const key = canonicalUrl(item.url, scan.websiteUrl), prior = merged.get(key);
+            if (!prior || item.depth < prior.depth || prior.type === "other" && item.type !== "other") merged.set(key, { ...item, depth: Math.min(item.depth, prior?.depth ?? item.depth) });
+          }
+          state.candidates = [...merged.values()].slice(0, SCAN_LIMITS.candidates);
+          const updatedSources = sources.map(item => item.id === source.id ? { ...item, pageType: page.pageType, status: blocked || duplicate ? "skipped" : "completed", extracted: { catalog: page.catalog } } : item);
+          const rows = state.crawlPhase === "deep" ? [] : sourceRows(scanId, state, updatedSources).filter(item => !current.has(item.canonicalUrl)).slice(0, Math.max(0, SCAN_LIMITS.pages - sources.length));
           if (rows.length) writes.push(db.insert(websiteScanSources).values(rows).onConflictDoNothing());
         }
         await checkpoint(scan, token, state, writes, source.pageType === "home" ? { finalUrl: response.url } : {});

@@ -1,9 +1,13 @@
 export const SCAN_VERSION = "website-v3";
 export const SCAN_LIMITS = {
-  pages: 20, candidates: 2000, sitemaps: 6, requests: 60, depth: 2,
+  pages: 60, candidates: 2000, sitemaps: 12, requests: 140, depth: 4,
   responseBytes: 2 * 1024 * 1024, textCharacters: 20000,
   requestMs: 10000, aiMs: 40000, chunkMs: 45000, leaseMs: 90000,
   redirects: 5, aiAttempts: 6, evidenceCharacters: 2000,
+} as const;
+export const COVERAGE_LIMITS = {
+  discoveryPages: 28, categories: 12, listingPages: 20, pagesPerCollection: 3,
+  minDeepProducts: 8, maxDeepProducts: 32, catalogPerSource: 100, catalogProducts: 1000,
 } as const;
 export const TERMINAL_SCAN_STATUSES = ["completed", "completed_with_warnings", "failed", "cancelled"];
 export const AI_TASKS = ["brand_voice", "products_commercial", "audience_problems", "differentiation_operations"] as const;

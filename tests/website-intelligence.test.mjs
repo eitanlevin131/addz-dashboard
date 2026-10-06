@@ -95,7 +95,7 @@ test("coverage leaves slots for undiscovered policy sources instead of filling t
   const initial = coveragePages(candidates, []);
   const policies = ["about", "faq", "shipping", "returns", "contact"].map(type => ({ url: root + type, type, depth: 1 }));
   const later = coveragePages([...candidates, ...policies], initial);
-  assert.ok(initial.length + later.length <= 20);
+  assert.ok(initial.length + later.length <= 60);
   for (const type of policies.map(p => p.type)) assert.ok(later.some(p => p.type === type), type);
 });
 test("general terms pages are policy candidates, not assumed refund policies without content support", () => {
@@ -121,7 +121,7 @@ test("variants belong to the primary product, not related-product forms elsewher
 test("bounded page selection prefers policy/brand and representative product coverage", () => {
   const candidates = Array.from({ length: 100 }, (_, n) => ({ url: root + "products/" + n, type: "product", depth: 1 }));
   candidates.push({ url: root + "about", type: "about", depth: 1 }, { url: root + "deep", type: "about", depth: 3 });
-  const selected = selectPages(candidates); assert.equal(selected.length, 6); assert.equal(selected[0].type, "about");
+  const selected = selectPages(candidates); assert.equal(selected.length, 22); assert.equal(selected[0].type, "about");
 });
 test("minimum evidence requires distinct pages, useful volume and primary content", () => {
   const source = { text: content, type: "home", contentHash: checksum(content) };

@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm";
+import { questionnaireCatalogContext } from "../website-intelligence/catalog";
 import { getDb } from "@/lib/db";
 import { auditInsert } from "@/lib/audit";
 import { requireClient } from "@/lib/clients";
@@ -58,12 +59,14 @@ export async function createQuestionnaire(clientId: string, actorId: string) {
   const usableScan = scan && currentSite(client.website) === currentSite(scan.websiteUrl) ? scan : null;
   const rows = usableScan ? await getDb().select({ finding: websiteFindings, url: websiteScanSources.url, pageType: websiteScanSources.pageType }).from(websiteFindings)
     .innerJoin(websiteScanSources, and(eq(websiteScanSources.id, websiteFindings.sourceId), eq(websiteScanSources.scanId, websiteFindings.scanId)))
-    .where(eq(websiteFindings.scanId, usableScan.id)).orderBy(websiteFindings.category, websiteFindings.key, websiteFindings.createdAt).limit(400) : [];
+    .where(eq(websiteFindings.scanId, usableScan.id)).orderBy(websiteFindings.category, websiteFindings.key, websiteFindings.createdAt).limit(1200) : [];
   const findings: FindingSeed[] = rows.map(({ finding, url, pageType }) => ({ authority: finding.observationStatus === "observed" ? "website_observed" : "website_inferred",
     scanId: finding.scanId, findingId: finding.id, sourceId: finding.sourceId, url, pageType,
     evidence: finding.evidence, locator: finding.locator, confidence: finding.confidence, reviewDisposition: finding.reviewDisposition,
     category: finding.category, key: finding.key, value: finding.value, observationStatus: finding.observationStatus }));
-  const snapshot = generateQuestionnaire(client, usableScan?.id || null, findings);
+  const sources = usableScan ? await getDb().select().from(websiteScanSources).where(eq(websiteScanSources.scanId, usableScan.id)) : [];
+  const catalogContext = usableScan ? questionnaireCatalogContext(usableScan.state.candidates || [], sources) : undefined;
+  const snapshot = generateQuestionnaire(client, usableScan?.id || null, findings, catalogContext);
   const id = crypto.randomUUID();
   const selectedIds = snapshot.items.filter(item => item.source?.reviewDisposition !== "needs_review").map(item => item.id);
   await getDb().batch([

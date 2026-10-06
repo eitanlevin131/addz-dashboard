@@ -1,5 +1,6 @@
 import type { IncludedService, PackageScope } from "../client-packages";
 import { questionPresentation } from "./presentation.ts";
+import type { questionnaireCatalogContext } from "../website-intelligence/catalog.ts";
 
 export const QUESTIONNAIRE_VERSION = "questionnaire-v1";
 export const QUESTIONNAIRE_SECTIONS = [
@@ -34,6 +35,7 @@ export type QuestionItem = {
 export type QuestionnaireSnapshot = {
   version: string; clientName: string; website: string | null; scanId: string | null;
   items: QuestionItem[]; kickoffTopics: string[]; services: string[]; warnings: string[];
+  catalogContext?: ReturnType<typeof questionnaireCatalogContext>;
 };
 export type QuestionnaireAnswer = {
   state: ValidationState; text: string; priority: "normal" | "high";
@@ -95,16 +97,27 @@ function findingSection(finding: FindingSeed): SectionId {
 export function generateQuestionnaire(client: {
   name: string; website: string | null; includedServices: IncludedService[];
   commercialScope: PackageScope | null;
-}, scanId: string | null, findings: FindingSeed[]): QuestionnaireSnapshot {
+}, scanId: string | null, findings: FindingSeed[], catalogContext?: ReturnType<typeof questionnaireCatalogContext>): QuestionnaireSnapshot {
   const items: QuestionItem[] = [];
-  const candidates = findings.filter(f => f.reviewDisposition !== "ignored" && f.key !== "page_title" && safeReferenceUrl(f.url));
+  const catalogSeen = new Set<string>();
+  let productConfirmations = 0;
+  const candidates = findings.filter(f => {
+    if (f.reviewDisposition === "ignored" || f.key === "page_title" || !safeReferenceUrl(f.url)) return false;
+    if (f.key === "product") return productConfirmations++ < 2;
+    if (f.key === "catalog_listing") {
+      const name = displayValue(f.value);
+      if (catalogSeen.has(name) || catalogSeen.size >= 4) return false;
+      catalogSeen.add(name);
+    }
+    return true;
+  });
   const groups = new Map<SectionId, FindingSeed[]>();
   for (const finding of candidates) {
     const group = findingSection(finding);
     groups.set(group, [...(groups.get(group) || []), finding]);
   }
   const known = groups.get("known") || [];
-  const knownKeys = ["shipping_text", "returns_text", "contact_email", "contact_text", "product", "categories", "brand_name", "description", "faq_text"];
+  const knownKeys = ["shipping_text", "returns_text", "contact_email", "contact_text", "catalog_listing", "categories", "brand_name", "description", "faq_text", "product"];
   const knownQueues = new Map<string, FindingSeed[]>();
   for (const finding of known) knownQueues.set(finding.key, [...(knownQueues.get(finding.key) || []), finding]);
   const keys = [...knownKeys.filter(key => knownQueues.has(key)), ...[...knownQueues.keys()].filter(key => !knownKeys.includes(key))];
@@ -122,13 +135,13 @@ export function generateQuestionnaire(client: {
       const finding = group[round];
       if (!finding) continue;
       const suggestion = displayValue(finding.value).trim();
-      if (!suggestion || suggestion.length > 4500 || finding.evidence.length > 12000) continue;
+      if (!suggestion || suggestion.length > 4500 || finding.evidence.length > (finding.key === "catalog_listing" ? 250000 : 12000)) continue;
       const identity = `${finding.key}:${suggestion.replace(/\s+/g, " ")}`;
       if (seen.has(identity)) continue;
       seen.add(identity);
       const { observationStatus: _status, ...source } = finding;
       void _status;
-      items.push({ id: `finding:${finding.findingId}`, section, label: KEY_LABELS[finding.key] || ({ brand: "תיאור המותג", products: "מוצרים", commercial: "כלל מסחרי", operations: "תפעול ושירות" }[finding.category] ?? "מידע מהאתר"),
+      items.push({ id: `finding:${finding.findingId}`, section, label: finding.key === "catalog_listing" ? "מגוון המוצרים באתר" : KEY_LABELS[finding.key] || ({ brand: "תיאור המותג", products: "מוצרים", commercial: "כלל מסחרי", operations: "תפעול ושירות" }[finding.category] ?? "מידע מהאתר"),
         action: "confirm", required: false, suggestion, source });
     }
   }
@@ -157,7 +170,7 @@ export function generateQuestionnaire(client: {
   if (services.has("newsletter") || services.has("sms")) ask("calendar", "services", "אילו תאריכים והשקות כבר נקבעו ומה תדירות הקשר שמתאימה לכם?");
   ask("assets", "assets", "היכן נמצאים לוגו, תמונות, הנחיות מותג וחומרים קיימים?", false, true);
   ask("access", "assets", "מה מצב הגישה למערכות הרלוונטיות ומי יכול להסדיר אותה? אין להזין סיסמאות או מפתחות.");
-  return { version: QUESTIONNAIRE_VERSION, clientName: client.name, website: client.website, scanId, items,
+  return { version: QUESTIONNAIRE_VERSION, clientName: client.name, website: client.website, scanId, items, ...(catalogContext ? { catalogContext } : {}),
     services: [...services], warnings: [...(!scanId ? ["לא נמצאה סריקה שהושלמה לאתר הנוכחי; השאלון מתבסס על מידע קיים והשלמות."] : []), ...(!client.commercialScope ? ["לא נשמר scope חבילה מובנה; שאלות השירות נגזרו רק מקודי השירות הקיימים."] : [])],
     kickoffTopics: ["בחירת סדרי עדיפויות והכרעה בנקודות שנותרו פתוחות", "חידוד מיצוב, מסרים והנחות קהל על בסיס השיחה", "יישור ציפיות מסחרי ותפעולי לפני אסטרטגיה"] };
 }
@@ -215,6 +228,7 @@ export function preKickoff(snapshot: QuestionnaireSnapshot, selectedIds: string[
 export function publicProjection(record: QuestionnaireRecord) {
   return {
     clientName: record.snapshot.clientName, status: record.status, revision: record.revision,
+    catalogContext: record.snapshot.catalogContext,
     items: record.snapshot.items.filter(q => record.selectedIds.includes(q.id)).map(q => ({
       id: q.id, section: q.section, label: q.label, action: q.action, required: q.required,
       suggestion: q.suggestion, links: q.links, presentation: questionPresentation(q),

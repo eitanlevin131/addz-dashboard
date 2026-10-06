@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { CheckCircle2, Clock3, ExternalLink, FileCheck2, Loader2, AlertTriangle } from "lucide-react";
-import { websiteProductSample, websiteProgress } from "@/lib/website-intelligence/overview";
+import { websiteProgress } from "@/lib/website-intelligence/overview";
 import type { scanDetails } from "@/lib/website-intelligence/repository";
 import { clientPrimaryClass } from "./client-profile-form";
 type Details = Awaited<ReturnType<typeof scanDetails>>;
@@ -10,9 +10,8 @@ export function WebsiteScanOverview({ details, running, questionnaireBusy, quest
   details: Details; running: boolean; questionnaireBusy: boolean; questionnaireAllowed: boolean; onQuestionnaire: () => void;
 }) {
   const [now, setNow] = useState(() => Date.now());
-  const { scan, overview } = details;
+  const { scan, overview, coverage } = details;
   const progress = websiteProgress(scan, details.sources, now);
-  const productSample = websiteProductSample(details.sources, scan.state.candidates || []);
   const ready = ["completed", "completed_with_warnings"].includes(scan.status);
   useEffect(() => {
     if (progress.finished) return;
@@ -47,11 +46,12 @@ export function WebsiteScanOverview({ details, running, questionnaireBusy, quest
         <button className={clientPrimaryClass} disabled={questionnaireBusy || !questionnaireAllowed} onClick={onQuestionnaire}><FileCheck2 size={16} />{questionnaireBusy ? "מכין טיוטה..." : "להכנת שאלון אפיון"}</button>
       </div>
       <dl className="my-5 grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4">{[
-        ["עמודים שנאספו", overview.pages], ["מוצרים במדגם / עם מחיר", `${overview.products} / ${overview.pricedProducts}`],
+        ["עמודים שנאספו / קישורים שהתגלו", `${overview.pages} / ${coverage.urlsDiscovered}`], ["מוצרים עם מידע קטלוגי / עם מחיר", `${coverage.productsCatalogued} / ${coverage.pricedProducts}`],
         ["ממצאים שנצפו באתר", overview.observed], ["הסקות לאימות", overview.inferred],
-      ].map(([label, value]) => <div key={label}><dt className="text-xs text-[#667085]">{label}</dt><dd className="mt-1 text-2xl font-bold tabular-nums">{value}</dd></div>)}</dl>
-      <p className="mb-4 text-sm leading-6 text-[#667085]">זו סריקת מחקר מדגמית, לא ספירת מלאי: נבחרים עד 20 עמודים, ובהם עד 5 עמודי מוצרים לצד קטגוריות, מדיניות וסיפור המותג. מספר המוצרים שחולצו אינו מספר המוצרים באתר.</p>
-      <p className="mb-4 text-xs text-[#667085]">{productSample.discovered} קישורים זוהו כמועמדים למוצרים · {productSample.selected} עמודי מוצרים נבחרו · {productSample.processed} עובדו בהצלחה. מועמד אינו מוצר שאומת.</p>
+      ].map(([label, value]) => <div key={label}><dt className="text-xs text-[#667085]">{label}</dt><dd dir="ltr" className="mt-1 text-right text-2xl font-bold tabular-nums">{value}</dd></div>)}</dl>
+      <p className="mb-3 text-sm leading-6 text-[#667085]">זוהו {coverage.productsDiscovered} קישורים ייחודיים למוצרים; זהו אומדן גילוי, לא ספירת מלאי. {coverage.productsCatalogued} מוצרים תועדו מעמודים שנקראו, ו־{coverage.productsDeep} עמודי מוצרים נחקרו לעומק.</p>
+      <p className="mb-4 text-xs leading-5 text-[#667085]">המדגם מותאם לגודל הקטלוג ולמגוון הקטגוריות, עם העדפה לפיזור מחירים ומוצרים מודגשים. כיסוי קטגוריות במחקר המעמיק: {coverage.categoriesRepresented} מתוך {coverage.categories}. מידע שאינו נגיש ב־HTML אינו נכלל; אין כאן טענה לכיסוי הקטלוג כולו.</p>
+      <div className="mb-3 flex flex-wrap gap-x-5 gap-y-2 text-xs">{coverage.policyCoverage.filter(item => ["about", "home"].includes(item.type)).map(item => <span key={item.type} className={item.covered ? "text-[#087f72]" : "text-amber-800"}>{item.type === "home" ? "עמוד הבית" : "סיפור המותג"}: {item.covered ? "נקרא" : "לא כוסה כמקור ייעודי"}</span>)}</div>
       <div className="flex flex-wrap gap-x-5 gap-y-2 border-y border-[#eef0f3] py-3 text-xs">{overview.coverage.map(item => <span key={item.type} className={item.finding ? "text-[#087f72]" : "text-[#667085]"}>{coverageLabels[item.type]}: {item.finding ? "מידע חולץ" : item.source ? "עמוד עובד; ללא ממצא שמור" : "לא כוסה כמקור ייעודי"}</span>)}</div>
       <div className="mt-4 grid gap-x-6 gap-y-4 sm:grid-cols-2">{overview.sections.map(section => <section key={section.category}>
         <h4 className="text-sm font-bold">{section.label} <span className="font-normal text-[#667085]">· {section.count}</span></h4>

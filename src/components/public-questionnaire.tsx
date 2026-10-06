@@ -105,6 +105,7 @@ export function PublicQuestionnaire() {
     <main className="mx-auto max-w-[880px] px-5 py-7 pb-32 sm:py-10 sm:pb-32">
       {loading ? <p role="status">טוען שאלון...</p> : !data ? <div role="alert" className="py-10"><h1 className="text-xl font-bold">הקישור אינו זמין</h1><p className="mt-3 text-sm text-[#667085]">{error || "אפשר לבקש מצוות ADDZ קישור מעודכן."}</p></div> : <>
         <div className="mb-6"><p className="text-xs font-bold text-[#087f72]">{data.clientName}</p><h1 className="mt-2 text-2xl font-bold">{closed ? "תודה, המידע התקבל" : step < 0 ? "מתחילים ממה שכבר למדנו" : section?.label}</h1>
+          {step < 0 && data.catalogContext && data.catalogContext.catalogued > 0 && <p className="mt-3 text-sm leading-6 text-[#475467]">קראנו מידע על {data.catalogContext.catalogued} מוצרים מהקטלוג, ובדקנו לעומק {data.catalogContext.deeplyRead} עמודי מוצרים. נבקש להתייחס רק לדוגמאות ולסדרי העדיפויות, לא לאשר כל מוצר בנפרד.</p>}
           {closed ? <p className="mt-3 text-sm leading-6 text-[#667085]">צוות ADDZ ייעזר באישורים ובהשלמות שלכם כדי להתכונן לפגישה. התשובות נשמרו והשאלון סגור לעריכה.</p> : <>
             <div className="mt-4 flex justify-between gap-3 text-xs text-[#667085]"><span>{data.progress.answered} מתוך {data.progress.total} פריטים נשמרו</span><span role="status">{({ saved: "כל השינויים נשמרו", pending: "ממתין לשמירה", saving: "שומר...", error: "השמירה לא הושלמה" })[saveState]}</span></div>
             <progress aria-label="התקדמות השאלון" value={data.progress.percent} max={100} className="mt-2 h-1.5 w-full accent-[#087f72]" />

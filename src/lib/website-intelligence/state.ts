@@ -11,9 +11,10 @@ export type ScanState = {
   request?: { originalUrl: string; currentUrl: string; redirects: string[] };
   notification?: ScanNotification;
   researchSkipped?: boolean;
+  crawlPhase?: "discovery" | "deep";
 };
 export function initialScanState(): ScanState {
-  return { stage: "bootstrap", robots: "", crawlDelay: 1, sitemapQueue: [], sitemapVisited: [], candidates: [], taskIndex: 0, aiAttempts: 0, warnings: [] };
+  return { stage: "bootstrap", crawlPhase: "discovery", robots: "", crawlDelay: 1, sitemapQueue: [], sitemapVisited: [], candidates: [], taskIndex: 0, aiAttempts: 0, warnings: [] };
 }
 export function terminalScan(status: string) { return TERMINAL_SCAN_STATUSES.includes(status); }
 export function crawlDelayPolicy(requested?: number) {

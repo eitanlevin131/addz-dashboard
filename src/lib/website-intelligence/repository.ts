@@ -9,6 +9,7 @@ import { safeWebsiteUrl } from "./safe-fetch";
 import { checksum } from "./extraction";
 import { WEBSITE_AI_VERSION } from "./ai";
 import { websiteOverview } from "./overview";
+import { crawlCoverage, type CatalogProduct } from "./catalog";
 
 export function initialScanStatements(clientId: string, website: string | null | undefined, actorId: string, previousScanId: string | null = null) {
   if (!website) return null;
@@ -49,15 +50,15 @@ export async function scanDetails(clientId: string, scanId: string, category?: s
   const db = getDb();
   const sources = await db.select({ id: websiteScanSources.id, url: websiteScanSources.url, canonicalUrl: websiteScanSources.canonicalUrl, title: websiteScanSources.title,
     pageType: websiteScanSources.pageType, status: websiteScanSources.status, attempts: websiteScanSources.attempts, errorCode: websiteScanSources.errorCode, fetchedAt: websiteScanSources.fetchedAt,
-    extracted: sql<{ redirects?: string[] }>`jsonb_build_object('redirects', ${websiteScanSources.extracted}->'redirects')`,
-  }).from(websiteScanSources).where(eq(websiteScanSources.scanId, scanId)).orderBy(websiteScanSources.url).limit(20);
-  const allFindings = await db.select().from(websiteFindings).where(eq(websiteFindings.scanId, scanId)).orderBy(websiteFindings.category, websiteFindings.createdAt).limit(400);
+    extracted: sql<{ redirects?: string[]; catalog?: CatalogProduct[] }>`jsonb_build_object('redirects', ${websiteScanSources.extracted}->'redirects', 'catalog', ${websiteScanSources.extracted}->'catalog')`,
+  }).from(websiteScanSources).where(eq(websiteScanSources.scanId, scanId)).orderBy(websiteScanSources.url).limit(SCAN_LIMITS.pages);
+  const allFindings = await db.select().from(websiteFindings).where(eq(websiteFindings.scanId, scanId)).orderBy(websiteFindings.category, websiteFindings.createdAt).limit(1200);
   const validDisposition = disposition && REVIEW_DISPOSITIONS.includes(disposition as typeof REVIEW_DISPOSITIONS[number]);
   const findings = allFindings.filter(item => (!category || item.category === category) && (!validDisposition || item.reviewDisposition === disposition));
   const runs = await db.select({ id: aiRuns.id, task: aiRuns.task, model: aiRuns.model, status: aiRuns.status, errorCode: aiRuns.errorCode, durationMs: aiRuns.durationMs, inputTokens: aiRuns.inputTokens, outputTokens: aiRuns.outputTokens,
     skillName: aiRuns.skillName, skillVersion: aiRuns.skillVersion, promptVersion: aiRuns.promptVersion, schemaVersion: aiRuns.schemaVersion, sourceIds: aiRuns.sourceIds, inputHash: aiRuns.inputHash, createdAt: aiRuns.createdAt,
-  }).from(aiRuns).where(eq(aiRuns.scanId, scanId)).orderBy(aiRuns.createdAt).limit(20);
-  return { scan, sources, findings, runs, overview: websiteOverview(sources, allFindings) };
+  }).from(aiRuns).where(eq(aiRuns.scanId, scanId)).orderBy(aiRuns.createdAt).limit(120);
+  return { scan, sources, findings, runs, overview: websiteOverview(sources, allFindings), coverage: crawlCoverage(scan.state.candidates || [], sources) };
 }
 export function findingsInsert(scanId: string, inputs: FindingInput[], aiRunId: string | null = null) {
   return getDb().insert(websiteFindings).values(inputs.map(finding => ({ ...finding, scanId, aiRunId,
