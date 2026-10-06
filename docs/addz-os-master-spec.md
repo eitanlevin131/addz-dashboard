@@ -723,3 +723,20 @@ Acceptance criteria עסקיים:
 6. שמור backward compatibility
 7. אל תבצע rewrite ללא צורך ברור ואישור מפורש
 8. אם קיימת סתירה בין ה-Master Spec למערכת הקיימת, דווח עליה לפני שינוי ארכיטקטוני משמעותי
+# Website Intelligence Authority Contract (Epic 2 Refinement)
+
+Website Intelligence is an observation and hypothesis layer, not final brand
+truth. The intended onboarding flow is Website Intelligence -> Smart Client
+Questionnaire -> Kickoff/characterization -> approved characterization/Brand Brain.
+
+Authority progresses through `website_observed`, `website_inferred`,
+`client_questionnaire`, `kickoff_confirmed`, and `approved_brand_brain`.
+Later sources may confirm, refine or contradict earlier ones. Website/client
+disagreement is useful onboarding information, not automatically a scan failure.
+These are conceptual authority levels, not new Epic 2 database states.
+
+Operational/commercial facts must retain exact evidence, conditions and dates.
+Strategic audience, pain, desire, positioning and voice interpretations may be
+useful evidence-grounded hypotheses requiring client confirmation. They are not
+observed customer experiences merely because a product benefit suggests them.
+Questionnaire, kickoff and Brand Brain implementation remain outside Epic 2.

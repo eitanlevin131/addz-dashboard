@@ -304,3 +304,10 @@ Monday נשארת פעילה עד שהשלב הזה מספיק יציב.
 5. רק אז לכתוב קוד
 
 אין לבנות תשתית עתידית רק כי היא מופיעה ב-Roadmap, אלא אם היא הכרחית ל-Epic הנוכחי.
+# Epic 2 Quality Clarification
+
+Website Intelligence prepares useful public-site observations and explicitly
+unverified strategic hypotheses for later questionnaire/kickoff confirmation.
+It does not replace those stages or create an approved Brand Brain. Exact
+commercial/operational evidence and useful inferred intelligence have separate
+quality standards; no new Epic scope or schema is introduced by this clarification.

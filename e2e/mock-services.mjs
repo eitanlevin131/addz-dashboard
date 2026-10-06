@@ -58,12 +58,33 @@ const server = createServer(async (request, response) => {
 
   if (url.pathname === "/v1/responses" && request.method === "POST") {
     const body = await requestBody(request);
+    const format = body.text?.format?.name;
+    if (format?.startsWith("website_")) {
+      if (request.headers.authorization !== "Bearer e2e-openai-key") return json(response, 401, { error: "Invalid E2E OpenAI key" });
+      const input = JSON.parse(body.input);
+      let output;
+      if (format === "website_research_map") {
+        const chunk = input.chunks.find(chunk => chunk.untrustedWebsiteData.includes("handmade chocolate"));
+        output = { items: chunk ? [{ category: "audiences", classification: "inferred_hypothesis", summary: "קהל שמחפש מתנות שוקולד", chunkIds: [chunk.chunkId], uncertainty: "השערה הדורשת אישור לקוח", qualifiers: [] }] : [] };
+      } else if (format === "website_research_review") {
+        output = { decisions: input.untrustedCandidates.map(item => ({ index: item.index, accept: true, reason: "supported" })) };
+      } else if (format === "website_finding_review") {
+        output = { decisions: input.candidates.map(item => ({ index: item.index, approved: true, reason: "supported" })) };
+      } else if (format === "website_observations" && input.evidenceChoices) {
+        const mapping = { brand_voice: ["voice", "tone"], products_commercial: ["products", "subscriptions"], audience_problems: ["audience", "audience_likely"], differentiation_operations: ["differentiation", "differentiators_claim"] };
+        const [category, key] = mapping[input.task];
+        const evidence = input.evidenceChoices.find(item => (key === "subscriptions" ? /subscription/ : /handmade chocolate|carefully selected ingredients/).test(item.text));
+        output = { findings: evidence ? [{ category, key, evidenceRef: evidence.id, interpretation: key === "tone" ? "סגנון המדגיש מתנות ורכיבים" : key === "audience_likely" ? "קהל שמחפש מתנות שוקולד" : "", observationStatus: ["tone", "audience_likely"].includes(key) ? "inferred" : "observed", confidence: "medium" }] : [] };
+      }
+      if (output) return json(response, 200, { output_text: JSON.stringify(output), usage: { input_tokens: 1000, output_tokens: 100 }, status: "completed" });
+    }
     if (body.text?.format?.name === "website_observations") {
       const input = JSON.parse(body.input);
       const mapping = { brand_voice: ["brand", "brand_description"], products_commercial: ["products", "benefits"], audience_problems: ["audience", "audience_likely"], differentiation_operations: ["operations", "shipping"] };
       const [category, key] = mapping[input.task];
       const source = input.sources[0];
-      const findings = [{ category, key, value: { summary: "ממצא מבוסס ממקור האתר", details: [] }, sourceId: source.id, evidence: source.untrustedWebsiteText.slice(0, 120), observationStatus: key === "audience_likely" ? "inferred" : "observed", confidence: "high" }];
+      const inferred = key === "audience_likely";
+      const findings = [{ category, key, value: { summary: inferred ? "ממצא מבוסס ממקור האתר" : source.untrustedWebsiteText.slice(0, 80), details: [] }, sourceId: source.id, evidence: source.untrustedWebsiteText.slice(0, 120), observationStatus: inferred ? "inferred" : "observed", confidence: "high" }];
       return json(response, 200, { output_text: JSON.stringify({ findings }), usage: { input_tokens: 1000, output_tokens: 100 }, status: "completed" });
     }
     const answer = {

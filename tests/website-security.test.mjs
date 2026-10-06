@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import tls from "node:tls";
 import { Duplex } from "node:stream";
-import { publicAddress, safeWebsiteUrl, resolveDestination, validateConnectedAddress, sameSite, pinnedAgent, redirectDestination } from "../src/lib/website-intelligence/safe-fetch.ts";
+import { publicAddress, safeWebsiteUrl, resolveDestination, validateConnectedAddress, sameSite, pinnedAgent, redirectDestination, safeWebsiteFetch } from "../src/lib/website-intelligence/safe-fetch.ts";
 
 test("SSRF rejects private, internal, metadata, loopback and IPv4/IPv6 variants", () => {
   for (const value of ["127.0.0.1", "10.0.0.1", "172.16.1.1", "192.168.0.1", "169.254.169.254", "0.0.0.0", "100.64.0.1", "::1", "::", "fe80::1", "fc00::1", "::ffff:127.0.0.1", "224.0.0.1", "203.0.113.1"])
@@ -31,6 +31,18 @@ test("redirect hops reject internal addresses, credential URLs and external host
   const root = new URL("https://example.com/");
   for (const value of ["http://127.1/", "http://[::ffff:127.0.0.1]/", "http://169.254.169.254/", "https://user:secret@example.com/", "https://attacker.example.com/", "file:///etc/passwd"]) assert.throws(() => redirectDestination(value, root, root));
   assert.equal(redirectDestination("/new", root, root).href, "https://example.com/new");
+});
+test("redirect continuation respects hop limits and revalidates scope before any request", async () => {
+  let called = false;
+  const gate = async () => { called = true; throw Error("checkpoint"); };
+  const onRedirect = async () => {};
+  for (const currentUrl of ["http://127.0.0.1/", "https://attacker.example.com/"]) {
+    await assert.rejects(safeWebsiteFetch("https://example.com/faq", gate, new URL("https://example.com/"), { cursor: { currentUrl, redirects: [currentUrl] }, onRedirect }));
+    assert.equal(called, false);
+  }
+  await assert.rejects(safeWebsiteFetch("https://example.com/faq", gate, new URL("https://example.com/"), { cursor: { currentUrl: "https://example.com/faq/", redirects: Array(6).fill("https://example.com/faq/") }, onRedirect }), /redirect_limit/);
+  await assert.rejects(safeWebsiteFetch("https://example.com/faq", gate, new URL("https://example.com/"), { cursor: { currentUrl: "https://example.com/faq/", redirects: ["https://example.com/faq/"] }, onRedirect }), /checkpoint/);
+  assert.equal(called, true);
 });
 test("actual agent dials pinned IP with TLS identity intact and refuses a rebound peer before HTTP receives the socket", async t => {
   const destination = await resolveDestination("https://example.com", async () => [{ address: "1.1.1.1", family: 4 }]);

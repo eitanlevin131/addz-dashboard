@@ -1,4 +1,4 @@
-export const SCAN_VERSION = "website-v1";
+export const SCAN_VERSION = "website-v3";
 export const SCAN_LIMITS = {
   pages: 20, candidates: 2000, sitemaps: 6, requests: 60, depth: 2,
   responseBytes: 2 * 1024 * 1024, textCharacters: 20000,
@@ -24,6 +24,7 @@ const WARNING_LABELS: Record<string, string> = {
   noindex: "עמודים שסומנו noindex לא עובדו.",
   sitemap_unavailable: "מפת האתר לא הייתה זמינה; האיסוף הסתמך גם על קישורים.",
   text_truncated: "תוכן ארוך קוצר בהתאם למגבלות הסריקה.",
+  inventory_conflict: "קיימת סתירה בין נתוני המלאי המובנים לבין התוכן הגלוי. המלאי אינו מוצג כעובדה ודאית.",
 };
 const TASK_LABELS: Record<string, string> = {
   brand_voice: "מותג ושפה", products_commercial: "מוצרים ומסחר",
@@ -31,6 +32,8 @@ const TASK_LABELS: Record<string, string> = {
 };
 export function websiteWarningLabel(code: string): string {
   if (WARNING_LABELS[code]) return WARNING_LABELS[code];
+  const capped = /^crawl_delay_capped:(\d+(?:\.\d+)?(?:e\+?\d+)?):5$/.exec(code);
+  if (capped) return `מרווח הסריקה המבוקש באתר הוא ${capped[1]} שניות; המרווח האפקטיבי הוגבל ל־5 שניות.`;
   const task = AI_TASKS.find(task => code.startsWith(task + "_"));
   const prefix = task ? TASK_LABELS[task] + ": " : "";
   if (code.includes("insufficient_evidence")) return prefix + "אין מספיק מקורות לניתוח AI.";

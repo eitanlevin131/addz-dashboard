@@ -6,6 +6,7 @@ import { lookup } from "node:dns/promises";
 import { createGunzip, createInflate, createBrotliDecompress } from "node:zlib";
 import ipaddr from "ipaddr.js";
 import { SCAN_LIMITS } from "./config.ts";
+import { retryAfterDeadline, transientWebsiteStatus } from "./state.ts";
 
 export class WebsiteFetchError extends Error {
   code: string;
@@ -86,7 +87,7 @@ async function pinnedRequest(destination: Destination): Promise<WebsiteResponse>
     const request = transport.request(destination.url, { agent,
       headers: { "user-agent": "ADDZWebsiteBot/1.0", accept: "text/html,application/xhtml+xml,application/xml,text/xml,text/plain", "accept-encoding": "gzip,deflate,br" } }, response => {
       const headers = Object.fromEntries(Object.entries(response.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(", ") : value || ""]));
-      if ([301,302,303,307,308].includes(response.statusCode || 0)) {
+      if ([301,302,303,307,308].includes(response.statusCode || 0) || transientWebsiteStatus(response.statusCode || 0)) {
         response.destroy(); finish(undefined, { url: destination.url.href, status: response.statusCode!, headers, body: "", bytes: 0, redirects: [] }); return;
       }
       const type = (headers["content-type"] || "").split(";")[0].trim().toLowerCase();
@@ -118,10 +119,14 @@ export function redirectDestination(location: string, current: URL, root: URL) {
   if (!sameSite(target, root)) throw new WebsiteFetchError("external_redirect");
   return target;
 }
-export async function safeWebsiteFetch(input: string, beforeRequest?: (url: URL) => Promise<void>, root = safeWebsiteUrl(input)): Promise<WebsiteResponse> {
-  let current = safeWebsiteUrl(input);
-  const redirects: string[] = [];
-  for (let hop = 0; hop <= SCAN_LIMITS.redirects; hop++) {
+export type FetchContinuation = { currentUrl: string; redirects: string[] };
+export async function safeWebsiteFetch(input: string, beforeRequest?: (url: URL) => Promise<void>, root = safeWebsiteUrl(input), continuation?: {
+  cursor?: FetchContinuation; onRedirect: (cursor: FetchContinuation, retryAfterAt?: Date | null) => Promise<void>;
+}): Promise<WebsiteResponse> {
+  let current = safeWebsiteUrl(continuation?.cursor?.currentUrl || input);
+  const redirects: string[] = [...(continuation?.cursor?.redirects || [])];
+  if (redirects.length > SCAN_LIMITS.redirects) throw new WebsiteFetchError("redirect_limit");
+  for (let hop = redirects.length; hop <= SCAN_LIMITS.redirects; hop++) {
     if (!sameSite(current, root)) throw new WebsiteFetchError("external_redirect");
     await beforeRequest?.(current);
     const destination = await resolveDestination(current.href);
@@ -130,6 +135,8 @@ export async function safeWebsiteFetch(input: string, beforeRequest?: (url: URL)
     if (!response.headers.location || hop === SCAN_LIMITS.redirects) throw new WebsiteFetchError("redirect_limit");
     current = redirectDestination(response.headers.location, current, root);
     redirects.push(current.href);
+    // Persist only validated redirect targets; resumed requests still resolve and pin anew.
+    await continuation?.onRedirect({ currentUrl: current.href, redirects: [...redirects] }, retryAfterDeadline(response.headers["retry-after"]));
   }
   throw new WebsiteFetchError("redirect_limit");
 }

@@ -140,6 +140,51 @@ isolated Vercel Preview canary is documented in
 `docs/epic-2-preview-validation.md`, including the limits of runtime security
 testing. This is not approval for a Production deployment.
 
+### Targeted ecommerce quality refinement (isolated validation)
+
+URL identities normalize UTF-8 escape case, unreserved encodings, trailing slashes
+and tracking parameters while preserving path case, encoded separators and variant
+queries. Same-site canonical declarations participate in duplicate detection.
+Page roles combine URL/title/headings, JSON-LD, OpenGraph and product form/price
+signals. A shop child is a product candidate, not automatically a category; fetched
+semantics correct provisional roles. Questionnaire pages do not become reviews.
+Coverage reserves slots for undiscovered brand/product/policy/support pages within
+the original 20-page/60-request budgets.
+General terms/conditions pages are provisional policy candidates. They count as
+returns sources only if fetched main content explicitly supports refund/cancellation
+policy; otherwise they remain other, not an invented refund policy.
+
+Validated redirect continuation persists in scan state before the next network
+hop. Long robots delays release the lease at a checkpoint rather than consuming a
+source retry or discarding a sitemap. Every resumed hop revalidates URL scope,
+robots, DNS answers and the pinned TCP/TLS peer. No security bypass was introduced.
+
+Scanner version website-v3 identifies the new extraction/crawl behavior. Historical
+results remain readable; an unfinished older-version scan must be re-run rather
+than silently mixing extraction versions in one history record.
+AI schema/prompt/registry version 3 binds category/key pairs. Published observed
+AI summaries and details must be extractive substrings of their own evidence.
+Partial citations with extra claims are rejected, not relabelled as facts. Audience
+motives, desires, pains, positioning, values, tone and use-case interpretations are
+inferred with confidence capped at medium. Factual details attached to an inference
+must also be extractive substrings of its own evidence; interpretations belong only
+in its summary. The prompt requests at most four short atomic findings, raw copied
+text without added quote wrappers, and empty detail arrays unless fully supported.
+Inference relevance still requires human
+review; these guards do not claim to solve arbitrary semantic entailment. No new
+Skill, questionnaire, external verifier, schema migration or infrastructure is added.
+
+The first refined public-site run exposed custom product-price markup without
+Product JSON-LD or standard WooCommerce price selectors. A conservative fallback
+reads only a currency-labelled price directly adjacent to the primary product
+heading in extracted main text, retaining ranges/starting-price qualifiers and
+never searching later recommendations, per-unit prices or shipping thresholds.
+Article/BlogPosting and WordPress blog taxonomy signals prevent culinary content
+archives from being mistaken for ecommerce product collections.
+HTML variants require a form structurally owned by the primary product. Related
+product forms and ambiguous dropdowns are excluded, rather than attached to the
+current SKU. JSON-LD offer variants remain associated with their declared Product.
+
 ### Internal workspace
 
 The existing Client Workspace gains a Hebrew/RTL scan tab with status, history,
@@ -172,3 +217,76 @@ there is no new background queue or guarantee of recovery while the UI is closed
 Delivery failures do not alter scan results. Real delivery requires explicit
 `WEBSITE_SCAN_EMAIL_ENABLED=true`, Resend/from and a configured application URL.
 Vercel Preview is always email-disabled; isolated E2E uses the mock email provider.
+
+### Research Map V1 contract
+
+#### Authority and revised quality gate
+
+Website Intelligence -> Smart Client Questionnaire -> kickoff/characterization
+meeting -> approved characterization/Brand Brain is the future onboarding flow.
+Authority levels are `website_observed`, `website_inferred`,
+`client_questionnaire`, `kickoff_confirmed`, `approved_brand_brain`. Later
+confirmation may refine or contradict website observations. Disagreement is
+useful onboarding information, not automatically a website scan failure.
+This contract requires no new schema and implements none of the later stages.
+
+Deterministic research preserves original product/price structures, complete
+policy evidence, dates, contact and inventory signals without AI rewriting.
+Unresolved qualifier binding stays unresolved: a raw clause is not a normalized
+shipping guarantee or a current offer. Different source signals are retained,
+not automatically resolved. Source/chunk context remains available in full.
+
+AI research uses non-legal business content for descriptions and useful strategic
+hypotheses. Positioning, audience generalizations, pains, desires, tone and
+messaging interpretations default to inferred and require client confirmation.
+A practical product benefit may motivate a useful inferred need, but cannot
+prove an observed customer problem. Legal boilerplate is not brand evidence.
+No advice, strategy, questionnaire or final truth is generated.
+
+Stage 1 passes with exact deterministic evidence/provenance, correctly labelled
+useful hypotheses, no material invention and no legal contamination. It does not
+require hypotheses to replace client confirmation. Only after both saved-site
+pilots pass may research guide finding candidates, never serve as their evidence.
+Original chunks remain authoritative; observed factual/type entailment and
+commercial-condition gates remain unchanged. Unknowns are evaluated only against
+the complete processed corpus and do not assert absence from the entire website.
+
+Research is internal, non-publishable working context, not verified client truth.
+Batch extraction collects atomic observations and supported, labelled hypotheses.
+Commercial/operational rules retain verbatim, chunk-linked qualifier clauses:
+method, threshold, price, timeframe, condition, scope and historical context.
+Different methods, scopes, periods and eligibility are separate observations;
+deterministic consolidation includes qualifiers in its identity and unions every
+contributing source reference without rewriting claims.
+
+Contradiction resolution and global absence analysis are deferred. Batches have
+no contradiction, unknown or missing category, and empty category coverage means
+only that no accepted research item was produced, not that the website lacks it.
+Tone interpretations default to inferred hypotheses; observed tone requires a
+direct cited self-description of the brand's voice. Research never substitutes
+for original evidence or weakens the strict published-finding validation gates.
+There is no schema or crawler change. Research items never publish automatically.
+
+#### Candidate and evidence validation execution
+
+Only a completed, reviewed Research Map guides candidate generation. The bounded
+candidate menu uses immutable original sentence spans and samples early, middle
+and late content. The model selects a reference; the application attaches the
+original source and quote without allowing model-written evidence. Observed
+values are extractive; strategic inferred values retain explicit uncertainty.
+Operational rules and variants stay in deterministic extraction, not this AI path.
+
+Candidate generation and reject-only factual/semantic entailment review are
+separate persisted steps in the existing `ai_runs`/lease/checkpoint architecture.
+Each processing chunk performs at most one provider request. Research requests
+and finding review use 35-second timeouts; candidate generation retains the
+40-second limit. Generation does not publish before a complete, valid review.
+The reviewer may only retain or reject immutable candidates; it cannot author,
+edit or promote them. Missing, duplicate or inconsistent decisions fail closed.
+Both steps keep original source evidence, model/version, input hash, output,
+usage and retry history. Checkpoint fencing protects publication against expired
+leases and cancellation. Research failure finishes with deterministic findings
+and warnings rather than falling back to AI-authored operational facts.
+
+This quality improvement requires a fresh final regression/runtime release gate;
+the earlier Preview validation is not validation of this modified pipeline.
