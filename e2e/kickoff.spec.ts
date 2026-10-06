@@ -87,6 +87,7 @@ test("Pre-Kickoff to meeting, provenance, decisions, new information, summary/re
   page.once("dialog", dialog => dialog.accept());
   await page.getByRole("button", { name: "סכם פגישה", exact: true }).click();
   await expect(page.getByRole("tab", { name: "אפיון מובנה", exact: true })).toHaveAttribute("aria-selected", "true");
+  await page.getByTestId("kickoff-summary-motivations").locator("summary").first().click();
   await expect(page.getByText("מתנות לאירוח בסופי שבוע", { exact: true })).toBeVisible();
   await expect(page.getByText("לקבל דוגמאות לטון מהלקוח", { exact: true })).toBeVisible();
   await expect(page.getByText("אפיון פנימי לעבודה.", { exact: false })).toContainText("אינו Brand Brain מאושר");
