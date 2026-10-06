@@ -246,3 +246,21 @@ This records a bounded release validation, not continuous health monitoring.
 This handoff is a post-rollout documentation artifact, not part of the deployed
 application release above. Consult Master Spec/Roadmap for product scope and the
 live database for schema truth; do not infer state from historical filenames.
+
+## Local questionnaire UX candidate (Not Deployed)
+
+- Customer-facing form now uses a dark navy ADDZ header, focused expandable
+  questions, structured product details, explicit confirmation/correction choices,
+  proper multiline answers and compact mobile navigation. Existing questionnaire
+  links/snapshots/answers and immutable Website Intelligence provenance are preserved.
+- Website summary distinguishes product candidates from the bounded five-page
+  product sample; it must never imply that this is the site's complete catalog.
+- No new database, migration, AI call, crawler change or Production action.
+- Local Studio365 scan results were produced with mocked AI; a real-AI isolated
+  quality validation remains necessary before treating its questionnaire as a
+  representative test of the full research pipeline.
+- Focused Node 22 unit tests 39/39, lint 0 errors/3 old warnings, TypeScript/build
+  passed; focused isolated browser scenarios 3/3 passed (2.0 minutes), covering mobile autosave/resume/correction/submission,
+  link security and the onboarding questionnaire handoff.
+- See `docs/epic-3-smart-questionnaire.md` for details. This refinement remains
+  on the isolated Epic 4 development branch and is not part of live Epic 3.

@@ -180,3 +180,30 @@ retains additive schema and any new questionnaire answers; never drop them.
   Local-only candidate; no push, Preview/Production deploy, Production query or
   migration. Production's retained Epic 2 test client was not touched.
 - Decision: **GO for isolated Preview validation**, not Production rollout.
+
+## Local customer-facing UX refinement - 2026-10-06
+
+- Dark navy ADDZ header with the existing logo integrated directly; light content
+  background remains unchanged. No new design system or assets.
+- One expanded question per section, explicit decision controls, question/section
+  navigation, compact mobile section selector and visible saved-answer states.
+  Bulk confirmation removed: individual source facts/hypotheses need individual decisions.
+- Additive public presentation projection formats existing product names/prices as
+  labeled facts and turns generic evidence labels into questions. Existing immutable
+  snapshots, source evidence, authority, responses and selection remain unchanged.
+  Long policies are expandable in full, never paraphrased or truncated into broader claims.
+- Correction/partial selection opens a proper multiline input. Empty required
+  corrections remain local, block navigation/submission and do not produce invalid
+  autosave requests; leaving the browser warns about this unfinished draft.
+- No regeneration, new AI calls, migrations, auth changes or Production deployment.
+- Website summary now explicitly identifies a bounded product sample and separates
+  candidate links from selected/processed product pages. Studio365's saved synthetic
+  scan discovered 174 product candidates and processed five selected product pages,
+  not an inventory of just five products. Existing crawler limits stay unchanged.
+- The Studio365 local scan used mocked AI providers. Its deterministic extracted
+  content is not proof of real AI research/questionnaire quality; validating that
+  requires separately approved isolated real-AI execution, not fabricated findings.
+- Node 22 focused unit tests: 39/39; lint: 0 errors/3 existing warnings;
+  TypeScript and guarded production-style build passed. Focused isolated E2E
+  **3/3 passed** in 2.0 minutes, covering the public fill/save/resume/submit loop, security boundaries and the
+  scan consent/summary-to-questionnaire handoff. Screenshots remain outside Git.

@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { websiteOverview, websiteProgress, findingText, sameWebsiteForQuestionnaire } from "../src/lib/website-intelligence/overview.ts";
+import { websiteOverview, websiteProgress, findingText, sameWebsiteForQuestionnaire, websiteProductSample } from "../src/lib/website-intelligence/overview.ts";
+
+test("product sample distinguishes discovered candidates from selected and processed pages", () => {
+  assert.deepEqual(websiteProductSample([{ id: "a", pageType: "product", status: "completed" }, { id: "b", pageType: "product", status: "failed" }], [
+    { url: "https://example.test/product", type: "product" }, { url: "https://example.test/product", type: "product" }, { url: "https://example.test/other", type: "category" },
+  ]), { discovered: 1, selected: 2, processed: 1 });
+  assert.deepEqual(websiteProductSample([], []), { discovered: 0, selected: 0, processed: 0 });
+});
 import { shouldStartInitialWebsiteScan } from "../src/lib/client-foundation.ts";
 const sources = [{ id: "s1", status: "completed", pageType: "product" }, { id: "s2", status: "failed", pageType: "shipping" }];
 const finding = (extra = {}) => ({ id: "f1", sourceId: "s1", category: "products", key: "product", value: { name: "תבלין", price: 0, currency: "ILS" }, observationStatus: "observed", reviewDisposition: "normal", ...extra });

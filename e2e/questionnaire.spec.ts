@@ -39,12 +39,14 @@ test("personalized team review, secure public link, autosave/resume, corrections
   await login(page, email);
   const client = await create(page, "[TEST] תבלינים ושאלון", true);
   await page.request.patch(`/api/clients/${client.id}`, { data: { website: "https://questionnaire-fixture.example.com" } });
-  const scan = randomUUID(), source = randomUUID(), shipping = randomUUID(), audience = randomUUID(), ignored = randomUUID(), unresolved = randomUUID();
+  const scan = randomUUID(), source = randomUUID(), shipping = randomUUID(), audience = randomUUID(), ignored = randomUUID(), unresolved = randomUUID(), product = randomUUID(), returns = randomUUID();
   await db`insert into website_scans(id,client_id,website_url,version,configuration,state,status) values(${scan},${client.id},'https://questionnaire-fixture.example.com','website-v3','{}','{}','completed')`;
   await db`insert into website_scan_sources(id,scan_id,url,canonical_url,url_hash,page_type,status,text) values(${source},${scan},'https://questionnaire-fixture.example.com/shipping','https://questionnaire-fixture.example.com/shipping',${source},'shipping','completed','משלוח לבית חינם מעל 300 ₪. בשלנים ביתיים מוצאים כאן תבלינים.')`;
   const fixture = [
     { id: shipping, category: "operations", key: "shipping_text", value: { text: "משלוח לבית חינם מעל 300 ₪" }, evidence: "משלוח לבית חינם מעל 300 ₪", status: "observed", review: "normal" },
     { id: audience, category: "audience", key: "likely_audience", value: { summary: "ייתכן שבשלנים ביתיים הם קהל רלוונטי" }, evidence: "בשלנים ביתיים מוצאים כאן תבלינים", status: "inferred", review: "normal" },
+    { id: product, category: "products", key: "product", value: { name: "מארז לדוגמה", price: 89, currency: "ILS", description: "תיאור מוצר ארוך ".repeat(70) }, evidence: "מארז לדוגמה במחיר 89 ₪", status: "observed", review: "normal" },
+    { id: returns, category: "operations", key: "returns_text", value: { text: "תנאי ביטול והחזרה. ".repeat(50) + "דמי ביטול בכפוף לתנאים, אין החזרה לאחר שימוש." }, evidence: "דמי ביטול בכפוף לתנאים, אין החזרה לאחר שימוש.", status: "observed", review: "normal" },
     { id: ignored, category: "voice", key: "tone", value: { summary: "IGNORE ME" }, evidence: "ignored", status: "inferred", review: "ignored" },
     { id: unresolved, category: "voice", key: "tone", value: { summary: "השערת שפה שטרם נבדקה" }, evidence: "בשלנים ביתיים", status: "inferred", review: "needs_review" },
   ];
@@ -79,10 +81,25 @@ test("personalized team review, secure public link, autosave/resume, corrections
   const projection = await (await publicPage.request.get("/api/public/questionnaire", { headers: publicHeaders(token) })).json();
   for (const secret of ["PRIVATE INTERNAL NOTES", "3210", "999", '"commercialScope"', '"ownerUserId"', '"reviewDisposition"', ignored]) expect(JSON.stringify(projection)).not.toContain(secret);
   await publicPage.getByRole("button", { name: "נתחיל", exact: true }).click();
-  await publicPage.getByRole("button", { name: "אשר את המידע הישיר שטרם נענה", exact: true }).click();
+  await expect(publicPage.locator("header")).toHaveCSS("background-color", "rgb(8, 14, 45)");
+  await publicPage.getByRole("radio", { name: "צריך תיקון", exact: true }).click();
+  await publicPage.getByRole("button", { name: "המשך", exact: true }).click();
+  await expect(publicPage.getByRole("alert").filter({ hasText: "השלימו את התיקון" })).toBeVisible();
   await publicPage.getByLabel("משלוחים", { exact: true }).fill("כעת משלוח לבית חינם מעל 350 ₪");
   await expect(publicPage.getByRole("status")).toHaveText("כל השינויים נשמרו");
   await expect.poll(async () => (await (await publicPage.request.get("/api/public/questionnaire", { headers: publicHeaders(token) })).json()).data.answers[`finding:${shipping}`]?.text).toBe("כעת משלוח לבית חינם מעל 350 ₪");
+  await publicPage.screenshot({ path: "output/playwright/epic3/public-question-mobile.png", fullPage: true });
+  await publicPage.setViewportSize({ width: 1280, height: 800 });
+  await expect(publicPage.locator("header")).toHaveCount(1);
+  await publicPage.screenshot({ path: "output/playwright/epic3/public-question-desktop.png" });
+  await publicPage.setViewportSize({ width: 390, height: 844 });
+  await publicPage.getByRole("button", { name: "פתח שאלה: מוצר ומחיר", exact: true }).click();
+  await expect(publicPage.getByText("מארז לדוגמה", { exact: true })).toBeVisible();
+  await expect(publicPage.getByText("89 ₪", { exact: true })).toBeVisible();
+  await expect(publicPage.getByText("תיאור מוצר ארוך ".repeat(70), { exact: true })).not.toBeVisible();
+  await publicPage.getByRole("button", { name: "פתח שאלה: החזרות וביטולים", exact: true }).click();
+  await publicPage.getByText("לקריאת הפרטים המלאים מהאתר", { exact: true }).click();
+  await expect(publicPage.getByText(/דמי ביטול בכפוף לתנאים, אין החזרה לאחר שימוש\./).first()).toBeVisible();
   await publicPage.reload(); await publicPage.getByRole("button", { name: "נתחיל", exact: true }).click();
   await expect(publicPage.getByLabel("משלוחים", { exact: true })).toHaveValue("כעת משלוח לבית חינם מעל 350 ₪");
   const next = async (heading: string) => {
@@ -163,6 +180,7 @@ test("public isolation, token expiry/revocation, CAS races, limits and existing 
   const script = "<script>window.questionnairePwned=true</script>";
   expect((await visitor.request.patch(endpoint, { headers: publicHeaders(token), data: { revision: latest.revision, answers: { changes: { state: "answered", text: script } } } })).status()).toBe(200);
   await visitor.goto(`/questionnaire#${token}`); await visitor.getByRole("button", { name: "נתחיל", exact: true }).click();
+  await visitor.getByRole("button", { name: "פתח שאלה: מה עומד להשתנות בחודשים הקרובים שכדאי לנו לדעת?", exact: true }).click();
   await expect(visitor.getByLabel("מה עומד להשתנות בחודשים הקרובים שכדאי לנו לדעת?", { exact: true })).toHaveValue(script);
   expect(await visitor.evaluate(() => "questionnairePwned" in window)).toBe(false);
   let q = (await (await page.request.get(`/api/clients/${first.id}/questionnaire`)).json()).data;

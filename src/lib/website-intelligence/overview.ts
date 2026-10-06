@@ -65,6 +65,11 @@ export function websiteOverview(sources: Source[], findings: Finding[]) {
   };
 }
 type DateValue = Date | string | null;
+export function websiteProductSample(sources: Source[], candidates: { url: string; type: string }[]) {
+  return { discovered: new Set(candidates.filter(item => item.type === "product").map(item => item.url)).size,
+    selected: sources.filter(item => item.pageType === "product").length,
+    processed: sources.filter(item => item.pageType === "product" && item.status === "completed").length };
+}
 export function websiteProgress(scan: {
   status: string; startedAt: DateValue; createdAt: Date | string; completedAt: DateValue;
   state: { stage: string; taskIndex: number };

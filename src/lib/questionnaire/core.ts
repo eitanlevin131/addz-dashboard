@@ -1,4 +1,5 @@
 import type { IncludedService, PackageScope } from "../client-packages";
+import { questionPresentation } from "./presentation.ts";
 
 export const QUESTIONNAIRE_VERSION = "questionnaire-v1";
 export const QUESTIONNAIRE_SECTIONS = [
@@ -216,7 +217,7 @@ export function publicProjection(record: QuestionnaireRecord) {
     clientName: record.snapshot.clientName, status: record.status, revision: record.revision,
     items: record.snapshot.items.filter(q => record.selectedIds.includes(q.id)).map(q => ({
       id: q.id, section: q.section, label: q.label, action: q.action, required: q.required,
-      suggestion: q.suggestion, links: q.links,
+      suggestion: q.suggestion, links: q.links, presentation: questionPresentation(q),
       source: q.source ? { authority: q.source.authority, evidence: q.source.evidence, url: q.source.url, confidence: q.source.confidence, unresolved: q.source.reviewDisposition === "needs_review" } : undefined,
     })), answers: record.answers, submittedAt: record.submittedAt,
     progress: questionnaireProgress(record.snapshot, record.selectedIds, record.answers),
