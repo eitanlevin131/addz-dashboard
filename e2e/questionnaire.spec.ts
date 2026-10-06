@@ -182,8 +182,12 @@ test("public isolation, token expiry/revocation, CAS races, limits and existing 
   await customerPage.goto(`/?view=client-workspace&clientId=${first.id}&tab=questionnaire`);
   await expect(customerPage.getByRole("heading", { name: "שאלון והכנה לפגישה" })).not.toBeVisible();
   await customerPage.close();
-  await db`update questionnaire_rate_limits set requests=120 where expires_at>now()`;
-  expect((await get(secondToken)).status()).toBe(429);
+  // Create the current-minute bucket first; crossing a minute must not test the previous bucket.
+  await expect.poll(async () => {
+    await get(secondToken);
+    await db`update questionnaire_rate_limits set requests=120 where expires_at>now()`;
+    return (await get(secondToken)).status();
+  }).toBe(429);
   // Clear this synthetic test's limiter state, not any application/customer data.
   await db`delete from questionnaire_rate_limits`;
   await anonymous.close();
