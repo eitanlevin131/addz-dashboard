@@ -21,6 +21,7 @@ import type { PackageCode, PackageScope } from "@/lib/client-packages";
 import type { DailyMetricSnapshot, MetricSnapshotRevision } from "@/lib/types";
 import type { MonthlySummaryManualInput, MonthlySummarySnapshot } from "@/lib/monthly-summary";
 import type { ScanState } from "@/lib/website-intelligence/state";
+import type { QuestionnaireAnswers, QuestionnaireSnapshot } from "@/lib/questionnaire/core";
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
@@ -624,3 +625,35 @@ export const websiteFindings = pgTable("website_findings", {
   check("website_findings_review_check", sql`${table.reviewDisposition} in ('normal','needs_review','ignored')`),
   check("website_findings_confidence_check", sql`${table.confidence} in ('high','medium','low')`),
 ]);
+
+export const clientQuestionnaires = pgTable("client_questionnaires", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clientId: uuid("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  snapshot: jsonb("snapshot").$type<QuestionnaireSnapshot>().notNull(),
+  selectedIds: jsonb("selected_ids").$type<string[]>().notNull(),
+  answers: jsonb("answers").$type<QuestionnaireAnswers>().notNull().default({}),
+  revision: integer("revision").notNull().default(0),
+  status: text("status").notNull().default("draft"),
+  tokenHash: text("token_hash"),
+  linkExpiresAt: timestamp("link_expires_at", { withTimezone: true }),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  readyAt: timestamp("ready_at", { withTimezone: true }),
+  sharedAt: timestamp("shared_at", { withTimezone: true }),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  uniqueIndex("client_questionnaires_client_idx").on(table.clientId),
+  uniqueIndex("client_questionnaires_token_idx").on(table.tokenHash).where(sql`${table.tokenHash} is not null`),
+  check("client_questionnaires_status_check", sql`${table.status} in ('draft','ready','sent','in_progress','submitted','reviewed')`),
+  check("client_questionnaires_revision_check", sql`${table.revision} >= 0`),
+  check("client_questionnaires_json_check", sql`jsonb_typeof(${table.snapshot}) = 'object' and jsonb_typeof(${table.answers}) = 'object' and jsonb_typeof(${table.selectedIds}) = 'array'`),
+  check("client_questionnaires_token_check", sql`${table.tokenHash} is null or (${table.tokenHash} ~ '^[a-f0-9]{64}$' and ${table.linkExpiresAt} is not null)`),
+]);
+export const questionnaireRateLimits = pgTable("questionnaire_rate_limits", {
+  bucket: text("bucket").primaryKey(),
+  requests: integer("requests").notNull().default(1),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, table => [index("questionnaire_rate_limits_expiry_idx").on(table.expiresAt)]);

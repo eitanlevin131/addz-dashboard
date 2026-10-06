@@ -1,7 +1,9 @@
 # ADDZ OS Current State
 
 Operational handoff: 2026-10-06, 06:14 UTC. Production status: **HEALTHY**, with
-the limitations and unobserved scheduled-job gate below. Epic 3 has not started.
+the limitations and unobserved scheduled-job gate below. This is the last recorded
+Production validation, not a fresh Production probe. Epic 3 is now implemented
+locally on `codex/addz-os-epic-3`; it is NOT deployed or migrated in Production.
 
 ## Live Release
 
@@ -10,7 +12,7 @@ the limitations and unobserved scheduled-job gate below. Epic 3 has not started.
 - Application release: `e2fc5058c8220ad47944aa7ffdf9db2acd53110d`.
 - Deployment: `dpl_919qqKKXPmVuADXHqHX7Efff2BCp`, READY.
 - Deployment URL: `addz-dashboard-ouy3hyj6p-eitans-projects-5ee0b2bf.vercel.app`.
-- Local implementation branch: `codex/addz-os-epic-2`.
+- Live release/handoff source branch: `codex/addz-os-epic-2`.
 - Previous application: `63f42e4b121a6e22aaf81a140e8cd21d3bbd7f4c`,
   deployment `dpl_2PknjjSeRxTZdZsWwTcUt92nwJW5`.
 - The release contains the exact tested source and approved E2E mock correction;
@@ -39,8 +41,9 @@ the limitations and unobserved scheduled-job gate below. Epic 3 has not started.
   confidence and run versions. Entailment/type/commercial/quotation gates remain.
 - Review metadata never rewrites facts: `ignored` is excluded from default future
   consumption; `needs_review` remains available but unresolved; `normal` is normal.
-- Product sequence stays Website Intelligence -> Smart Questionnaire -> Kickoff
-  -> Approved Brand Brain. Epic 2 does not create those later product artifacts.
+- Product sequence stays Website Intelligence -> Smart Questionnaire ->
+  Pre-Kickoff Intelligence -> Kickoff -> Approved Brand Brain. Epic 2 does not
+  create those later product artifacts.
 
 ## Database and Recovery
 
@@ -109,11 +112,37 @@ the limitations and unobserved scheduled-job gate below. Epic 3 has not started.
 - Three pre-existing non-blocking lint warnings remain. Reference
   `docs/epic-2-minimal-release-confirmation.md` for the isolated release gate:
   lint/build/typecheck passed, Website Intelligence E2E 2/2 passed.
-- Deferred: questionnaire, Brand Brain, kickoff, strategy/copy/task generation,
+- Not live: Epic 3 questionnaire and Pre-Kickoff (see development section below).
+- Deferred: Brand Brain, kickoff, strategy/copy/task generation,
   recurring scans, browser rendering and queue infrastructure.
-- Next recommended Epic: plan Epic 3 Smart Questionnaire against original sources
-  and explicitly reviewed intelligence; first close scheduled-job observation.
-  Do not start implementation without a new approved scope.
+- Next release work: validate Epic 3 in an isolated Preview runtime after approval;
+  independently close Epic 2 scheduled-job observation. Do not mix test-client
+  cleanup or release closure with the Epic 3 feature.
+
+## Epic 3 Development (Not Live)
+
+- Approved scope: Smart Questionnaire, unique client capability link and structured
+  Pre-Kickoff preparation inside the existing Client Workspace.
+- Deterministic generation uses published findings and negotiated service/scope
+  snapshots; no new AI call, Research reinterpretation or crawler changes.
+- Original scan facts, hypotheses and source evidence remain unchanged. Answers
+  separately record confirmation, partial confirmation, correction, rejection,
+  new client input, unknowns and kickoff discussion needs.
+- Additive `0020`: `client_questionnaires` and `questionnaire_rate_limits`,
+  20 columns total. Applied only on allowlisted synthetic isolated test databases.
+  No Production migration, query, provider/configuration change or deployment.
+- Fragment-based 256-bit token, hash-only persistence, 90-day expiry, revocation,
+  durable request limits, strict public projection and atomic revision fencing.
+- V1: one immutable questionnaire snapshot per client; team selects questions and
+  approves before sharing. No regeneration, automatic mail or reminders yet.
+  Submitted questionnaires remain read-only; concurrent edits return 409 rather
+  than overwriting. Unsaved/offline edits are not durable browser storage.
+- Full decisions and validation: `docs/epic-3-smart-questionnaire.md`.
+- Local Node 22 candidate gate: 323/323 unit tests; lint 0 errors/3 old warnings;
+  TypeScript/build passed; full isolated E2E 9/9 passed (6.3 minutes).
+  Desktop/mobile questionnaire and preparation views were visually reviewed.
+- Ready for isolated Preview validation only. No branch push/automatic Preview
+  deployment before Preview schema/provider preparation is explicitly approved.
 
 This handoff is a post-rollout documentation artifact, not part of the deployed
 application release above. Consult Master Spec/Roadmap for product scope and the

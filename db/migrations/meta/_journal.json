@@ -141,6 +141,13 @@
       "when": 1791123165394,
       "tag": "0019_website_intelligence",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791269413598,
+      "tag": "0020_smart_questionnaire",
+      "breakpoints": true
     }
   ]
 }

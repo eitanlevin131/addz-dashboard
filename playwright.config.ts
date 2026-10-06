@@ -5,7 +5,8 @@ loadEnvConfig(process.cwd());
 
 const appPort = Number(process.env.E2E_APP_PORT || 3060);
 const mockPort = Number(process.env.E2E_MOCK_PORT || 3061);
-const baseURL = `http://127.0.0.1:${appPort}`;
+const appHostname = process.env.E2E_APP_HOSTNAME || "127.0.0.1";
+const baseURL = `http://${appHostname}:${appPort}`;
 const mockBaseURL = `http://127.0.0.1:${mockPort}`;
 const testDatabaseUrl = process.env.E2E_DATABASE_URL;
 
@@ -59,7 +60,7 @@ export default defineConfig({
       env: { E2E_MOCK_PORT: String(mockPort) },
     },
     {
-      command: `npm run start -- --hostname 127.0.0.1 -p ${appPort}`,
+      command: `npm run start -- --hostname ${appHostname} -p ${appPort}`,
       cwd: process.env.E2E_APP_CWD || process.cwd(),
       url: baseURL,
       timeout: 120_000,
