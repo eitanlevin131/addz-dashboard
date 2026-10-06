@@ -15,6 +15,7 @@ import type { ClientProfile } from "@/lib/clients";
 import { ClientPackageScope } from "@/components/client-package-scope";
 import { WebsiteIntelligence } from "@/components/website-intelligence";
 import { ClientQuestionnaire } from "@/components/client-questionnaire";
+import { ClientKickoff } from "@/components/client-kickoff";
 import {
   ClientProfileForm,
   ContactFields,
@@ -56,6 +57,11 @@ const eventLabels: Record<string, string> = {
   "questionnaire.saved": "תשובות שאלון נשמרו",
   "questionnaire.completed": "שאלון לקוח הושלם",
   "questionnaire.reviewed": "שאלון נבדק על ידי הצוות",
+  "kickoff.prepared": "פגישת אפיון הוכנה",
+  "kickoff.decision_saved": "החלטת אפיון נשמרה",
+  "kickoff.topic_added": "נושא נוסף בפגישת אפיון",
+  "kickoff.completed": "פגישת אפיון סוכמה",
+  "kickoff.reopened": "פגישת אפיון נפתחה מחדש",
   "website_scan.requested": "סריקת אתר התבקשה",
   "website_scan.started": "סריקת אתר התחילה",
   "website_scan.completed": "סריקת אתר הושלמה",
@@ -210,8 +216,8 @@ export function ClientFoundation({
   const [search, setSearch] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [connectionFilter, setConnectionFilter] = useState("");
-  const [tab, setTab] = useState<"overview" | "contacts" | "activity" | "website" | "questionnaire">(
-    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "questionnaire" ? "questionnaire" : typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "website" ? "website" : "overview",
+  const [tab, setTab] = useState<"overview" | "contacts" | "activity" | "website" | "questionnaire" | "kickoff">(
+    () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "kickoff" ? "kickoff" : typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "questionnaire" ? "questionnaire" : typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "website" ? "website" : "overview",
   );
   const [contactForm, setContactForm] = useState<{
     id?: string;
@@ -620,6 +626,7 @@ export function ClientFoundation({
             { key: "activity", label: "פעילות" },
             { key: "website", label: "סריקת אתר" },
             { key: "questionnaire", label: "שאלון לקוח" },
+            { key: "kickoff", label: "פגישת אפיון" },
           ] as const
         ).map((item) => (
           <button
@@ -644,6 +651,7 @@ export function ClientFoundation({
       )}
       {tab === "website" && <WebsiteIntelligence key={client.id} clientId={client.id} />}
       {tab === "questionnaire" && <ClientQuestionnaire key={client.id} clientId={client.id} />}
+      {tab === "kickoff" && <ClientKickoff key={client.id} clientId={client.id} />}
       {tab === "overview" && (
         <div className="space-y-6">
           {client.commercialScope && (

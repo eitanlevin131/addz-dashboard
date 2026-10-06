@@ -1,5 +1,36 @@
 # ADDZ OS Current State
 
+Local development update (2026-10-06): **Epic 4 Kickoff / Characterization is a
+validated local candidate, NOT LIVE**. Branch `codex/addz-os-epic-4` extends the
+exact Epic 3 application release below, carrying forward only its separate release
+documentation. Candidate commit is the branch HEAD; no merge to main or deployment
+was made. Production facts below remain the recorded Epic 3 release observation,
+not a new live Production check during Epic 4 development.
+
+Epic 4 adds an internal meeting tab, source-preserving preparation from the
+submitted questionnaire, automatic known client information, focused agenda,
+six outcome types, kickoff-only topics, deterministic structured characterization
+and complete/reopen. Existing team/client auth and audit are reused. One additive
+migration `0021` was tested only on allowlisted synthetic DBs (12 columns, 8
+constraints, 3 indexes; existing schema/data unchanged). No Production migration.
+
+Validation: Node 22; 336/336 unit tests, lint 0 errors/3 existing warnings,
+typecheck/build passed. All 11 distinct E2E scenarios passed across the full run
+and affected reruns, after fixing test-only duplicate selectors/OTP identity reuse.
+Desktop/mobile RTL reviewed. Local review: `http://localhost:3090/`, synthetic DB
+and mock providers only. See `docs/epic-4-kickoff-characterization.md` for details.
+
+Locked sequence: Website Intelligence -> Smart Questionnaire -> Pre-Kickoff ->
+Kickoff / Characterization -> Approved Brand Brain (deferred). This explicitly
+supersedes the old roadmap's Epic 4 Brand Brain ordering. Meeting decisions never
+erase source evidence or turn website inference into observation. Summary is NOT
+Approved Brand Brain. Limitations: one fixed preparation per client, explicit save,
+no regeneration/collaboration/AI/client approval; history retained in audit.
+
+Next recommended step: isolated Epic 4 Preview validation of the exact candidate
+with 0021, then separate Production preflight and approval. Do not start the Brand
+Brain or another Epic before that release boundary is closed.
+
 Operational handoff: 2026-10-06, after the 10:07 UTC integrity/runtime checks.
 Production status: **HEALTHY**. Epic 3 V1 is **LIVE**. The Product Owner explicitly
 waived the post-Epic-2 Cron observation as a release blocker; it remains an

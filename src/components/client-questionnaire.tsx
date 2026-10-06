@@ -77,6 +77,7 @@ export function ClientQuestionnaire({ clientId }: { clientId: string }) {
       </div>}
       {view === "preparation" && data.preparation ? <div className="space-y-6">
         <p className="text-sm text-[#667085]">חומר הכנה בלבד. פערים לא הוכרעו והמידע אינו Brand Brain מאושר.</p>
+        <a href={`/?view=client-workspace&clientId=${clientId}&tab=kickoff`} className={`${clientButtonClass} inline-flex`}><FileCheck2 size={16} />לפגישת האפיון</a>
         {Object.entries(data.preparation.groups).map(([key, entries]) => <section key={key} className="border-b border-[#e4e7ec] pb-4">
           <h3 className="text-base font-bold">{PREPARATION_LABELS[key as keyof typeof PREPARATION_LABELS]} <span className="text-xs font-normal text-[#667085]">{entries.length}</span></h3>
           {!entries.length && <p className="mt-2 text-xs text-[#667085]">אין פריטים.</p>}

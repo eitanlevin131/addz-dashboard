@@ -1,0 +1,124 @@
+# Epic 4: Kickoff / Characterization
+
+Status: locally validated candidate; NOT deployed. Baseline: live Epic 3 application
+`ad4947f635a19657261bfe75c65ea81a43a1611d`; documentation-only `f45bc90` carried forward.
+
+## Locked V1 Decisions
+
+- The Product Owner's Epic 4 instruction supersedes the original roadmap's
+  Epic 4/5 ordering: Kickoff / Characterization precedes Approved Brand Brain.
+- Existing team-only Client Workspace, auth, Hebrew/RTL shell, questionnaire,
+  Pre-Kickoff and audit infrastructure; no new application, AI or providers.
+- One characterization per client. Preparation starts after a questionnaire is
+  submitted/reviewed. Snapshot preserves its revision, selected source questions,
+  answers, source evidence and package/scope at the meeting's start. Later source
+  changes do not rewrite preparation. Regeneration/version UI is deferred.
+- Confirmed/answered client statements flow into known information. Corrections,
+  rejected/partial answers, needs-review sources, unconfirmed hypotheses and gaps
+  require discussion. High-priority client statements may also enter the agenda.
+  An inference remains an inference in its original website provenance even when
+  the client confirms it; the confirmation is a separate client statement.
+- Six outcomes: confirmed, corrected, new information, decision, unresolved,
+  follow-up. Each has a bounded structured value/note, actor and timestamp.
+  Staff can add kickoff-only topics in centralized characterization domains.
+- Summary is deterministic. Meeting decisions override the current interpretation
+  of that topic only; original questionnaire and website inputs remain visible.
+  Unresolved/follow-up decisions exclude prior values from resolved output.
+  Unfilled domains stay empty. No semantic inference from generic free text.
+- Completing a meeting may leave unresolved items, prominently separated in the
+  summary. Completed meetings are read-only until explicitly reopened by staff.
+  This is an INTERNAL characterization, never Approved Brand Brain or client approval.
+- CAS revision fence + update + audit event are one atomic Neon batch. History
+  of changed decisions is stored in existing audit metadata, not a second event system.
+- Migration 0021 is additive only: one client_characterizations table. No existing
+  business data rewritten; no Production migration/deployment authorized.
+
+## Acceptance
+
+Submitted Pre-Kickoff -> prepare -> known information / focused agenda -> resolve
+conflict -> add kickoff-only information -> unresolved/follow-up -> complete ->
+structured summary / provenance -> explicit reopen. Team-only API, origin/body
+validation, inert text, CAS conflict handling. Isolated migration integrity checks,
+unit/type/lint/build, desktop/mobile RTL E2E and Epic 1-3 regressions.
+
+## Deferred
+
+Approved Brand Brain, AI synthesis, client editor/approval, regeneration/version
+UI, recording/transcription, meeting bots, calendar/tasks/CRM integrations,
+collaborative editing and automated sending.
+
+## Implementation
+
+- `src/lib/kickoff/core.ts`: centralized domains/outcomes, reused Pre-Kickoff
+  conflict classification, immutable preparation, deterministic agenda/summary.
+  Broad/mixed inputs stay broad; benefits do not become differentiators, and
+  cross-domain preparation questions do not become positioning facts.
+- `src/lib/kickoff/repository.ts`: one characterization per client, source revision
+  lock at creation, optimistic revision fence and atomic update/audit. Audit
+  includes previous/new decisions, actor and timestamp; source records never change.
+- Team-only `GET/POST/PATCH /api/clients/:id/kickoff`: bounded 64 KiB JSON body,
+  same-origin mutations, no-store/private responses, safe error handling.
+- Existing Workspace gains a meeting tab and the questionnaire preparation gains
+  a direct link. Agenda prioritizes conflicts; confirmed information is separate.
+  Known information may be selected for discussion when relevant. Per-topic outcome,
+  value and note; new topics; structured summary; explicit complete/reopen.
+- `0021_kickoff_characterization.sql`: only `client_characterizations`, 12 columns,
+  primary key, 3 FKs, 4 checks and 3 indexes including one-client uniqueness.
+  Immutable JSON snapshot, added topics, current decisions, CAS revision and
+  completion timestamps. No new Brand Brain or separate audit system.
+
+## Isolated Validation - 2026-10-06
+
+- Node **22.23.3**. Full unit suite **336/336**, including **13** kickoff tests.
+- Lint **0 errors**; 3 pre-existing Epic 2 unused-variable warnings remain.
+- TypeScript and final production-style webpack build passed. Initial build hit
+  the same stale generated-cache hash error seen in Epic 3; preserved the old
+  cache and clean rebuild passed, without dependency/framework changes.
+- Full isolated E2E run: **10/11**; one new test selector matched both a visible
+  value and its hidden provenance copy. Fixed selector; focused rerun passed the
+  meeting loop and both questionnaire scenarios, but revealed test-only OTP
+  cooldown from reusing a synthetic staff identity. Separated identities (same
+  existing questionnaire-test convention); final kickoff rerun **2/2 passed**.
+  All **11 distinct scenarios** passed across full/focused runs. No auth changes.
+- Existing five dashboard/Epic 1 scenarios and two Website Intelligence scenarios
+  passed: reports/Gantt/summaries/grounded AI, packages/pricing/scope, contacts,
+  Flashy mock linking, owner/client restrictions and scan resume/history/leases.
+- Kickoff flow covered preparation, automatic known information, corrections,
+  rejected hypotheses, new kickoff-only info, follow-up/unresolved separation,
+  summary, completion lock and reopen. Original questionnaire/website evidence
+  unchanged. Atomic race returns **200/409**, with exactly one decision audit.
+- Anonymous API GET/POST/PATCH **401**; actual synthetic client session **403**,
+  internal UI hidden. Cross-origin **403**, oversized body **413**, invalid shapes
+  **400**, frozen meeting write **409**; inert HTML cannot execute.
+- Desktop **1280x720**, mobile **390x844**, Hebrew/RTL: screenshot inspection passed;
+  no horizontal page overflow. Screenshots are ignored validation artifacts under
+  `output/playwright/epic4/`, not release source.
+- Applied **0021 only** to existing synthetic databases `addz_epic2_validation`
+  and `addz_epic3_migration_validation`, on endpoint `ep-summer-waterfall-aprx73rb`.
+  Explicit Neon transaction; lock timeout **5s**, statement timeout **60s**,
+  fail-fast schema/target assertions. Existing table counts/full-record hashes
+  and column metadata unchanged. All 12 columns, 8 constraints and 3 indexes verified.
+- Email/Flashy/OpenAI use local mocks; Blob disabled. No new AI or website requests
+  for Kickoff. No Production DB query, migration, deployment, environment change,
+  main merge or customer message performed.
+
+## Local Review and Preview Readiness
+
+Local development preview uses an env-free source copy and the exact synthetic
+database, at `http://localhost:3090/`, with mock providers on 3091. Reused the
+existing local-preview launcher, adding an optional port argument because 3080
+was occupied; existing server was left untouched. A clearly marked synthetic
+demo is retained only in the isolated DB. Development bypass is existing and
+disabled by the production NODE_ENV gate, not a new production auth path.
+
+**GO FOR ISOLATED PREVIEW**, not Production approval. Next: inspect a genuinely
+isolated Preview's Epic 3 schema, apply only 0021 with recovery/transaction checks,
+deploy this exact candidate without changing main, then validate real Preview
+team/public-questionnaire/client permissions and the meeting loop. Production
+needs separate preflight/rehearsal/approval; never replay historical migrations
+or use db:push. Roll back application only if needed, retaining additive data.
+
+V1 limitations: one preparation per client; fixed source snapshot, no regeneration
+UI; explicit save per decision, no collaborative autosave; no dedicated decision
+diff UI (history remains in audit metadata); broad multi-domain statements are not
+automatically split/reclassified; no AI, sending, client approval or Brand Brain.

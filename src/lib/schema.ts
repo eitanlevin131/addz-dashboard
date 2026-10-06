@@ -22,6 +22,7 @@ import type { DailyMetricSnapshot, MetricSnapshotRevision } from "@/lib/types";
 import type { MonthlySummaryManualInput, MonthlySummarySnapshot } from "@/lib/monthly-summary";
 import type { ScanState } from "@/lib/website-intelligence/state";
 import type { QuestionnaireAnswers, QuestionnaireSnapshot } from "@/lib/questionnaire/core";
+import type { Decisions, KickoffSnapshot, Topic } from "@/lib/kickoff/core";
 
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
@@ -657,3 +658,25 @@ export const questionnaireRateLimits = pgTable("questionnaire_rate_limits", {
   requests: integer("requests").notNull().default(1),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 }, table => [index("questionnaire_rate_limits_expiry_idx").on(table.expiresAt)]);
+
+export const clientCharacterizations = pgTable("client_characterizations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clientId: uuid("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  questionnaireId: uuid("questionnaire_id").references(() => clientQuestionnaires.id, { onDelete: "set null" }),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
+  snapshot: jsonb("snapshot").$type<KickoffSnapshot>().notNull(),
+  addedTopics: jsonb("added_topics").$type<Topic[]>().notNull().default([]),
+  decisions: jsonb("decisions").$type<Decisions>().notNull().default({}),
+  revision: integer("revision").notNull().default(0),
+  status: text("status").notNull().default("in_progress"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  uniqueIndex("client_characterizations_client_idx").on(table.clientId),
+  index("client_characterizations_questionnaire_idx").on(table.questionnaireId),
+  check("client_characterizations_status_check", sql`${table.status} in ('in_progress','completed')`),
+  check("client_characterizations_revision_check", sql`${table.revision} >= 0`),
+  check("client_characterizations_json_check", sql`jsonb_typeof(${table.snapshot}) = 'object' and jsonb_typeof(${table.addedTopics}) = 'array' and jsonb_typeof(${table.decisions}) = 'object'`),
+  check("client_characterizations_completion_check", sql`(${table.status} = 'completed') = (${table.completedAt} is not null)`),
+]);
