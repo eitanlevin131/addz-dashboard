@@ -1,6 +1,6 @@
 # Epic 4: Kickoff / Characterization
 
-Status: locally validated candidate; NOT deployed. Baseline: live Epic 3 application
+Status: isolated Preview validated; NOT LIVE in Production. Baseline: live Epic 3 application
 `ad4947f635a19657261bfe75c65ea81a43a1611d`; documentation-only `f45bc90` carried forward.
 
 ## Locked V1 Decisions
@@ -117,6 +117,65 @@ deploy this exact candidate without changing main, then validate real Preview
 team/public-questionnaire/client permissions and the meeting loop. Production
 needs separate preflight/rehearsal/approval; never replay historical migrations
 or use db:push. Roll back application only if needed, retaining additive data.
+
+## Isolated Vercel Preview - 2026-10-06
+
+- Application candidate: `4d61e538c7a875cb78b7dcd692a0678a5b4adbd1`, branch
+  `codex/addz-os-epic-4`, extends approved local candidate `be15279332f1444e6f1b6ba9f314cafe634471a5`.
+  Scoped UI refinements in `0786572c092df3eb4b46e97287b4ff6d4c62d56a` and the final
+  candidate; no new API/auth/model changes. Documentation updates are separate
+  from the exact deployed application artifact.
+- Canonical project Preview: `dpl_4kY4MrHoq9SwEoMsm4DsNMogUcQC`, READY,
+  `https://addz-dashboard-2wo4gz9pn-eitans-projects-5ee0b2bf.vercel.app`, Node 22.x.
+- Fresh Production-state clone: Neon project `icy-dawn-73041521`, source
+  `br-tiny-pond-apeto61v`, isolated branch `addz-epic4-preview-20261006`
+  (`br-floral-truth-apgxit0n`), endpoint `ep-summer-shape-apwj44zq`, database `neondb`.
+  Created 2026-10-06 14:51:05 Asia/Jerusalem. Pre-migration schema fingerprint
+  `81ca7822c4c6946a878f70681677965455c63b5ab3717f6dbd5723c2ee3bcaca`.
+- Epic 3 schema already present; 0021 absent before execution. Applied **0021 only**
+  after a readable custom-format portable backup of the clone. Explicit transaction,
+  ON_ERROR_STOP, lock timeout 5s, statement timeout 60s, fail-fast assertions.
+  Verified 12 columns, 8 constraints, 3 indexes; original legacy schema and complete
+  row hashes unchanged. No historical replay or fabricated migration history.
+- Deployment-only overrides: isolated DB role and independent auth/encryption
+  secrets; Flashy, Resend, OpenAI, Blob and Cron disabled. No project environment
+  variables changed. Clone-only RLS prevents real copied users from authenticating
+  and copied Production questionnaire tokens from working. These isolation policies
+  are NOT application migrations or Production changes.
+- UI: compact meeting status/counts, prioritized working agenda, focused decision
+  form with clear labels, secondary known information, folded source/history and
+  preparation details, distinct handled/follow-up states, domain-grouped summary.
+  Save decision is the primary meeting action; completion/reopen stays explicit.
+- Node 22 final typecheck/build passed; targeted component/test lint passed.
+  Full lint has 0 errors and the same 3 pre-existing Epic 2 warnings.
+- **One clean complete local isolated E2E pass: 11/11, 6.9 minutes.** Covers all
+  existing dashboard/Epic 1, Website Intelligence, questionnaire and kickoff paths.
+  Website fixture fetching intentionally refuses Vercel; this guard was preserved,
+  rather than enabling local-only mock behavior in deployed application paths.
+- Deployed Preview questionnaire/kickoff scenarios: **4/4 in one clean run**.
+  Real isolated NextAuth password sessions, not forged tokens. Website findings
+  are synthetic persisted inputs; no new website crawl or AI calls. Full public
+  questionnaire -> reviewed Pre-Kickoff -> meeting exercised through the UI.
+  Original website/questionnaire evidence unchanged; correction, added information,
+  follow-up/unresolved, completion freeze and explicit reopen verified.
+- Deployed security: anonymous 401, client 403/internal UI hidden, cross-origin
+  403, invalid payload 400, body limit 413, frozen write 409; CAS race permits one
+  write/audit only. Public token isolation/expiry/rotation and inert HTML passed.
+- Fixed one existing test-only rate-limit assertion at minute rollover: initialize
+  the current request bucket before forcing its limit. Preview harness fixes were
+  untracked isolation artifacts: set synthetic passwords before tests and wait for
+  async preparation before inspecting its result. No auth/rate-limit product change.
+- Manually reviewed deployed desktop meeting/summary and mobile summary/meeting,
+  Hebrew/RTL, usable controls, folded supporting context and no horizontal overflow.
+  Screenshots: ignored `output/playwright/epic4-preview/` validation artifacts.
+- Final protected-row and schema checks passed; transient login-code/rate-limit
+  records are explicitly excluded from post-smoke business-row comparison.
+  Production deployment/environment metadata remained unchanged. No Production DB
+  writes/migrations/deployments, main merge, real messages or provider work performed.
+
+**GO FOR PRODUCTION PREFLIGHT**, not release authorization. Next: fresh read-only
+Production binding/schema/data/config checks and a Production-state 0021 rehearsal
+with recovery protection, then explicit Production rollout approval. No further Epic.
 
 V1 limitations: one preparation per client; fixed source snapshot, no regeneration
 UI; explicit save per decision, no collaborative autosave; no dedicated decision

@@ -1,24 +1,32 @@
 # ADDZ OS Current State
 
-Local development update (2026-10-06): **Epic 4 Kickoff / Characterization is a
-validated local candidate, NOT LIVE**. Branch `codex/addz-os-epic-4` extends the
+Preview validation update (2026-10-06): **Epic 4 Kickoff / Characterization is an
+isolated Preview validated candidate, NOT LIVE**. Branch `codex/addz-os-epic-4` extends the
 exact Epic 3 application release below, carrying forward only its separate release
-documentation. Candidate commit is the branch HEAD; no merge to main or deployment
-was made. Production facts below remain the recorded Epic 3 release observation,
+documentation. Application candidate is `4d61e538c7a875cb78b7dcd692a0678a5b4adbd1`;
+Preview `dpl_4kY4MrHoq9SwEoMsm4DsNMogUcQC` is READY on Node 22. No merge to main
+or Production deployment was made. Production facts below remain the recorded Epic 3 release observation,
 not a new live Production check during Epic 4 development.
 
 Epic 4 adds an internal meeting tab, source-preserving preparation from the
 submitted questionnaire, automatic known client information, focused agenda,
 six outcome types, kickoff-only topics, deterministic structured characterization
 and complete/reopen. Existing team/client auth and audit are reused. One additive
-migration `0021` was tested only on allowlisted synthetic DBs (12 columns, 8
-constraints, 3 indexes; existing schema/data unchanged). No Production migration.
+migration `0021` was tested on synthetic DBs and fresh isolated Production-state
+Preview clone `br-floral-truth-apgxit0n` / `ep-summer-shape-apwj44zq` / `neondb`
+(12 columns, 8 constraints, 3 indexes; existing schema/data unchanged).
+No Production migration. Preview external providers are disabled; clone-only RLS
+blocks copied real users and original public questionnaire tokens. No general
+Preview or Production environment variables were changed.
 
 Validation: Node 22; 336/336 unit tests, lint 0 errors/3 existing warnings,
-typecheck/build passed. All 11 distinct E2E scenarios passed across the full run
-and affected reruns, after fixing test-only duplicate selectors/OTP identity reuse.
-Desktop/mobile RTL reviewed. Local review: `http://localhost:3090/`, synthetic DB
-and mock providers only. See `docs/epic-4-kickoff-characterization.md` for details.
+typecheck/build passed. Final clean full isolated E2E **11/11 in one run** (6.9m);
+deployed Preview questionnaire/kickoff scenarios **4/4 in one clean run**.
+Website fixture scenarios remain local by their deliberate Vercel safety guard.
+Desktop/mobile RTL screenshots reviewed after focused meeting UX refinements.
+Preview: `https://addz-dashboard-2wo4gz9pn-eitans-projects-5ee0b2bf.vercel.app`.
+See `docs/epic-4-kickoff-characterization.md` for the exact candidate, isolation,
+migration, security results and test-only harness corrections.
 
 Locked sequence: Website Intelligence -> Smart Questionnaire -> Pre-Kickoff ->
 Kickoff / Characterization -> Approved Brand Brain (deferred). This explicitly
@@ -27,8 +35,8 @@ erase source evidence or turn website inference into observation. Summary is NOT
 Approved Brand Brain. Limitations: one fixed preparation per client, explicit save,
 no regeneration/collaboration/AI/client approval; history retained in audit.
 
-Next recommended step: isolated Epic 4 Preview validation of the exact candidate
-with 0021, then separate Production preflight and approval. Do not start the Brand
+Next recommended step: **Production preflight** of the exact Preview-validated
+Epic 4 candidate, followed by separate release approval. Do not start the Brand
 Brain or another Epic before that release boundary is closed.
 
 Operational handoff: 2026-10-06, after the 10:07 UTC integrity/runtime checks.
