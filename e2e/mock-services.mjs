@@ -59,6 +59,16 @@ const server = createServer(async (request, response) => {
   if (url.pathname === "/v1/responses" && request.method === "POST") {
     const body = await requestBody(request);
     const format = body.text?.format?.name;
+    if (["strategic_findings", "strategic_review"].includes(format)) {
+      if (request.headers.authorization !== "Bearer e2e-openai-key") return json(response, 401, { error: "Invalid E2E OpenAI key" });
+      const input = JSON.parse(body.input);
+      const evidence = input.evidence?.find(e => e.text.includes("handmade chocolate"));
+      const output = format === "strategic_review"
+        ? { decisions: input.candidates.map((candidate, index) => ({ index, verdict: { OBSERVED: "PASS_OBSERVED", INFERRED: "PASS_INFERRED", HYPOTHESIS: "KEEP_HYPOTHESIS" }[candidate.classification], reason: "supported" })) }
+        : { findings: evidence && input.domain === "audience" ? [{ key: "audience_likely", summary: "קהל שמחפש מתנות שוקולד", classification: "HYPOTHESIS", confidence: "medium", scope: "sample", subject: "מתנות", attributed: true,
+          evidenceRefs: [evidence.ref], reasoningBridge: "תיאור מארז המתנה תומך באפשרות של קהל המחפש מתנות, אך זה אינו קהל מאומת." }] : [] };
+      return json(response, 200, { output_text: JSON.stringify(output), usage: { input_tokens: 1000, output_tokens: 100 }, status: "completed" });
+    }
     if (format?.startsWith("website_")) {
       if (request.headers.authorization !== "Bearer e2e-openai-key") return json(response, 401, { error: "Invalid E2E OpenAI key" });
       const input = JSON.parse(body.input);

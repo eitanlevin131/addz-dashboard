@@ -6,6 +6,7 @@ import { clientButtonClass, clientFieldClass, clientPrimaryClass } from "./clien
 import type { scanDetails, scanHistory } from "@/lib/website-intelligence/repository";
 import { findingText as valueText, sameWebsiteForQuestionnaire } from "@/lib/website-intelligence/overview";
 import { WebsiteScanOverview } from "./website-scan-overview";
+import { intelligenceClassification, INTELLIGENCE_LABELS } from "@/lib/website-intelligence/strategic-contract";
 type Details = Awaited<ReturnType<typeof scanDetails>>;
 type History = Awaited<ReturnType<typeof scanHistory>>;
 const terminal = (status: string) => ["completed", "completed_with_warnings", "failed", "cancelled"].includes(status);
@@ -126,13 +127,24 @@ export function WebsiteIntelligence({ clientId, onOpenQuestionnaire }: { clientI
       {scan?.errorCode && <p role="alert" className="text-sm text-red-700">הסריקה לא הושלמה: {scan.errorCode}</p>}
       <div className="flex flex-wrap gap-3"><label className="text-xs text-[#667085]">קטגוריה<select aria-label="קטגוריית ממצאים" value={category} onChange={event => setCategory(event.target.value)} className={clientFieldClass}><option value="">הכל</option>{Object.entries(CATEGORY_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label><label className="text-xs text-[#667085]">תיוג בדיקה<select aria-label="סינון תיוג" value={disposition} onChange={event => setDisposition(event.target.value)} className={clientFieldClass}><option value="">הכל</option>{Object.entries(reviewLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label></div>
       <div className="divide-y divide-[#e4e7ec]">{details?.findings.map(finding => <article key={finding.id} className="py-4">
-        <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex flex-wrap items-center gap-2 text-xs text-[#667085]"><span>{CATEGORY_LABELS[finding.category]}</span><span className={`rounded px-2 py-1 ${finding.observationStatus === "observed" ? "bg-[#edf8f5] text-[#087f72]" : "bg-[#f4f1ff] text-[#6651a6]"}`}>{finding.observationStatus === "observed" ? "נצפה באתר" : "הסקת AI"}</span><span>ביטחון {({ high: "גבוה", medium: "בינוני", low: "נמוך" } as Record<string, string>)[finding.confidence]}</span></div><select className={clientFieldClass + " !w-auto"} aria-label={`תיוג ${finding.key}`} value={finding.reviewDisposition} onChange={event => review(finding.id, event.target.value)}>{Object.entries(reviewLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></div>
+        <div className="flex flex-wrap items-center justify-between gap-2"><div className="flex flex-wrap items-center gap-2 text-xs text-[#667085]"><span>{CATEGORY_LABELS[finding.category]}</span><span className={`rounded px-2 py-1 ${finding.observationStatus === "observed" ? "bg-[#edf8f5] text-[#087f72]" : "bg-[#f4f1ff] text-[#6651a6]"}`}>{INTELLIGENCE_LABELS[intelligenceClassification(finding.value, finding.observationStatus)]}</span><span>ביטחון {({ high: "גבוה", medium: "בינוני", low: "נמוך" } as Record<string, string>)[finding.confidence]}</span></div><select className={clientFieldClass + " !w-auto"} aria-label={`תיוג ${finding.key}`} value={finding.reviewDisposition} onChange={event => review(finding.id, event.target.value)}>{Object.entries(reviewLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></div>
         <p dir="auto" className="mt-2 line-clamp-3 whitespace-pre-line break-words text-sm font-medium">{valueText(finding.value)}</p>
         {valueText(finding.value).length > 300 && <details className="mt-1 text-xs text-[#667085]"><summary className="cursor-pointer">הממצא המלא</summary><p dir="auto" className="mt-2 max-w-3xl whitespace-pre-wrap break-words text-sm">{valueText(finding.value)}</p></details>}
-        <details className="mt-2 text-xs text-[#667085]"><summary className="inline-flex cursor-pointer items-center gap-1"><ChevronDown size={13} /> מקור והוכחה</summary><blockquote dir="auto" className="mt-2 max-w-3xl whitespace-pre-wrap break-words border-s-2 border-[#cde6e1] ps-3">{finding.evidence}</blockquote><a href={sources.get(finding.sourceId)?.canonicalUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 break-all text-[#087f72]"><span dir="ltr">{sources.get(finding.sourceId)?.canonicalUrl}</span><ExternalLink size={12} /></a></details>
+        <FindingEvidence finding={finding} sources={sources} />
       </article>)}</div>
       {details && !details.findings.length && <p className="text-sm text-[#667085]">אין ממצאים להצגה בסינון הנוכחי.</p>}
       <details className="border-t border-[#e4e7ec] pt-3"><summary className="cursor-pointer text-sm font-semibold">מקורות וריצות AI</summary><div className="mt-3 overflow-x-auto"><table className="w-full text-right text-xs"><thead><tr className="border-b"><th className="py-2">מקור</th><th>מצב</th><th>סוג</th></tr></thead><tbody>{details?.sources.map(source => <tr key={source.id} className="border-b border-[#eef0f3]"><td className="max-w-80 break-all py-2"><a href={source.canonicalUrl} target="_blank" rel="noopener noreferrer" className="text-[#087f72]" dir="ltr">{source.title || source.url}</a></td><td>{source.errorCode || source.status}</td><td>{source.pageType}</td></tr>)}</tbody></table></div><div className="mt-3 space-y-1 text-xs text-[#667085]">{details?.runs.map(run => <p key={run.id} dir="ltr">{run.task} · {run.model} · v{run.promptVersion} · {run.status} · {run.durationMs || 0}ms · {run.inputTokens || 0}/{run.outputTokens || 0} tokens</p>)}</div></details>
     </>}
   </section>;
+}
+function FindingEvidence({ finding, sources }: { finding: Details["findings"][number]; sources: Map<string, Details["sources"][number]> }) {
+  const value = finding.value as { reasoningBridge?: string; evidenceSources?: { sourceId: string; chunkId: string; text: string }[] } | null;
+  const refs = value?.evidenceSources || [{ sourceId: finding.sourceId, chunkId: "", text: finding.evidence }];
+  return <details className="mt-2 text-xs text-[#667085]"><summary className="inline-flex cursor-pointer items-center gap-1"><ChevronDown size={13} />מקורות והבסיס לממצא</summary>
+    {value?.reasoningBridge && <p dir="auto" className="mt-3 max-w-3xl text-sm text-[#344054]">{value.reasoningBridge}</p>}
+    {refs.map((ref, index) => <div key={`${ref.chunkId}:${ref.sourceId}:${index}`} className="mt-3">
+      <blockquote dir="auto" className="max-w-3xl whitespace-pre-wrap break-words border-s-2 border-[#cde6e1] ps-3">{ref.text}</blockquote>
+      <a href={sources.get(ref.sourceId)?.canonicalUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 break-all text-[#087f72]"><span dir="ltr">{sources.get(ref.sourceId)?.title || sources.get(ref.sourceId)?.canonicalUrl}</span><ExternalLink size={12} /></a>
+    </div>)}
+  </details>;
 }

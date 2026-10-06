@@ -4,6 +4,7 @@ import { CheckCircle2, Clock3, ExternalLink, FileCheck2, Loader2, AlertTriangle 
 import { websiteProgress } from "@/lib/website-intelligence/overview";
 import type { scanDetails } from "@/lib/website-intelligence/repository";
 import { clientPrimaryClass } from "./client-profile-form";
+import { INTELLIGENCE_LABELS } from "@/lib/website-intelligence/strategic-contract";
 type Details = Awaited<ReturnType<typeof scanDetails>>;
 const coverageLabels = { faq: "שאלות נפוצות", shipping: "משלוחים", returns: "החזרות", contact: "שירות וקשר" };
 export function WebsiteScanOverview({ details, running, questionnaireBusy, questionnaireAllowed, onQuestionnaire }: {
@@ -47,7 +48,7 @@ export function WebsiteScanOverview({ details, running, questionnaireBusy, quest
       </div>
       <dl className="my-5 grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-4">{[
         ["עמודים שנאספו / קישורים שהתגלו", `${overview.pages} / ${coverage.urlsDiscovered}`], ["מוצרים עם מידע קטלוגי / עם מחיר", `${coverage.productsCatalogued} / ${coverage.pricedProducts}`],
-        ["ממצאים שנצפו באתר", overview.observed], ["הסקות לאימות", overview.inferred],
+        ["ממצאים שנצפו באתר", overview.observed], ["הסקות / השערות לשאלון", `${overview.inferred} / ${overview.hypotheses}`],
       ].map(([label, value]) => <div key={label}><dt className="text-xs text-[#667085]">{label}</dt><dd dir="ltr" className="mt-1 text-right text-2xl font-bold tabular-nums">{value}</dd></div>)}</dl>
       <p className="mb-3 text-sm leading-6 text-[#667085]">זוהו {coverage.productsDiscovered} קישורים ייחודיים למוצרים; זהו אומדן גילוי, לא ספירת מלאי. {coverage.productsCatalogued} מוצרים תועדו מעמודים שנקראו, ו־{coverage.productsDeep} עמודי מוצרים נחקרו לעומק.</p>
       <p className="mb-4 text-xs leading-5 text-[#667085]">המדגם מותאם לגודל הקטלוג ולמגוון הקטגוריות, עם העדפה לפיזור מחירים ומוצרים מודגשים. כיסוי קטגוריות במחקר המעמיק: {coverage.categoriesRepresented} מתוך {coverage.categories}. מידע שאינו נגיש ב־HTML אינו נכלל; אין כאן טענה לכיסוי הקטלוג כולו.</p>
@@ -57,7 +58,7 @@ export function WebsiteScanOverview({ details, running, questionnaireBusy, quest
         <h4 className="text-sm font-bold">{section.label} <span className="font-normal text-[#667085]">· {section.count}</span></h4>
         <ul className="mt-2 space-y-3">{section.items.map(item => <li key={item.id}>
           <p dir="auto" className="line-clamp-3 whitespace-pre-line break-words text-sm text-[#344054]">{item.text}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs"><span className={item.observationStatus === "inferred" ? "text-[#6651a6]" : "text-[#087f72]"}>{item.observationStatus === "inferred" ? "הסקה לאימות" : "נצפה באתר"}</span>{item.reviewDisposition === "needs_review" && <span className="text-amber-800">דורש בדיקה</span>}
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs"><span className={item.observationStatus === "inferred" ? "text-[#6651a6]" : "text-[#087f72]"}>{INTELLIGENCE_LABELS[item.classification]}</span>{item.reviewDisposition === "needs_review" && <span className="text-amber-800">דורש בדיקה</span>}
             {sources.get(item.sourceId) && <a href={sources.get(item.sourceId)!.canonicalUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[#667085] underline"><ExternalLink size={11} />מקור</a>}
           </div>
         </li>)}</ul>

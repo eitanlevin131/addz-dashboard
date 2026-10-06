@@ -14,6 +14,8 @@ import { createResearchMap, RESEARCH_MAP_VERSION, type ResearchRun } from "./res
 import { prepareResearchCandidates } from "./research-candidates";
 import { findingReviewInput, reviewWebsiteFindings, FINDING_REVIEW_VERSION } from "./finding-review";
 import { discoveryPages, representativeProducts, productIdentity } from "./catalog";
+import { STRATEGIC_TASKS, STRATEGIC_VERSION } from "./strategic-contract";
+import { strategicBundle, requestStrategic, validateStrategicCandidates, applyStrategicReview } from "./strategic";
 
 type Scan = typeof websiteScans.$inferSelect;
 function errorCode(error: unknown) {
@@ -201,6 +203,65 @@ export async function advanceScan(clientId: string, scanId: string) {
       }
     } else if (state.stage === "ai") {
       const researchSources = await db.select().from(websiteScanSources).where(and(eq(websiteScanSources.scanId, scanId), eq(websiteScanSources.status, "completed")));
+      const strategy = (scan.configuration as { strategic?: { model: string; reviewModel: string; promptVersion: string; schemaVersion: string } }).strategic;
+      if (strategy) {
+        if (strategy.promptVersion !== STRATEGIC_VERSION.promptVersion || strategy.schemaVersion !== STRATEGIC_VERSION.schemaVersion) {
+          warn(state, "strategic_version_changed_rescan_required"); state.stage = "finalize";
+          await checkpoint(scan, token, state); return { advanced: true };
+        }
+        const domain = STRATEGIC_TASKS[state.taskIndex];
+        if (!domain) { state.stage = "finalize"; await checkpoint(scan, token, state); return { advanced: true }; }
+        const task = `strategic_${domain}`;
+        const bundle = strategicBundle(domain, researchSources.map(s => ({ ...s, url: s.canonicalUrl, extracted: s.extracted as Record<string, unknown> })));
+        if (!bundle.sufficient || !evidenceThreshold(researchSources.map(s => ({ text: s.text || "", type: s.pageType, contentHash: s.contentHash || s.id }))).sufficient) {
+          warn(state, task + "_insufficient_evidence"); state.taskIndex++;
+          await checkpoint(scan, token, state); return { advanced: true };
+        }
+        const runs = await db.select().from(aiRuns).where(and(eq(aiRuns.scanId, scanId), sql`${aiRuns.task} in (${task}, ${task + "_review"})`));
+        const generation = runs.find(r => r.task === task && r.status === "completed");
+        if (generation && generation.inputHash !== checksum(bundle.input + "[]")) {
+          warn(state, task + "_source_context_changed"); state.taskIndex++;
+          await checkpoint(scan, token, state); return { advanced: true };
+        }
+        const reviewing = !!generation;
+        const step = reviewing ? task + "_review" : task;
+        const attempts = runs.filter(r => r.task === step).length;
+        if (runs.some(r => r.task === task + "_review" && r.status === "completed") || attempts >= 2) {
+          if (attempts >= 2) warn(state, step + "_attempts_exhausted");
+          state.taskIndex++; await checkpoint(scan, token, state); return { advanced: true };
+        }
+        // A stored generation is reviewed before the next domain, independently
+        // of generation-attempt budgets; one bounded provider call per lease.
+        const validated = generation ? validateStrategicCandidates(generation.output, bundle) : null;
+        const id = crypto.randomUUID(), started = Date.now(), model = reviewing ? strategy.reviewModel : strategy.model;
+        await db.batch([
+          db.execute(sql`select 1/(case when (select lease_token from website_scans where id=${scanId}::uuid and status='processing' for update)=${token}::uuid then 1 else 0 end)`),
+          db.update(aiRuns).set({ status: "failed", errorCode: "interrupted" }).where(and(eq(aiRuns.scanId, scanId), eq(aiRuns.task, step), eq(aiRuns.status, "running"))),
+          db.insert(aiRuns).values({ id, clientId, scanId, task: step, attempt: attempts + 1, model, ...STRATEGIC_VERSION,
+            sourceIds: [...new Set(bundle.evidence.flatMap(e => e.locations.map(l => l.sourceId)))],
+            inputHash: checksum(bundle.input + JSON.stringify(validated?.candidates || [])), status: "running" }),
+        ]);
+        try {
+          const result = reviewing && !validated!.candidates.length
+            ? { output: { decisions: [] }, usage: undefined, providerRequestId: null }
+            : await requestStrategic(bundle, model, validated?.candidates);
+          const accepted = reviewing ? applyStrategicReview(validated!.candidates, result.output, bundle) : null;
+          const checked = reviewing ? validated! : validateStrategicCandidates(result.output, bundle);
+          if (checked.rejected.length || accepted?.rejected.length) warn(state, task + "_invalid_findings_rejected");
+          if (reviewing) state.taskIndex++;
+          const writes: unknown[] = [db.update(aiRuns).set({ status: "completed", output: reviewing
+            ? { ...result.output as object, rejected: [...checked.rejected, ...(accepted?.rejected || [])], published: accepted?.findings.length, coverage: bundle.coverage }
+            : result.output, durationMs: Date.now() - started, inputTokens: result.usage?.input_tokens, outputTokens: result.usage?.output_tokens,
+            providerRequestId: result.providerRequestId }).where(eq(aiRuns.id, id))];
+          if (accepted?.findings.length) writes.push(findingsInsert(scanId, accepted.findings, id));
+          await checkpoint(scan, token, state, writes);
+        } catch (error) {
+          warn(state, step + "_" + errorCode(error));
+          await checkpoint(scan, token, state, [db.update(aiRuns).set({ status: "failed", errorCode: errorCode(error), durationMs: Date.now() - started,
+            ...(error instanceof WebsiteAiError ? { inputTokens: error.usage?.input_tokens, outputTokens: error.usage?.output_tokens } : {}) }).where(eq(aiRuns.id, id))], { nextRetryAt: retryAt(attempts + 1) });
+        }
+        return { advanced: true };
+      }
       let research: Awaited<ReturnType<typeof createResearchMap>> | null = null;
       if (!state.researchSkipped) {
         const stored = await db.select().from(aiRuns).where(and(eq(aiRuns.scanId, scanId), sql`${aiRuns.task} like 'research_%'`));
@@ -250,7 +311,7 @@ export async function advanceScan(clientId: string, scanId: string) {
         return { advanced: true };
       }
       const task = AI_TASKS[state.taskIndex];
-      if (!task || state.aiAttempts >= SCAN_LIMITS.aiAttempts) { if (task) warn(state, "ai_attempt_budget_exhausted"); state.stage = "finalize"; await checkpoint(scan, token, state); }
+      if (!task) { state.stage = "finalize"; await checkpoint(scan, token, state); }
       else {
         const sources = await db.select().from(websiteScanSources).where(and(eq(websiteScanSources.scanId, scanId), eq(websiteScanSources.status, "completed")));
         const measured = evidenceThreshold(sources.map(item => ({ text: item.text || "", type: item.pageType, contentHash: item.contentHash || item.id })));
@@ -298,6 +359,7 @@ export async function advanceScan(clientId: string, scanId: string) {
             return { advanced: true };
           }
           if (runs.some(run => run.status === "completed") || runs.length >= 2) { if (runs.length >= 2) warn(state, task + "_attempts_exhausted"); state.taskIndex++; await checkpoint(scan, token, state); }
+          else if (state.aiAttempts >= SCAN_LIMITS.aiAttempts) { warn(state, "ai_attempt_budget_exhausted"); state.stage = "finalize"; await checkpoint(scan, token, state); }
           else {
             const id = crypto.randomUUID();
             const model = String((scan.configuration as { model?: string }).model || "gpt-5-mini");

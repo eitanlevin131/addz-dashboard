@@ -78,7 +78,7 @@ test("client scan consent, save-safe retry, live progress, completion summary an
   await expect(page.getByRole("heading", { name: "הסריקה הסתיימה בהצלחה" })).toBeVisible();
   const summary = page.getByRole("region", { name: "תמצית המידע שנאסף" });
   await expect(summary).toBeVisible();
-  await expect(summary.getByText("הסקות לאימות", { exact: true })).toBeVisible();
+  await expect(summary.getByText("הסקות / השערות לשאלון", { exact: true })).toBeVisible();
   const totals = await summary.locator("dl").innerText();
   const filtered = page.waitForResponse(r => r.url().includes(`/website-scans/${scan.id}?`) && r.url().includes("category=operations"));
   await page.getByLabel("קטגוריית ממצאים").selectOption("operations");
@@ -116,8 +116,7 @@ test("automatic onboarding, persisted resume, evidence, review, re-scan history,
   await page.screenshot({ path: "output/playwright/epic2/website-paused.png" });
   const resumed = await settle(page, client.id, scanId);
   expect(resumed.scan.status, JSON.stringify(resumed.scan.state.warnings)).toBe("completed"); expect(resumed.sources.length).toBe(4);
-  expect(resumed.runs.some((run: { task: string; status: string }) => run.task.startsWith("research_review_") && run.status === "completed")).toBe(true);
-  expect(resumed.runs.filter((run: { task: string }) => run.task.endsWith("_evidence_review")).length).toBe(4);
+  expect(resumed.runs.filter((run: { task: string }) => run.task.startsWith("strategic_") && run.task.endsWith("_review")).length).toBe(7);
   expect(resumed.runs.every((run: { status: string }) => run.status === "completed")).toBe(true);
   await expect.poll(async () => (await db`select state->'notification'->>'status' as status from website_scans where id=${scanId}`)[0].status).toBe("sent");
   const received = await fetch(`http://127.0.0.1:${process.env.E2E_MOCK_PORT || 3061}/test/resend-latest?to=${encodeURIComponent(email)}`).then(r => r.json());
@@ -139,7 +138,7 @@ test("automatic onboarding, persisted resume, evidence, review, re-scan history,
   await page.goto(`/?view=client-workspace&clientId=${client.id}&tab=website&scanId=${scanId}`);
   await expect(page.getByRole("heading", { name: "מודיעין אתר" })).toBeVisible();
   await expect(page.getByText("קהל שמחפש מתנות שוקולד", { exact: true }).first()).toBeVisible();
-  await page.getByText("מקור והוכחה", { exact: true }).first().click();
+  await page.getByText("מקורות והבסיס לממצא", { exact: true }).first().click();
   await expect(page.locator("blockquote").first()).toBeVisible();
   fs.mkdirSync("output/playwright/epic2", { recursive: true });
   await page.screenshot({ path: "output/playwright/epic2/website-desktop.png" });
@@ -195,7 +194,7 @@ test("persisted leases reject concurrent chunks and expired leases resume; spars
     if (scenario === "sparse") { expect(result.scan.status).toBe("completed_with_warnings"); expect(result.runs.length).toBe(0); expect(result.scan.state.evidence.sufficient).toBe(false); }
     if (scenario === "challenge") { expect(result.scan.status).toBe("failed"); expect(result.runs.length).toBe(0); expect(result.findings.length).toBe(0); }
     if (scenario === "partial") { expect(result.scan.status).toBe("completed_with_warnings"); expect(result.sources.filter((source: { status: string }) => source.status === "completed").length).toBe(3); expect(result.findings.length).toBeGreaterThan(0); }
-    if (scenario === "retry") { expect(result.scan.status, JSON.stringify(result.scan.state.warnings)).toBe("completed"); expect(result.sources.find((source: { pageType: string }) => source.pageType === "shipping").attempts).toBe(2); expect(result.runs.filter((run: { task: string }) => run.task.endsWith("_evidence_review")).length).toBe(4); }
+    if (scenario === "retry") { expect(result.scan.status, JSON.stringify(result.scan.state.warnings)).toBe("completed"); expect(result.sources.find((source: { pageType: string }) => source.pageType === "shipping").attempts).toBe(2); expect(result.runs.filter((run: { task: string }) => run.task.endsWith("_review")).length).toBe(7); }
     expect((await db`select count(*)::int as count from audit_logs where entity_id=${id} and action='website_scan.started'`)[0].count).toBe(1);
   }
 });

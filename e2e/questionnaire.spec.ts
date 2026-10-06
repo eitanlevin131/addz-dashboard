@@ -117,7 +117,7 @@ test("personalized team review, secure public link, autosave/resume, corrections
   await next("מה חשוב עכשיו");
   await publicPage.getByLabel("אילו מוצרים ומהלכים הכי חשוב לכם לקדם עכשיו?", { exact: true }).fill("מארזי מתנה וחידוש מלאי תבלינים");
   await next("הלקוחות שלכם");
-  await expect(publicPage.getByText("השערה מהאתר — לא עובדה מאושרת", { exact: true })).toBeVisible();
+  await expect(publicPage.getByText("הסקה מהאתר — לא עובדה מאושרת", { exact: true })).toBeVisible();
   await publicPage.getByRole("radio", { name: "לא מתאים", exact: true }).click();
   await publicPage.getByLabel("קהל אפשרי", { exact: true }).fill("רוב הלקוחות הם שפים מקצועיים");
   await next("צרכים וסיבות לרכישה");

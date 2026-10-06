@@ -33,7 +33,7 @@ export function questionPresentation(question: QuestionItem): QuestionPresentati
       facts.push({ label: "מחיר שהופיע באתר", value: `${row.price}${currency ? ` ${currency === "ILS" ? "₪" : currency}` : ""}` });
     }
   }
-  const prompt = PROMPTS[source.key] || (source.category === "audience"
+  const prompt = source.authority === "website_hypothesis" ? `זו השערה לא מאומתת: האם היא רלוונטית לכם? (${question.label})` : PROMPTS[source.key] || (source.category === "audience"
     ? source.authority === "website_inferred" ? "האם הקהל הזה באמת רלוונטי לעסק שלכם?" : "האם זה קהל שאתם פונים אליו כיום?"
     : source.authority === "website_inferred" ? `האם הכיוון הזה מתאים לכם? (${question.label})` : `האם המידע הזה מדויק? (${question.label})`);
   return { prompt, facts, text: facts.length ? "" : question.suggestion || "" };

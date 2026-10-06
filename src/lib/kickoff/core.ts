@@ -86,7 +86,7 @@ export function prepareKickoff(q: QuestionnaireRecord, client: { packageCode: st
     const known = !conflict && answer && ["confirmed", "answered"].includes(answer.state);
     const knownValue = known ? (answer.text || (answer.state === "confirmed" ? question.suggestion : "")) : undefined;
     const domain = questionDomain(question);
-    const group: AgendaGroup = conflict ? "conflict" : ["services", "commercial"].includes(domain) ? "service" : question.source?.authority === "website_inferred" || answer?.state === "kickoff" ? "strategy" : "unknown";
+    const group: AgendaGroup = conflict ? "conflict" : ["services", "commercial"].includes(domain) ? "service" : ["website_inferred", "website_hypothesis"].includes(question.source?.authority || "") || answer?.state === "kickoff" ? "strategy" : "unknown";
     return { id: question.id, label: question.label, domain, group, origin: "questionnaire", question: structuredClone(question),
       ...(answer ? { answer: structuredClone(answer) } : {}), ...(knownValue ? { knownValue, knownAuthority: answer!.state === "confirmed" ? "client_confirmed" : "client_statement" } : {}), priority: answer?.priority || "normal" };
   });

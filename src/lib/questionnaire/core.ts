@@ -23,7 +23,7 @@ export const QUESTIONNAIRE_STATUS_LABELS: Record<string, string> = {
   draft: "טיוטה", ready: "מוכן לשיתוף", sent: "קישור נוצר", in_progress: "במילוי", submitted: "נשלח", reviewed: "נבדק",
 };
 export type QuestionSource = {
-  authority: "website_observed" | "website_inferred";
+  authority: "website_observed" | "website_inferred" | "website_hypothesis";
   scanId: string; findingId: string; sourceId: string; url: string; pageType: string;
   evidence: string; locator: string | null; confidence: string; reviewDisposition: string;
   category: string; key: string; value: unknown;
@@ -87,6 +87,7 @@ const KEY_LABELS: Record<string, string> = {
   pain_points_likely: "צורך אפשרי", desired_outcomes: "תוצאה רצויה אפשרית",
   vocabulary: "מילים חוזרות", cta_patterns: "אופן הפנייה ללקוחות", claims_language: "טענות המותג",
   shipping: "משלוחים", returns: "החזרות וביטולים", support: "שירות לקוחות",
+  purchase_objections: "שאלה פתוחה על חסמים לקנייה",
 };
 function findingSection(finding: FindingSeed): SectionId {
   if (finding.category === "audience") return "audience";
@@ -101,7 +102,7 @@ export function generateQuestionnaire(client: {
   const items: QuestionItem[] = [];
   const catalogSeen = new Set<string>();
   let productConfirmations = 0;
-  const candidates = findings.filter(f => {
+  const candidates = [...findings].sort((a, b) => Number(!!(b.value && typeof b.value === "object" && "classification" in b.value)) - Number(!!(a.value && typeof a.value === "object" && "classification" in a.value))).filter(f => {
     if (f.reviewDisposition === "ignored" || f.key === "page_title" || !safeReferenceUrl(f.url)) return false;
     if (f.key === "product") return productConfirmations++ < 2;
     if (f.key === "catalog_listing") {
@@ -128,9 +129,9 @@ export function generateQuestionnaire(client: {
   groups.set("known", balanced);
   const seen = new Set<string>();
   // Round-robin domains prevents product catalog rows from crowding out policies/hypotheses.
-  for (let round = 0; round < 8 && items.length < 20; round++) {
+  for (let round = 0; round < 8 && items.length < 8; round++) {
     for (const section of ["known", "audience", "reality", "brand"] as const) {
-      if (items.length >= 20) break;
+      if (items.length >= 8) break;
       const group = groups.get(section) || [];
       const finding = group[round];
       if (!finding) continue;

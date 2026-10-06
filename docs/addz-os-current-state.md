@@ -1,5 +1,20 @@
 # ADDZ OS Current State
 
+Local Website Intelligence refinement (not deployed): new scans use seven
+original-source strategic bundles, GPT-5.6 Terra/medium synthesis plus independent
+review, explicit observed/inferred/client-hypothesis classification and multisource
+provenance. Existing scans retain their legacy configuration/history. Questionnaire
+consumption is bounded to eight website confirmations, with hypotheses labeled
+explicitly; no client answers, approvals or messages are generated automatically.
+No new schema/migration, crawler, SSRF, auth or Production configuration change.
+Saved-source real Preview AI eligibility: Studio365 16 (8 observed / 3 inferred /
+5 hypotheses), Ayelet 14 (6 / 3 / 5), Spicehaus 15 (7 / 4 / 4). These are offline
+validated results, not live-client publication. See
+`docs/website-strategic-intelligence-v1.md` for the implemented plan, safety gates,
+validation and remaining deployed-runtime release boundary.
+Final Node 22 local validation: 391/391 unit tests and 12/12 isolated E2E (8.3m)
+passed; lint has 0 errors / 3 pre-existing warnings; TypeScript/build passed.
+
 Local onboarding refinement (not in the validated Preview deployment or Production):
 the new-client form now saves first and asks whether to start its website scan;
 the existing API auto-start remains the default for compatibility. Website Workspace

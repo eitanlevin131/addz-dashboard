@@ -1,3 +1,4 @@
+import { STRATEGIC_DOMAINS } from "./strategic-contract.ts";
 export const SCAN_VERSION = "website-v3";
 export const SCAN_LIMITS = {
   pages: 60, candidates: 2000, sitemaps: 12, requests: 140, depth: 4,
@@ -39,7 +40,9 @@ export function websiteWarningLabel(code: string): string {
   const capped = /^crawl_delay_capped:(\d+(?:\.\d+)?(?:e\+?\d+)?):5$/.exec(code);
   if (capped) return `מרווח הסריקה המבוקש באתר הוא ${capped[1]} שניות; המרווח האפקטיבי הוגבל ל־5 שניות.`;
   const task = AI_TASKS.find(task => code.startsWith(task + "_"));
-  const prefix = task ? TASK_LABELS[task] + ": " : "";
+  const domain = Object.entries(STRATEGIC_DOMAINS).find(([key]) => code.startsWith("strategic_" + key + "_"));
+  const prefix = task ? TASK_LABELS[task] + ": " : domain ? domain[1].label + ": " : "";
+  if (code === "strategic_version_changed_rescan_required" || code.endsWith("source_context_changed")) return prefix + "הקשר הניתוח השתנה; יש להתחיל סריקה חדשה כדי לשמור על התאמה מדויקת למקורות.";
   if (code.includes("insufficient_evidence")) return prefix + "אין מספיק מקורות לניתוח AI.";
   if (code.endsWith("invalid_findings_rejected")) return prefix + "ממצאים ללא הוכחה תקינה הוסרו; הממצאים התקינים נשמרו.";
   if (code.endsWith("invalid_ai_evidence")) return prefix + "תשובת AI לא התאימה להוכחות במקורות ולא פורסמה.";

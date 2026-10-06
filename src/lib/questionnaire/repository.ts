@@ -60,7 +60,7 @@ export async function createQuestionnaire(clientId: string, actorId: string) {
   const rows = usableScan ? await getDb().select({ finding: websiteFindings, url: websiteScanSources.url, pageType: websiteScanSources.pageType }).from(websiteFindings)
     .innerJoin(websiteScanSources, and(eq(websiteScanSources.id, websiteFindings.sourceId), eq(websiteScanSources.scanId, websiteFindings.scanId)))
     .where(eq(websiteFindings.scanId, usableScan.id)).orderBy(websiteFindings.category, websiteFindings.key, websiteFindings.createdAt).limit(1200) : [];
-  const findings: FindingSeed[] = rows.map(({ finding, url, pageType }) => ({ authority: finding.observationStatus === "observed" ? "website_observed" : "website_inferred",
+  const findings: FindingSeed[] = rows.map(({ finding, url, pageType }) => ({ authority: finding.value && typeof finding.value === "object" && "classification" in finding.value && finding.value.classification === "HYPOTHESIS" ? "website_hypothesis" : finding.observationStatus === "observed" ? "website_observed" : "website_inferred",
     scanId: finding.scanId, findingId: finding.id, sourceId: finding.sourceId, url, pageType,
     evidence: finding.evidence, locator: finding.locator, confidence: finding.confidence, reviewDisposition: finding.reviewDisposition,
     category: finding.category, key: finding.key, value: finding.value, observationStatus: finding.observationStatus }));

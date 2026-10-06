@@ -1,4 +1,5 @@
 import { AI_TASKS, CATEGORY_LABELS } from "./config.ts";
+import { intelligenceClassification, STRATEGIC_TASKS } from "./strategic-contract.ts";
 
 type Source = { id: string; status: string; pageType: string };
 type Finding = {
@@ -33,7 +34,8 @@ export function websiteOverview(sources: Source[], findings: Finding[]) {
     pages: completed.length, selected: sources.length,
     failed: sources.filter(source => source.status === "failed").length,
     observed: usable.filter(item => item.observationStatus === "observed").length,
-    inferred: usable.filter(item => item.observationStatus === "inferred").length,
+    inferred: usable.filter(item => intelligenceClassification(item.value, item.observationStatus) === "INFERRED").length,
+    hypotheses: usable.filter(item => intelligenceClassification(item.value, item.observationStatus) === "HYPOTHESIS").length,
     needsReview: usable.filter(item => item.reviewDisposition === "needs_review").length,
     ignored: findings.length - usable.length,
     products: new Set(products.map(item => findingText(item.value))).size,
@@ -54,6 +56,7 @@ export function websiteOverview(sources: Source[], findings: Finding[]) {
       return { category, label, count: items.length, items: examples.slice(0, 2).map(item => ({
         id: item.id, sourceId: item.sourceId, text: findingText(item.value),
         observationStatus: item.observationStatus, reviewDisposition: item.reviewDisposition,
+        classification: intelligenceClassification(item.value, item.observationStatus),
       })) };
     }).filter(section => section.count > 0),
     coverage: (["faq", "shipping", "returns", "contact"] as const).map(type => ({
@@ -72,7 +75,7 @@ export function websiteProductSample(sources: Source[], candidates: { url: strin
 }
 export function websiteProgress(scan: {
   status: string; startedAt: DateValue; createdAt: Date | string; completedAt: DateValue;
-  state: { stage: string; taskIndex: number };
+  state: { stage: string; taskIndex: number }; configuration?: unknown;
 }, sources: Source[], now: number) {
   const finished = ["completed", "completed_with_warnings", "failed", "cancelled"].includes(scan.status);
   const steps = ["גילוי עמודים", "איסוף תוכן", "מחקר וניתוח", "בדיקת ראיות"];
@@ -84,6 +87,7 @@ export function websiteProgress(scan: {
     finished, stage, steps, elapsedSeconds,
     processed: sources.filter(source => ["completed", "failed", "skipped"].includes(source.status)).length,
     selected: sources.length,
-    analysisCompleted: Math.min(AI_TASKS.length, scan.state.taskIndex), analysisTotal: AI_TASKS.length,
+    analysisCompleted: Math.min(scan.configuration && typeof scan.configuration === "object" && "strategic" in scan.configuration ? STRATEGIC_TASKS.length : AI_TASKS.length, scan.state.taskIndex),
+    analysisTotal: scan.configuration && typeof scan.configuration === "object" && "strategic" in scan.configuration ? STRATEGIC_TASKS.length : AI_TASKS.length,
   };
 }

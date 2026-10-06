@@ -4,17 +4,17 @@ import { Check, CircleHelp, ExternalLink, MessageCircle, Pencil, X } from "lucid
 import { ANSWER_LABELS, editableQuestionnaireAnswer, safeReferenceUrl, type QuestionItem, type QuestionnaireAnswer } from "@/lib/questionnaire/core";
 import { answerNeedsText, type QuestionPresentation } from "@/lib/questionnaire/presentation";
 
-type DisplaySource = { authority: "website_observed" | "website_inferred"; url: string; evidence: string; confidence: string; unresolved?: boolean };
+type DisplaySource = { authority: "website_observed" | "website_inferred" | "website_hypothesis"; url: string; evidence: string; confidence: string; unresolved?: boolean };
 export type DisplayQuestion = Omit<QuestionItem, "source"> & { source?: DisplaySource; presentation?: QuestionPresentation };
 export function QuestionEvidence({ question }: { question: { source?: DisplaySource; suggestion?: string; presentation?: QuestionPresentation } }) {
   if (!question.source) return null;
-  const inferred = question.source.authority === "website_inferred";
+  const inferred = question.source.authority !== "website_observed";
   const url = safeReferenceUrl(question.source.url);
   const text = question.presentation ? question.presentation.text : question.suggestion;
   return <div className="mt-3">
     <div className="flex flex-wrap items-center gap-2 text-xs">
       <span className={`inline-flex rounded px-2 py-1 ${inferred ? "bg-[#f0ebfa] text-[#65519d]" : "bg-[#ecfdf9] text-[#087f72]"}`}>
-        {inferred ? "השערה מהאתר — לא עובדה מאושרת" : "נצפה באתר — ממתין לאישור שלכם"}
+        {question.source.authority === "website_hypothesis" ? "השערה עסקית — נדרשת התשובה שלכם" : inferred ? "הסקה מהאתר — לא עובדה מאושרת" : "נצפה באתר — ממתין לאישור שלכם"}
       </span>
       {question.source.unresolved && <span className="text-amber-700">דורש בירור</span>}
     </div>

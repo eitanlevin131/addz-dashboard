@@ -167,5 +167,5 @@ export function publicationTypeSupported(key: string, evidence: string, pageType
   // Functional effects/benefit claims can be observed; composition or directions
   // alone are not benefits. Detailed semantic entailment still requires review.
   return !/\b(?:store|storage|add|mix|pour|keep|instructions?)\b|לאחסן|אחסון|ככל שתראו|יהיו נגישים|הוסיפו|ערבבו/i.test(evidence)
-    && /\b(?:helps?|benefits?|improves?|reduces?|protects?|tastes?|flavou?r|aroma|freshness)\b|עוזר|תועלת|משפר|מפחית|מגן|טעמים|טעם|ארומה|טריות/i.test(evidence);
+    && /\b(?:helps?|benefits?|improves?|reduces?|protects?|tastes?|flavou?r|aroma|freshness|comfort|ergonomic|support|convenient)\b|עוזר|תועלת|משפר|מפחית|מגן|טעמים|טעם|ארומה|טריות|נוח|ארגונומי|תמיכה|ישיבה ממושכת/i.test(evidence);
 }

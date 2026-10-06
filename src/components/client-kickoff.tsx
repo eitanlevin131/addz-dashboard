@@ -18,7 +18,7 @@ function Provenance({ topic }: { topic: Topic }) {
   return <details className="mt-3 text-xs text-[#667085]">
     <summary className="cursor-pointer text-[#087f72]">מקורות והיסטוריית המידע</summary>
     <div className="mt-3 space-y-3 border-r-2 border-[#e4e7ec] pr-3">
-      {source && <div><p className="font-bold">{source.authority === "website_inferred" ? "השערה מהאתר — המקור נשאר השערה" : "תצפית באתר — לא אישור לקוח"}</p>
+      {source && <div><p className="font-bold">{source.authority !== "website_observed" ? "השערה מהאתר — המקור נשאר השערה" : "תצפית באתר — לא אישור לקוח"}</p>
         <p className="mt-1 whitespace-pre-wrap break-words leading-6">{topic.question?.suggestion}</p>
         <blockquote className="mt-2 whitespace-pre-wrap break-words leading-6">{source.evidence}</blockquote>
         <p className="mt-1">ודאות: {({ high: "גבוהה", medium: "בינונית", low: "נמוכה" } as Record<string, string>)[source.confidence] || source.confidence}{source.reviewDisposition === "needs_review" ? " · דורש בירור" : ""}</p>
@@ -42,7 +42,7 @@ function DecisionEditor({ topic, decision, disabled, busy, onSave, onDirty }: {
   return <form onSubmit={event => { event.preventDefault(); onSave({ action: "decision", topicId: topic.id, outcome, value, note }); }} className="min-w-0">
     <p className="text-xs font-medium text-[#087f72]">{CHARACTERIZATION_DOMAINS.find(d => d.id === topic.domain)?.label}</p>
     <div className="mt-2 flex items-start justify-between gap-3"><h3 className="text-lg font-bold leading-7 break-words">{topic.label}</h3><TopicState decision={decision} /></div>
-    <p className="mt-2 text-sm leading-6 text-[#667085]">{topic.group === "conflict" ? "הלקוח והמקור מציגים מידע שונה. נדרשת הכרעה בפגישה." : topic.question?.source?.authority === "website_inferred" ? "זו השערה מהאתר, לא עובדה שהלקוח אישר." : topic.origin === "kickoff" ? "נושא שהתווסף במהלך הפגישה." : topic.knownValue ? "המידע כבר אושר בשאלון ונפתח לדיון נוסף." : "נדרש להשלים או להחליט על המידע בנושא הזה."}</p>
+    <p className="mt-2 text-sm leading-6 text-[#667085]">{topic.group === "conflict" ? "הלקוח והמקור מציגים מידע שונה. נדרשת הכרעה בפגישה." : topic.question?.source && topic.question.source.authority !== "website_observed" ? "זו השערה מהאתר, לא עובדה שהלקוח אישר." : topic.origin === "kickoff" ? "נושא שהתווסף במהלך הפגישה." : topic.knownValue ? "המידע כבר אושר בשאלון ונפתח לדיון נוסף." : "נדרש להשלים או להחליט על המידע בנושא הזה."}</p>
     {(topic.answer || topic.question?.suggestion) && <div className="mt-4 border-r-2 border-[#42dfcf] bg-[#f7faf9] px-3 py-2 text-sm"><span className="text-xs font-medium text-[#667085]">{topic.answer ? `מה הלקוח מסר · ${ANSWER_LABELS[topic.answer.state]}` : "מה מופיע באתר"}</span><p className="mt-1 whitespace-pre-wrap break-words leading-6">{topic.answer?.text || topic.question?.suggestion || "טרם נמסר תוכן"}</p></div>}
     <fieldset disabled={disabled || busy} className="mt-5 space-y-3 border-t border-[#e4e7ec] pt-4">
       <h4 className="text-sm font-bold">{disabled ? "ההחלטה שנשמרה" : "החלטה בנושא"}</h4>

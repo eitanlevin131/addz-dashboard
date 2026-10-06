@@ -10,6 +10,7 @@ import { checksum } from "./extraction";
 import { WEBSITE_AI_VERSION } from "./ai";
 import { websiteOverview } from "./overview";
 import { crawlCoverage, type CatalogProduct } from "./catalog";
+import { STRATEGIC_VERSION } from "./strategic-contract";
 
 export function initialScanStatements(clientId: string, website: string | null | undefined, actorId: string, previousScanId: string | null = null) {
   if (!website) return null;
@@ -18,7 +19,8 @@ export function initialScanStatements(clientId: string, website: string | null |
   const id = crypto.randomUUID();
   const db = getDb();
   return { id, statements: [db.insert(websiteScans).values({ id, clientId, websiteUrl: url, previousScanId, requestedBy: actorId === "dev-admin" ? null : actorId, version: SCAN_VERSION,
-    configuration: { limits: SCAN_LIMITS, ai: WEBSITE_AI_VERSION, model: process.env.OPENAI_MODEL || "gpt-5-mini" }, state: initialScanState() }),
+    configuration: { limits: SCAN_LIMITS, ai: WEBSITE_AI_VERSION, model: process.env.OPENAI_MODEL || "gpt-5-mini",
+      strategic: { ...STRATEGIC_VERSION, model: process.env.WEBSITE_STRATEGIC_MODEL || "gpt-5.6-terra", reviewModel: process.env.WEBSITE_STRATEGIC_REVIEW_MODEL || "gpt-5.6-terra" } }, state: initialScanState() }),
     auditInsert({ clientId, actorUserId: actorId === "dev-admin" ? null : actorId, actorType: "user", action: "website_scan.requested", entityType: "website_scan", entityId: id, metadata: { websiteUrl: url, version: SCAN_VERSION } })] };
 }
 export async function requireScan(clientId: string, scanId: string) {
