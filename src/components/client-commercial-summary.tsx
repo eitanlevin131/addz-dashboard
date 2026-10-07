@@ -3,6 +3,7 @@ import {
   ENGAGEMENT_TYPES,
   packageDefinition,
   packageDisplayLabel,
+  packagePrices,
   type PackageCode,
   type PackageScope,
 } from "@/lib/client-packages";
@@ -29,6 +30,10 @@ export function ClientCommercialSummary({
   oneTime: string | null;
 }) {
   const definition = packageDefinition(packageCode)!;
+  const defaults = packagePrices(packageCode, scope);
+  const customPrice =
+    (monthly !== null && monthly !== "" && Number.isFinite(Number(monthly)) && Number(monthly) !== defaults.monthlyAmount) ||
+    (oneTime !== null && oneTime !== "" && Number.isFinite(Number(oneTime)) && Number(oneTime) !== defaults.oneTimeAmount);
   return (
     <section
       aria-label="סיכום התקשרות"
@@ -40,6 +45,9 @@ export function ClientCommercialSummary({
       <h4 className="mt-1 text-base font-semibold text-[#111318]">
         {packageDisplayLabel(packageCode)}
       </h4>
+      {customPrice && (
+        <p className="mt-1 text-xs font-medium text-[#087f72]">מחיר מותאם ללקוח · היקף החבילה ללא שינוי</p>
+      )}
       <dl className="my-3 grid grid-cols-2 gap-3 border-y border-[#eaecf0] py-3">
         {[
           ["ריטיינר חודשי בפועל", monthly],

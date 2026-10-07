@@ -469,6 +469,32 @@ export function ClientProfileForm({
             )}
           </div>
           <div className="mt-3 grid gap-3 border-t border-[#eaecf0] pt-3 sm:grid-cols-2">
+            {prices && (
+              <div className="sm:col-span-2">
+                <label className="flex items-center gap-2 text-sm font-medium text-[#344054]">
+                  <input
+                    type="checkbox"
+                    checked={customMonthly || customOneTime}
+                    onChange={(event) => {
+                      const custom = event.target.checked;
+                      setCustomMonthly(custom);
+                      setCustomOneTime(custom);
+                      if (!custom) {
+                        setMonthly(prices.monthlyAmount.toFixed(2));
+                        setOneTime(prices.oneTimeAmount.toFixed(2));
+                      }
+                    }}
+                  />
+                  מחיר מותאם / מחיר היסטורי
+                </label>
+                <p className="mt-1 text-xs leading-5 text-[#667085]">
+                  המחירים שסוכמו עם הלקוח נשמרים בנפרד מהיקף החבילה, גם עבור לקוח חוזר.
+                  {customMonthly || customOneTime
+                    ? " ביטול ההתאמה יחזיר את שני הסכומים למחירון החבילה."
+                    : " מחירון החבילה הוא ברירת המחדל בלבד."}
+                </p>
+              </div>
+            )}
             {[
               {
                 label: "ריטיינר חודשי בפועל (₪)",

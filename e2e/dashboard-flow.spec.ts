@@ -168,6 +168,19 @@ test.describe("agency dashboard critical journey", () => {
     await expect(
       page.getByLabel("ריטיינר חודשי בפועל (₪)", { exact: true }),
     ).toHaveValue("3500.00");
+    const customPrice = page.getByLabel("מחיר מותאם / מחיר היסטורי", { exact: true });
+    await expect(customPrice).not.toBeChecked();
+    await customPrice.check();
+    await page.getByLabel("ריטיינר חודשי בפועל (₪)", { exact: true }).fill("2200.00");
+    await page.getByLabel("סכום חד פעמי בפועל (₪)", { exact: true }).fill("750.00");
+    await page.getByLabel("חבילה", { exact: true }).selectOption("email_8");
+    await expect(page.getByLabel("ריטיינר חודשי בפועל (₪)", { exact: true })).toHaveValue("2200.00");
+    await expect(page.getByLabel("סכום חד פעמי בפועל (₪)", { exact: true })).toHaveValue("750.00");
+    await expect(page.getByRole("region", { name: "סיכום התקשרות", exact: true })).toContainText("מחיר מותאם ללקוח");
+    await customPrice.uncheck();
+    await expect(page.getByLabel("ריטיינר חודשי בפועל (₪)", { exact: true })).toHaveValue("5000.00");
+    await expect(page.getByLabel("סכום חד פעמי בפועל (₪)", { exact: true })).toHaveValue("0.00");
+    await page.getByLabel("חבילה", { exact: true }).selectOption("email_5");
     await page
       .getByLabel("התחייבות ראשונית", { exact: true })
       .selectOption("3");
@@ -254,6 +267,7 @@ test.describe("agency dashboard critical journey", () => {
     await page
       .getByRole("button", { name: "עריכת פרטים", exact: true })
       .click();
+    await expect(customPrice).toBeChecked();
     await page.getByLabel("חבילה", { exact: true }).selectOption("email_8");
     await expect(page.getByLabel("חבילה", { exact: true }).locator("option:checked")).toHaveText("8 קמפיינים בחודש");
     await expect(page.getByText("+₪2,000", { exact: true })).toBeVisible();

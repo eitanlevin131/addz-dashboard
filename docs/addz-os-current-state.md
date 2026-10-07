@@ -1,5 +1,16 @@
 # ADDZ OS Current State
 
+Local commercial UX refinement (2026-10-07, not deployed): client create/edit now
+exposes an explicit custom/historical-price checkbox beside the negotiated monthly
+and one-time amounts. Enabling it preserves both amounts across package/scope
+changes; disabling it explicitly restores both current package defaults. Existing
+stored amounts remain protected on edit. The summary marks amounts that differ
+from the current price list. No new package, schema, API or persisted pricing-mode
+field: actual agreed prices continue to use the existing client fields. Node 22:
+11/11 focused unit tests, lint/typecheck/build passed, 1/1 isolated client/package
+E2E passed (43.4s), including reset, reload, package-change preservation and mobile
+RTL. Local demo snapshot updated; no push or Production operation.
+
 Local Website Intelligence refinement (not deployed): new scans use seven
 original-source strategic bundles, GPT-5.6 Terra/medium synthesis plus independent
 review, explicit observed/inferred/client-hypothesis classification and multisource
