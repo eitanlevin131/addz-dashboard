@@ -148,6 +148,13 @@
       "when": 1791269413598,
       "tag": "0020_smart_questionnaire",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791442900180,
+      "tag": "0022_client_url_routing",
+      "breakpoints": true
     }
   ]
 }

@@ -217,10 +217,12 @@ export async function GET() {
             ? "admin"
             : "client",
       },
+      workspaceClients: isAdminRole(accessContext.access.role) ? accessibleClientRows.map(client => ({ id: client.id, name: client.name, urlSlug: client.urlSlug, owner: client.owner ?? "", industry: client.industry ?? "", visibleModules: client.visibleModules as Client["visibleModules"] })) : [],
       clients: visibleClientRows.map(
         (client): Client => ({
           id: client.id,
           name: client.name,
+          urlSlug: client.urlSlug,
           owner: client.owner ?? "",
           industry: client.industry ?? "",
           visibleModules: (client.visibleModules ?? ["reports", "planner", "ai"]) as Client["visibleModules"],

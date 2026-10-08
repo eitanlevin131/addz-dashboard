@@ -1,3 +1,4 @@
+import { validClientSlug } from "./client-routing.ts";
 import {
   CLIENT_SERVICES,
   derivePackageScope,
@@ -23,6 +24,7 @@ export type ContactInput = {
 };
 export type ClientProfileInput = {
   name: string;
+  urlSlug: string | null;
   website: string | null;
   industry: string | null;
   packageName: string | null;
@@ -84,6 +86,7 @@ export function parseClientProfile(
   const result: Partial<ClientProfileInput> = {};
   const fields = [
     "name",
+    "urlSlug",
     "website",
     "industry",
     "packageName",
@@ -105,6 +108,11 @@ export function parseClientProfile(
       const name = text(value, 180, "שם העסק");
       if (!name) throw new ClientInputError("יש להזין שם עסק.");
       result.name = name;
+    } else if (field === "urlSlug") {
+      const slug = text(value, 80, "שם הקישור")?.toLowerCase() ?? null;
+      if (slug && !validClientSlug(slug)) throw new ClientInputError("שם הקישור צריך להכיל אותיות באנגלית, מספרים ומקפים, ולא להיות שם שמור.");
+      if (existing?.urlSlug && slug !== existing.urlSlug) throw new ClientInputError("לא ניתן לשנות שם קישור שכבר הוגדר.");
+      result.urlSlug = slug;
     } else if (field === "includedServices")
       result.includedServices = parseIncludedServices(value ?? []);
     else if (field === "packageCode" || field === "commercialScope") continue;

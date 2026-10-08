@@ -136,6 +136,7 @@ import type {
   SyncHistoryEntry,
 } from "@/lib/types";
 import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { dashboardPath, isClientId, readDashboardRoute, resolveDashboardRoute, type WorkspaceTab } from "@/lib/client-routing";
 
 type ViewKey =
   | "clients"
@@ -237,7 +238,7 @@ function LoginGate({ message }: { message: string }) {
         email,
         code,
         redirect: false,
-        callbackUrl: window.location.pathname || "/",
+        callbackUrl: window.location.pathname + window.location.search,
       });
 
       if (!result?.ok || result.error) {
@@ -768,6 +769,7 @@ type LiveFlashyPayload = {
 };
 
 type DashboardDataPayload = {
+  workspaceClients?: Client[];
   viewer?: {
     canConnectAccounts?: boolean;
     canManageUsers?: boolean;
@@ -6540,7 +6542,11 @@ function AccountSettings({
 
 export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }) {
   const [workspaceClientId, setWorkspaceClientId] = useState<string>();
+  const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>("overview");
+  const [routeIssue, setRouteIssue] = useState("");
   const [localClients, setLocalClients] = useState<Client[]>(clients);
+  const [workspaceClients, setWorkspaceClients] = useState<Client[]>([]);
+  const routingClients = [...localClients, ...workspaceClients.filter(item => !localClients.some(client => client.id === item.id))];
   const [localAccounts, setLocalAccounts] = useState<FlashyAccount[]>(flashyAccounts);
   const [localEmailReports, setLocalEmailReports] = useState<EmailCampaignReport[]>(emailReports);
   const [localSmsReports, setLocalSmsReports] = useState<SmsCampaignReport[]>(smsReports);
@@ -6572,7 +6578,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
       : "light",
   );
   const selectedClient =
-    localClients.find((client) => client.id === selectedClientId) ?? localClients[0] ?? { id: "", name: "", owner: "", industry: "", visibleModules: [] };
+    routingClients.find((client) => client.id === selectedClientId) ?? localClients[0] ?? { id: "", name: "", owner: "", industry: "", visibleModules: [] };
   const hasReportAccount = localAccounts.some(item => item.clientId === selectedClient.id);
   // An inert calculation input, never a fallback to another client's account.
   const account =
@@ -6802,9 +6808,19 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
         setViewerRole(incomingRole);
         const params = new URLSearchParams(window.location.search);
         const requestedView = params.get("view");
+        const requestedRoute = initialSummaryId ? null : readDashboardRoute(new URL(window.location.href));
+        const resolvedRoute = requestedRoute ? resolveDashboardRoute(requestedRoute, [...data.clients, ...(data.workspaceClients ?? [])], incomingRole !== "client") : null;
         const linkedPlan = data.newsletterPlans.find((plan) => plan.id === params.get("planId"));
         if (initialSummaryId) {
           setView("monthly");
+        } else if (requestedRoute) {
+          if (!resolvedRoute) setRouteIssue("העמוד לא נמצא או שאין לך הרשאה לצפות בו.");
+          else {
+            setRouteIssue("");
+            setView(resolvedRoute.view);
+            setWorkspaceClientId(resolvedRoute.view === "client-workspace" ? resolvedRoute.clientId : undefined);
+            setWorkspaceTab(resolvedRoute.tab ?? "overview");
+          }
         } else if (linkedPlan) {
           setView("planner");
         } else if (incomingRole !== "client" && (requestedView === "clients" || requestedView === "client-workspace")) {
@@ -6821,13 +6837,14 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
           setView("portfolio");
         }
         setLocalClients(data.clients);
+        setWorkspaceClients(data.workspaceClients ?? []);
         setLocalAccounts(data.accounts);
         setLocalEmailReports(data.emailReports);
         setLocalSmsReports(data.smsReports);
         setLocalAutomationReports(data.automationReports);
         setLocalNewsletterPlans(data.newsletterPlans);
         setLocalSyncHistory(data.syncHistory ?? []);
-        setSelectedClientId(linkedPlan?.clientId ?? data.clients.find(client => client.id === params.get("clientId"))?.id ?? data.clients[0]?.id ?? "");
+        setSelectedClientId(resolvedRoute?.clientId ?? linkedPlan?.clientId ?? data.clients[0]?.id ?? "");
         setAuthRequired(false);
         setLiveDataIssue("");
         setDataSource("neon");
@@ -6847,9 +6864,9 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
   }, [initialSummaryId]);
 
   useEffect(() => {
-    if (!initialSummaryId || dataSource !== "neon") return;
+    if (!selectedMonthlySummaryId || dataSource !== "neon") return;
     let cancelled = false;
-    void fetch(`/api/monthly-summaries/${initialSummaryId}`, { cache: "no-store" })
+    void fetch(`/api/monthly-summaries/${selectedMonthlySummaryId}`, { cache: "no-store" })
       .then(async (response) => {
         const payload = await response.json();
         if (!response.ok || !payload.success) return;
@@ -6860,7 +6877,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
       })
       .catch(() => undefined);
     return () => { cancelled = true; };
-  }, [dataSource, initialSummaryId]);
+  }, [dataSource, selectedMonthlySummaryId]);
 
   async function refreshDashboardData() {
     if (isRefreshing || !hasReportAccount) return;
@@ -6897,6 +6914,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
         setView((current) => (current === "portfolio" || current === "settings" || current === "admin" ? "overview" : current));
       }
       setLocalClients(data.clients);
+      setWorkspaceClients(data.workspaceClients ?? []);
       setLocalAccounts(data.accounts);
       setLocalEmailReports(data.emailReports);
       setLocalSmsReports(data.smsReports);
@@ -7020,19 +7038,38 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
     await signOut({ callbackUrl: "/" });
   }
 
-  function navigateView(next: ViewKey, clientId?: string) {
+  async function navigateView(next: ViewKey, clientId?: string, tab: WorkspaceTab = "overview") {
+    const targetId = clientId ?? workspaceClientId ?? selectedClientId;
+    let availableClients = routingClients;
+    let client = availableClients.find(item => item.id === targetId);
+    if (next === "client-workspace" && clientId && !client) {
+      try {
+        const response = await fetch("/api/dashboard-data", { cache: "no-store" });
+        const payload = await response.json();
+        if (!response.ok || !payload.success) throw new Error("טעינת הלקוח נכשלה.");
+        const data = payload.data as DashboardDataPayload;
+        availableClients = [...data.clients, ...(data.workspaceClients ?? [])];
+        client = availableClients.find(item => item.id === targetId);
+        if (!client) throw new Error("העמוד לא נמצא או שאין לך הרשאה לצפות בו.");
+        setWorkspaceClients(data.workspaceClients ?? []);
+      } catch (error) {
+        setRouteIssue(error instanceof Error ? error.message : "טעינת הלקוח נכשלה.");
+        return;
+      }
+    }
+    const nextTab = tab;
+    const url = new URL(dashboardPath(next, client ?? (clientId ? { id: clientId } : undefined), nextTab), window.location.origin);
+    const route = readDashboardRoute(url);
+    if (route && !resolveDashboardRoute(route, availableClients, viewerIsStaff)) {
+      setRouteIssue("העמוד לא נמצא או שאין לך הרשאה לצפות בו.");
+      return;
+    }
+    setRouteIssue("");
     setView(next);
-    setWorkspaceClientId(clientId);
-    const url = new URL(window.location.href);
-    url.searchParams.delete("planId");
-    if (next === "clients" || next === "client-workspace") {
-      url.searchParams.set("view", next);
-      if (clientId) url.searchParams.set("clientId", clientId); else url.searchParams.delete("clientId");
-    } else if (next === "overview" && clientId) {
-      setSelectedClientId(clientId);
-      url.searchParams.set("view", "overview");
-      url.searchParams.set("clientId", clientId);
-    } else { url.searchParams.delete("view"); url.searchParams.delete("clientId"); }
+    if (client) setSelectedClientId(client.id);
+    setWorkspaceClientId(next === "client-workspace" ? targetId : undefined);
+    setWorkspaceTab(nextTab);
+    setSelectedMonthlySummaryId(undefined);
     window.history.pushState({}, "", url);
   }
   async function openClientReports(clientId: string) {
@@ -7043,6 +7080,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
       const data = payload.data as DashboardDataPayload;
       if (!data.accounts.some(item => item.clientId === clientId)) throw new Error("אין ללקוח חיבור פעיל.");
       setLocalClients(data.clients); setLocalAccounts(data.accounts);
+      setWorkspaceClients(data.workspaceClients ?? []);
       setLocalEmailReports(data.emailReports); setLocalSmsReports(data.smsReports);
       setLocalAutomationReports(data.automationReports); setLocalNewsletterPlans(data.newsletterPlans);
       setLocalSyncHistory(data.syncHistory ?? []);
@@ -7051,14 +7089,21 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
   }
   useEffect(() => {
     function restore() {
-      const params = new URLSearchParams(window.location.search);
-      const target = params.get("view");
-      if (viewerIsStaff && (target === "clients" || target === "client-workspace")) { setView(target); setWorkspaceClientId(params.get("clientId") ?? undefined); }
-      else if (!initialSummaryId) { setView("overview"); const clientId = params.get("clientId"); if (clientId) setSelectedClientId(clientId); }
+      const summaryId = window.location.pathname.startsWith("/summaries/") ? window.location.pathname.slice("/summaries/".length) : "";
+      if (isClientId(summaryId)) { setView("monthly"); setSelectedMonthlySummaryId(summaryId); setRouteIssue(""); return; }
+      const route = readDashboardRoute(new URL(window.location.href));
+      const resolved = route ? resolveDashboardRoute(route, [...localClients, ...workspaceClients], viewerIsStaff) : { view: viewerIsStaff && localClients.length > 1 ? "portfolio" as const : "overview" as const, clientId: selectedClientId, tab: "overview" as const };
+      if (!resolved) { setRouteIssue("העמוד לא נמצא או שאין לך הרשאה לצפות בו."); return; }
+      setRouteIssue("");
+      setView(resolved.view);
+      setWorkspaceClientId(resolved.view === "client-workspace" ? resolved.clientId : undefined);
+      setWorkspaceTab(resolved.tab ?? "overview");
+      if (resolved.clientId) setSelectedClientId(resolved.clientId);
+      setSelectedMonthlySummaryId(undefined);
     }
     window.addEventListener("popstate", restore);
     return () => window.removeEventListener("popstate", restore);
-  }, [viewerIsStaff, initialSummaryId]);
+  }, [viewerIsStaff, initialSummaryId, localClients, workspaceClients, selectedClientId]);
 
   if (authRequired) {
     return <LoginGate message={dataNotice} />;
@@ -7067,6 +7112,8 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
   if (liveDataIssue) {
     return <LiveDataIssue message={liveDataIssue} />;
   }
+
+  if (routeIssue && dataSource !== "loading") return <LiveDataIssue message={routeIssue} />;
 
   if (dataSource === "loading") {
     return <div dir="rtl" role="status" className="grid min-h-screen place-items-center bg-[#f5f7f8] text-sm text-[#667085]">טוען את החשבון...</div>;
@@ -7110,7 +7157,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
                 <span>Flashy Account #{account.flashyAccountId}</span>
                 <button
                   type="button"
-                  onClick={() => setView("settings")}
+                  onClick={() => navigateView("settings")}
                   title={account.syncError || account.syncWarnings?.join(" · ") || "פתח פרטי סנכרון"}
                   className={classNames(
                     "inline-flex items-center gap-1 font-medium before:size-1.5 before:rounded-full hover:underline",
@@ -7172,7 +7219,17 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
         </header>
 
         <div>
-          {foundationView && viewerIsStaff && <ClientFoundation key={workspaceClientId ?? "catalog"} clientId={activeView === "client-workspace" ? workspaceClientId : undefined} onOpenClient={id => navigateView("client-workspace", id)} onBack={() => navigateView("clients")} onOpenReports={openClientReports} />}
+          {foundationView && viewerIsStaff && <ClientFoundation key={workspaceClientId ?? "catalog"} clientId={activeView === "client-workspace" ? workspaceClientId : undefined} routeTab={workspaceTab} onClientUpdated={client => {
+            setLocalClients(current => current.map(item => item.id === client.id ? { ...item, name: client.name, urlSlug: client.urlSlug } : item));
+            setWorkspaceClients(current => current.map(item => item.id === client.id ? { ...item, name: client.name, urlSlug: client.urlSlug } : item));
+            window.history.replaceState({}, "", dashboardPath("client-workspace", client, workspaceTab));
+          }} onTabChange={(tab, client) => {
+            setLocalClients(current => current.map(item => item.id === client.id ? { ...item, urlSlug: client.urlSlug } : item));
+            setWorkspaceClients(current => current.map(item => item.id === client.id ? { ...item, urlSlug: client.urlSlug } : item));
+            setWorkspaceTab(tab);
+            const url = dashboardPath("client-workspace", client, tab);
+            window.history.pushState({}, "", url);
+          }} onOpenClient={id => navigateView("client-workspace", id)} onBack={() => navigateView("clients")} onOpenReports={openClientReports} />}
           {!hasReportAccount && !foundationView && activeView !== "admin" && activeView !== "close" && activeView !== "portfolio" && <p className="py-8 text-sm text-[#667085]">אין חשבון פעיל להצגת דוחות. אפשר לנהל לקוחות מתוך מסך הלקוחות.</p>}
           {showTimeRange && (hasReportAccount || activeView === "portfolio") && (
             <section className="mb-4 rounded-lg border border-[#e4e7ec] bg-white px-3 py-2.5">
@@ -7252,6 +7309,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
               setSelectedMonthlySummaryId(summaryId);
               setRefreshState("");
               setView("monthly");
+              window.history.pushState({}, "", `/summaries/${summaryId}`);
             }} />
           )}
           {hasReportAccount && activeView === "overview" && (
@@ -7363,7 +7421,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
                 automations={accountAutomations}
                 plans={accountPlans}
                 onNavigate={(nextView) => {
-                  setView(nextView);
+                  navigateView(nextView);
                   if (costViewKeys.includes(nextView)) setShowDeepAnalysis(true);
                 }}
               />
@@ -7403,7 +7461,7 @@ export function DashboardApp({ initialSummaryId }: { initialSummaryId?: string }
           automations={accountAutomations}
           plans={accountPlans}
           onNavigate={(nextView) => {
-            setView(nextView);
+            navigateView(nextView);
             if (costViewKeys.includes(nextView)) setShowDeepAnalysis(true);
           }}
         />

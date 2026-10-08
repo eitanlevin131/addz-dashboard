@@ -15,6 +15,7 @@ import type { ClientProfile } from "@/lib/clients";
 import { ClientPackageScope } from "@/components/client-package-scope";
 import { WebsiteIntelligence } from "@/components/website-intelligence";
 import { ClientQuestionnaire } from "@/components/client-questionnaire";
+import type { WorkspaceTab } from "@/lib/client-routing";
 import {
   ClientProfileForm,
   ContactFields,
@@ -194,11 +195,17 @@ export function ClientFoundation({
   onOpenClient,
   onBack,
   onOpenReports,
+  routeTab,
+  onTabChange,
+  onClientUpdated,
 }: {
   clientId?: string;
   onOpenClient: (id: string) => void;
   onBack: () => void;
   onOpenReports: (id: string) => void;
+  routeTab?: WorkspaceTab;
+  onTabChange?: (tab: WorkspaceTab, client: ClientProfile) => void;
+  onClientUpdated?: (client: ClientProfile) => void;
 }) {
   const [rows, setRows] = useState<ClientProfile[]>([]);
   const [owners, setOwners] = useState<{ id: string; name: string }[]>([]);
@@ -210,9 +217,15 @@ export function ClientFoundation({
   const [search, setSearch] = useState("");
   const [ownerFilter, setOwnerFilter] = useState("");
   const [connectionFilter, setConnectionFilter] = useState("");
-  const [tab, setTab] = useState<"overview" | "contacts" | "activity" | "website" | "questionnaire">(
+  const [localTab, setLocalTab] = useState<WorkspaceTab>(
     () => typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "questionnaire" ? "questionnaire" : typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "website" ? "website" : "overview",
   );
+  const tab = routeTab ?? localTab;
+  function setTab(next: WorkspaceTab) {
+    setLocalTab(next);
+    const client = rows.find(row => row.id === clientId);
+    if (client && onTabChange) onTabChange(next, client);
+  }
   const [contactForm, setContactForm] = useState<{
     id?: string;
     value: ContactInput;
@@ -601,7 +614,8 @@ export function ClientFoundation({
           client={client}
           owners={owners}
           onCancel={() => setEditing(false)}
-          onSaved={() => {
+          onSaved={(updated) => {
+            onClientUpdated?.(updated);
             setEditing(false);
             reload();
             setNotice("פרטי הלקוח נשמרו.");

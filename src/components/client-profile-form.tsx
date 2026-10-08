@@ -270,6 +270,10 @@ export function ClientProfileForm({
               </label>
             ))}
             <label className="text-xs font-medium text-[#475467]">
+              שם בקישור
+              <input name="urlSlug" defaultValue={client?.urlSlug ?? ""} readOnly={Boolean(client?.urlSlug)} maxLength={80} pattern="[A-Za-z0-9]+(-[A-Za-z0-9]+)*" placeholder="celesta" dir="ltr" className={clientFieldClass} />
+            </label>
+            <label className="text-xs font-medium text-[#475467]">
               אחראי פנימי
               <select
                 name="ownerUserId"

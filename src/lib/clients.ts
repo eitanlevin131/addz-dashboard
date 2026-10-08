@@ -93,6 +93,7 @@ export async function listClients(id?: string) {
   return rows.map((row) => ({
     id: row.id,
     name: row.name,
+    urlSlug: row.urlSlug,
     industry: row.industry,
     website: row.website,
     packageName: row.packageName,
@@ -195,7 +196,7 @@ export async function updateClient(id: string, body: unknown, actorId: string) {
   await getDb().batch([
     getDb()
       .update(clients)
-      .set({ ...profile, updatedAt: new Date() })
+      .set({ ...profile, ...(profile.urlSlug !== undefined ? { urlSlug: sql`coalesce(${clients.urlSlug}, ${profile.urlSlug})` } : {}), updatedAt: new Date() })
       .where(eq(clients.id, id)),
     auditInsert({
       actorUserId: actorId,
