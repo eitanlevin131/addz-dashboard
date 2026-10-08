@@ -4,6 +4,7 @@ import { Check, ClipboardCopy, FileCheck2, Link2, RefreshCw, ShieldX } from "luc
 import { QUESTIONNAIRE_SECTIONS, QUESTIONNAIRE_STATUS_LABELS, ANSWER_LABELS, questionnaireLinkUrl, type QuestionnaireRecord, type preKickoff } from "@/lib/questionnaire/core";
 import { QuestionEvidence } from "./questionnaire-fields";
 import { clientButtonClass, clientPrimaryClass } from "./client-profile-form";
+import { QuestionnaireAttachments } from "./questionnaire-attachments";
 
 type Detail = QuestionnaireRecord & { progress: { percent: number; answered: number; total: number }; preparation: ReturnType<typeof preKickoff> | null };
 const PREPARATION_LABELS = { confirmed: "אושר על ידי הלקוח", corrected: "תוקן על ידי הלקוח", new: "מידע חדש מהלקוח", conflicts: "פערים ונקודות לבירור", unknown: "עדיין לא ידוע", kickoff: "לדיון בפגישה" };
@@ -83,6 +84,7 @@ export function ClientQuestionnaire({ clientId }: { clientId: string }) {
           {!entries.length && <p className="mt-2 text-xs text-[#667085]">אין פריטים.</p>}
           {entries.map(({ question, answer }) => <article key={question.id} className="mt-4 min-w-0 text-sm"><p className="font-bold">{question.label}</p><QuestionEvidence question={question} />
             <p className="mt-2 whitespace-pre-wrap break-words">{answer ? `${ANSWER_LABELS[answer.state]}${answer.priority === "high" ? " · עדיפות גבוהה" : ""}: ${answer.text || "—"}` : "טרם נענה"}</p>
+            {!!answer?.attachments?.length && <QuestionnaireAttachments files={answer.attachments} downloadUrl={`${url}/attachments`} />}
           </article>)}
         </section>)}
         <section><h3 className="font-bold">נושאים לשיחה</h3><ul className="mt-2 list-inside list-disc space-y-2 text-sm">{data.preparation.topics.map(topic => <li key={topic}>{topic}</li>)}</ul></section>
@@ -99,6 +101,7 @@ export function ClientQuestionnaire({ clientId }: { clientId: string }) {
               <QuestionEvidence question={question} />
               {data.answers[question.id] && <div className="mt-2 border-r-2 border-[#42dfcf] pr-3"><p className="text-xs text-[#087f72]">תשובת הלקוח · {ANSWER_LABELS[data.answers[question.id].state]}</p><p className="mt-1 whitespace-pre-wrap break-words">{data.answers[question.id].text}</p>
                 {data.answers[question.id].links.map(href => <a key={href} href={href} target="_blank" rel="noopener noreferrer" className="mt-1 block break-all text-[#087f72] underline" dir="ltr">{href}</a>)}
+                {!!data.answers[question.id].attachments?.length && <QuestionnaireAttachments files={data.answers[question.id].attachments!} downloadUrl={`${url}/attachments`} />}
               </div>}
             </article>)}
           </section>;

@@ -35,7 +35,7 @@ export async function clientApi(
         : undefined;
     if (code === "23505")
       return NextResponse.json(
-        { success: false, message: "המידע עודכן במקביל. יש לרענן ולנסות שוב." },
+        { success: false, message: cause && typeof cause === "object" && "constraint" in cause && cause.constraint === "clients_url_slug_unique" ? "שם הקישור כבר בשימוש. יש לבחור שם אחר." : "המידע עודכן במקביל. יש לרענן ולנסות שוב." },
         { status: 409 },
       );
     console.error("Client foundation request failed", { code });

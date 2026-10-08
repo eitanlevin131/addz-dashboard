@@ -181,3 +181,76 @@ V1 limitations: one preparation per client; fixed source snapshot, no regenerati
 UI; explicit save per decision, no collaborative autosave; no dedicated decision
 diff UI (history remains in audit metadata); broad multi-domain statements are not
 automatically split/reclassified; no AI, sending, client approval or Brand Brain.
+
+## Local Product Review - Document-First Characterization
+
+The Product Owner clarified that the primary meeting surface must be an editable
+characterization document, not an agenda/decision manager. The existing Spicehaus
+characterization Google Doc was read as a structural reference only; none of its
+client content is copied to another client. This local update is NOT deployed.
+
+- Default view: one continuous Hebrew/RTL document with numbered chapters,
+  chapter navigation, concise field headings and editable sections in place.
+  Chapters follow the reference's brand/background, pains/needs/desires, audiences,
+  positioning/differentiation, buying motivations/objections, products/categories,
+  voice/claims, commercial decisions, operations/assets and remaining priorities.
+- Confirmed questionnaire content is prefilled. Corrections, rejected statements,
+  hypotheses and partial meeting notes remain visibly unresolved until staff
+  explicitly records a meeting outcome. Empty chapters remain empty, with an
+  add-section action; no AI-generated filler or invented strategic conclusions.
+- Text editing is primary; section status is secondary. Existing decision/topic
+  APIs, revision fence, audit history, completion freeze and explicit reopen remain
+  authoritative. Saving an edit records meeting information, not a source rewrite.
+- Long text is available under a complete-text disclosure, split into readable
+  paragraphs without removing policy conditions. Original evidence and answers
+  stay accessible separately. Older catalog/voice snapshot assignments receive
+  presentation-only chapter mapping, without mutating their stored snapshot.
+- The focused open-topic view and original questionnaire answers remain secondary.
+  No new table, migration, provider, crawl or AI call. This is an in-app document,
+  not a Google Docs integration, collaborative editor or Word/PDF export.
+
+Validation: Node 22; **20/20** focused kickoff/document unit tests; scoped lint
+**0 errors/warnings**; isolated production-style TypeScript/build passed. Final
+kickoff E2E **2/2** passed (47.4s), including document editing/reload, inline section
+creation, completion/reopen, unchanged source records, client 403, anonymous 401,
+CAS/body/origin boundaries and mobile RTL without overflow. Questionnaire regression
+**2/2** passed during the preceding run; it was not rerun after editor-only changes.
+One test-only completion wait was updated because the document is already selected
+before completion, so selected-tab state no longer proves the mutation finished.
+Manually reviewed the local Studio365 document and opened its editor without saving
+or changing the user's submitted answers. Production was not queried or modified.
+
+## Local Product Review - Explicit Characterization Questions
+
+The document review exposed gaps in questionnaire generation, not evidence that
+missing strategic answers can be invented. Newly generated `questionnaire-v2`
+snapshots add eleven required client questions: business/brand story, positioning,
+promise, differentiators, pains, needs, desires, buying motivations, objections,
+four leading categories ordered by business importance, and eight best-selling
+products ordered by sales. These questions remain explicit ASK items even when
+the website provides observations about the same topic.
+
+- Questions include practical Hebrew guidance and distinguish customer feedback
+  from hypotheses. A deliberate unknown/meeting answer is allowed and stays
+  unresolved in the document; silent omission is not a complete required answer.
+- Category/product rankings use numbered inputs and the existing plain-text answer
+  field. The UI and API validate ordering, duplicates and bounded entry lengths.
+  Smaller assortments may provide fewer real entries rather than fabricated ones.
+  Promotion priorities remain separate from best-selling products.
+- Client answers flow verbatim into their matching document chapters with
+  `client_statement` authority. Rankings retain their order. Existing questionnaire,
+  website evidence and kickoff snapshots are not rewritten; submitted Studio365
+  remains unchanged. Existing snapshots without ranking metadata remain supported.
+- No DB/schema changes, AI calls, crawls, deployments or Production data access.
+  The isolated local preview source was refreshed, without changing provider/env
+  bindings. Existing questionnaires need real supplemental answers, not auto-fill.
+
+Validation on Node 22: **62/62** focused questionnaire/presentation/strategy/kickoff
+unit tests (including **9** new strategy/ranking tests), scoped lint with no errors,
+isolated TypeScript/build passed. All **4** focused questionnaire/kickoff E2E cases
+passed across the initial run and the affected-case rerun. One new test selector
+was corrected from raw label text to the textbox's accessible name; no application
+fix was needed. The full questionnaire flow exercised mobile RTL, gap prevention,
+4/8 ranking autosave, strategic answers, submission freeze, unchanged website
+evidence and kickoff domain/value/authority mapping. Existing security cases
+verified anonymous/client denial, token isolation and optimistic concurrency.

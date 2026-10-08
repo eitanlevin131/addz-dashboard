@@ -290,3 +290,22 @@ live database for schema truth; do not infer state from historical filenames.
   link security and the onboarding questionnaire handoff.
 - See `docs/epic-3-smart-questionnaire.md` for details. This refinement remains
   on the isolated Epic 4 development branch and is not part of live Epic 3.
+
+## Integrated V1 Candidate (2026-10-08, Not Deployed)
+
+The Epic 4 branch now integrates adaptive website coverage, seven-domain strategic
+intelligence/review, custom commercial pricing, improved questionnaire UX and
+strategic/ranked questions, an editable ten-section characterization document,
+optional private attachments and authorized client/module URLs.
+
+Production is unchanged at `ad4947f635a19657261bfe75c65ea81a43a1611d`, schema through
+`0020`. These additions are not live. See `docs/addz-os-v1-preview-candidate.md`
+for the integrated scope, validation boundaries, Preview isolation and the additional
+`0022` routing requirement. Do not deploy this candidate onto a `0021`-only schema.
+
+Node 22 local validation: 432/432 unit tests, lint zero errors/three existing
+warnings, production build and explicit TypeScript check passed; complete isolated
+E2E passed 14/14 in one clean run. Deployed real-AI
+validation and the Product Owner's hands-on journey are still separate gates.
+Private Blob uploads remain disabled unless a dedicated isolated store is tested.
+The Planner/Cron delivery follow-up remains operational only, not a Preview blocker.

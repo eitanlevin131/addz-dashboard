@@ -5,6 +5,9 @@ import { ArrowLeft, ArrowRight, Check, ChevronDown, LockKeyhole, RefreshCw } fro
 import { ANSWER_LABELS, QUESTIONNAIRE_SECTIONS, type publicProjection } from "@/lib/questionnaire/core";
 import { QuestionnaireField, QuestionEvidence, type AnswerDraft } from "./questionnaire-fields";
 import { clientButtonClass, clientPrimaryClass } from "./client-profile-form";
+import { answerIsComplete, firstUnanswered } from "@/lib/questionnaire/presentation";
+import type { QuestionnaireAttachment } from "@/lib/questionnaire/attachments";
+import { QuestionnaireAttachments } from "./questionnaire-attachments";
 
 type PublicData = ReturnType<typeof publicProjection>;
 export function PublicQuestionnaire() {
@@ -15,6 +18,7 @@ export function PublicQuestionnaire() {
   const [saveState, setSaveState] = useState<"saved" | "pending" | "saving" | "error">("saved");
   const [submitting, setSubmitting] = useState(false);
   const [navigating, setNavigating] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [openQuestion, setOpenQuestion] = useState<string | null>(null);
   const incomplete = useRef(new Set<string>());
   const token = useRef("");
@@ -70,16 +74,26 @@ export function PublicQuestionnaire() {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => { void flush(); }, 900);
   }
+  function requireAnswers(items: PublicData["items"]) {
+    const missing = firstUnanswered(items, current.current?.answers || {});
+    if (!missing) return true;
+    setError("לפני שממשיכים, ענו על השאלה הפתוחה. אם אין לכם תשובה כרגע, אפשר לבחור 'עדיין לא ידוע' או 'נדבר בפגישה'.");
+    setStep(sections.findIndex(section => section.id === missing.section));
+    setOpenQuestion(missing.id);
+    return false;
+  }
   async function move(target: number) {
-    if (navigating || submitting) return;
+    if (navigating || submitting || uploading) return;
     if (incomplete.current.size) { setError("השלימו את התיקון הפתוח או בחרו מצב אחר לפני המעבר."); return; }
+    if (target > step && !requireAnswers((current.current?.items || []).filter(question => sections.findIndex(section => section.id === question.section) < target))) return;
     setNavigating(true);
-    try { if (await flush()) { setOpenQuestion(null); setStep(target); window.scrollTo({ top: 0, behavior: "smooth" }); } }
+    try { if (await flush()) { setError(""); setOpenQuestion(null); setStep(target); window.scrollTo({ top: 0, behavior: "smooth" }); } }
     finally { setNavigating(false); }
   }
   async function submit() {
-    if (submitting || navigating || closed) return;
+    if (submitting || navigating || uploading || closed) return;
     if (incomplete.current.size) { setError("השלימו את התיקון הפתוח לפני השליחה."); return; }
+    if (!requireAnswers(current.current?.items || [])) return;
     setSubmitting(true);
     try {
       if (!await flush()) return;
@@ -92,10 +106,35 @@ export function PublicQuestionnaire() {
   const section = sections[step];
   const questions = data?.items.filter(q => q.section === section?.id) || [];
   async function selectQuestion(id: string) {
-    if (navigating || submitting) return;
+    if (navigating || submitting || uploading) return;
     if (incomplete.current.size) { setError("השלימו את התיקון הפתוח או בחרו מצב אחר לפני המעבר."); return; }
+    const target = questions.findIndex(question => question.id === id);
+    const active = questions.findIndex(question => question.id === (openQuestion || questions[0]?.id));
+    if (target > active && !requireAnswers(questions.slice(0, target))) return;
     setNavigating(true);
-    try { if (await flush()) setOpenQuestion(id); } finally { setNavigating(false); }
+    try { if (await flush()) { setError(""); setOpenQuestion(id); } } finally { setNavigating(false); }
+  }
+  async function uploadAttachment(file: File, progress: (percentage: number) => void): Promise<QuestionnaireAttachment> {
+    const headers = { Authorization: `Bearer ${token.current}`, "content-type": "application/json" };
+    const request = async (method: string, body: unknown) => {
+      const response = await fetch("/api/public/questionnaire/attachments", { method, headers, body: JSON.stringify(body), cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.message || "העלאת הקובץ נכשלה.");
+      return payload.data;
+    };
+    const permission = await request("POST", { name: file.name, size: file.size });
+    const { upload } = await import("@vercel/blob/client");
+    const blob = await upload(permission.pathname, file, { access: "private", contentType: permission.contentType,
+      handleUploadUrl: "/api/public/questionnaire/upload", headers: { Authorization: headers.Authorization },
+      onUploadProgress: ({ percentage }) => progress(Math.round(percentage)) });
+    return request("PATCH", { pathname: blob.pathname, name: file.name, size: file.size });
+  }
+  async function downloadAttachment(file: QuestionnaireAttachment) {
+    const response = await fetch(`/api/public/questionnaire/attachments?pathname=${encodeURIComponent(file.pathname)}`, { headers: { Authorization: `Bearer ${token.current}` }, cache: "no-store" });
+    if (!response.ok) throw new Error("download_failed");
+    const href = URL.createObjectURL(await response.blob());
+    const anchor = document.createElement("a"); anchor.href = href; anchor.download = file.name; anchor.click();
+    setTimeout(() => URL.revokeObjectURL(href), 60000);
   }
   return <div className="min-h-screen bg-[#f5f7f8]" dir="rtl">
     <header className="bg-[#080e2d] px-5 py-5"><div className="mx-auto flex max-w-[880px] items-center justify-between gap-4">
@@ -104,46 +143,43 @@ export function PublicQuestionnaire() {
     </div></header>
     <main className="mx-auto max-w-[880px] px-5 py-7 pb-32 sm:py-10 sm:pb-32">
       {loading ? <p role="status">טוען שאלון...</p> : !data ? <div role="alert" className="py-10"><h1 className="text-xl font-bold">הקישור אינו זמין</h1><p className="mt-3 text-sm text-[#667085]">{error || "אפשר לבקש מצוות ADDZ קישור מעודכן."}</p></div> : <>
-        <div className="mb-6"><p className="text-xs font-bold text-[#087f72]">{data.clientName}</p><h1 className="mt-2 text-2xl font-bold">{closed ? "תודה, המידע התקבל" : step < 0 ? "מתחילים ממה שכבר למדנו" : section?.label}</h1>
-          {step < 0 && data.catalogContext && data.catalogContext.catalogued > 0 && <p className="mt-3 text-sm leading-6 text-[#475467]">קראנו מידע על {data.catalogContext.catalogued} מוצרים מהקטלוג, ובדקנו לעומק {data.catalogContext.deeplyRead} עמודי מוצרים. נבקש להתייחס רק לדוגמאות ולסדרי העדיפויות, לא לאשר כל מוצר בנפרד.</p>}
+        <div className="mb-6"><h1 className="text-2xl font-bold">{closed ? "תודה, המידע התקבל" : step < 0 ? "לקראת פגישת האפיון עם איתן" : section?.label}</h1>
           {closed ? <p className="mt-3 text-sm leading-6 text-[#667085]">צוות ADDZ ייעזר באישורים ובהשלמות שלכם כדי להתכונן לפגישה. התשובות נשמרו והשאלון סגור לעריכה.</p> : <>
-            <div className="mt-4 flex justify-between gap-3 text-xs text-[#667085]"><span>{data.progress.answered} מתוך {data.progress.total} פריטים נשמרו</span><span role="status">{({ saved: "כל השינויים נשמרו", pending: "ממתין לשמירה", saving: "שומר...", error: "השמירה לא הושלמה" })[saveState]}</span></div>
-            <progress aria-label="התקדמות השאלון" value={data.progress.percent} max={100} className="mt-2 h-1.5 w-full accent-[#087f72]" />
+            {step >= 0 && <><div className="mt-4 flex justify-between gap-3 text-xs text-[#667085]"><span>{data.progress.answered} מתוך {data.progress.total} שאלות נשמרו</span><span role="status">{({ saved: "כל השינויים נשמרו", pending: "ממתין לשמירה", saving: "שומר...", error: "השמירה לא הושלמה" })[saveState]}</span></div>
+            <progress aria-label="התקדמות השאלון" value={data.progress.percent} max={100} className="mt-2 h-1.5 w-full accent-[#087f72]" /></>}
             {step >= 0 && <label className="mt-4 block text-xs text-[#667085] sm:hidden">תחום בשאלון
-              <select aria-label="תחום בשאלון" value={step} disabled={submitting || navigating} onChange={event => void move(Number(event.target.value))} className="mt-1 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#101828]">{sections.map((item, index) => <option key={item.id} value={index}>{index + 1}. {item.label}</option>)}</select>
+              <select aria-label="תחום בשאלון" value={step} disabled={submitting || navigating || uploading} onChange={event => void move(Number(event.target.value))} className="mt-1 h-10 w-full rounded-md border border-[#d0d5dd] bg-white px-3 text-sm text-[#101828]">{sections.map((item, index) => <option key={item.id} value={index}>{index + 1}. {item.label}</option>)}</select>
             </label>}
             {step >= 0 && <nav aria-label="תחומי האפיון" className="mt-5 hidden flex-wrap gap-2 sm:flex">{sections.map((item, index) => {
               const items = data.items.filter(q => q.section === item.id);
-              const complete = items.every(q => data.answers[q.id]);
-              return <button key={item.id} aria-label={`עבור אל ${item.label}`} aria-current={index === step ? "step" : undefined} disabled={submitting || navigating} onClick={() => void move(index)} className={`inline-flex items-center gap-1.5 border-b-2 px-2 py-2 text-xs ${index === step ? "border-[#087f72] font-semibold text-[#087f72]" : "border-transparent text-[#667085] hover:text-[#101828]"}`}>{complete ? <Check size={13} /> : <span>{index + 1}.</span>}{item.label}</button>;
+              const complete = items.every(q => answerIsComplete(q, data.answers[q.id]));
+              return <button key={item.id} aria-label={`עבור אל ${item.label}`} aria-current={index === step ? "step" : undefined} disabled={submitting || navigating || uploading} onClick={() => void move(index)} className={`inline-flex items-center gap-1.5 border-b-2 px-2 py-2 text-xs ${index === step ? "border-[#087f72] font-semibold text-[#087f72]" : "border-transparent text-[#667085] hover:text-[#101828]"}`}>{complete ? <Check size={13} /> : <span>{index + 1}.</span>}{item.label}</button>;
             })}</nav>}
           </>}
         </div>
         {error && <div role="alert" className="mb-4 text-sm text-red-700"><p>{error}</p>{saveState === "error" && <button className={`${clientButtonClass} mt-2`} onClick={() => void flush()}><RefreshCw size={14} />נסה לשמור שוב</button>}</div>}
         {closed ? <div className="space-y-4">{data.items.map(question => <section key={question.id} className="border-b border-[#e4e7ec] pb-4"><h2 className="text-sm font-bold">{question.label}</h2><QuestionEvidence question={question} />
           <p className="mt-2 whitespace-pre-wrap break-words text-sm">{data.answers[question.id] ? `${ANSWER_LABELS[data.answers[question.id].state]}: ${data.answers[question.id].text || "—"}` : "לא נענה"}</p>
+          {!!data.answers[question.id]?.attachments?.length && <QuestionnaireAttachments files={data.answers[question.id].attachments!} onDownload={downloadAttachment} />}
         </section>)}</div> : step < 0 ? <div className="text-base leading-7 text-[#344054]">
-          <p className="max-w-xl">רוצים להכיר את העסק שלכם מעבר לאתר. נתחיל במה שמצאנו, ונשלים יחד את הקהל, סדרי העדיפויות והפרטים שחשובים לכם.</p>
-          <ol className="mt-7 divide-y divide-[#e4e7ec] border-y border-[#e4e7ec]">{[
-            ["מדייקים את מה שמצאנו", "פרטים מהאתר והשערות לבדיקה, עם אפשרות לתקן כל דבר."],
-            ["מכירים את העסק מבפנים", "מה כדאי לקדם, מי הלקוחות ומה מייחד אתכם."],
-            ["מגיעים מוכנים לפגישה", "כל מה שעוד פתוח יכול להישאר לשיחה עם צוות ADDZ."],
-          ].map(([title, description], index) => <li key={title} className="flex gap-4 py-5"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#080e2d] text-sm text-white">{index + 1}</span><div><h2 className="text-base font-semibold text-[#101828]">{title}</h2><p className="mt-1 text-sm text-[#667085]">{description}</p></div></li>)}</ol>
+          <p className="max-w-2xl">כבר עברנו על האתר שלכם והתחלנו להכיר את העסק. השאלון יעזור לכם לאשר או לתקן את המידע שמצאנו, ולהוסיף את מה שלא ניתן ללמוד מהאתר — כדי שנגיע מוכנים לפגישת האפיון עם איתן.</p>
           <p className="mt-5 flex items-center gap-2 text-sm text-[#667085]"><LockKeyhole size={15} />התשובות נשמרות אוטומטית. אפשר לחזור באותו קישור.</p>
         </div> : <div className="space-y-3">
-          <p className="mb-4 text-sm text-[#667085]">{section?.id === "known" ? "בדקו את הפרטים שמצאנו. המוצרים הם דוגמאות מהאתר, לא רשימת הקטלוג המלאה." : "מעניין אותנו לשמוע את נקודת המבט שלכם. אפשר להשאיר נושא פתוח לפגישה."}</p>
+          <p className="mb-4 text-sm text-[#667085]">{section?.id === "known" ? "אשרו את המידע שמצאנו באתר, או כתבו מה צריך לתקן." : "התשובות שלכם יעזרו לנו להתכונן לפגישה."}</p>
           {questions.map((question, index) => {
             const active = question.id === (openQuestion || questions[0]?.id);
             const answer = data.answers[question.id];
             return <section key={question.id} className={`overflow-hidden rounded-lg border bg-white ${active ? "border-[#b4dcd6]" : "border-[#e4e7ec]"}`}>
-              <button type="button" aria-label={`פתח שאלה: ${question.label}`} aria-expanded={active} aria-controls={`question-${question.id}`} disabled={submitting || navigating} onClick={() => void selectQuestion(question.id)} className="flex w-full items-center gap-3 px-4 py-4 text-start sm:px-6">
+              <button type="button" aria-label={`פתח שאלה: ${question.label}`} aria-expanded={active} aria-controls={`question-${question.id}`} disabled={submitting || navigating || uploading} onClick={() => void selectQuestion(question.id)} className="flex w-full items-center gap-3 px-4 py-4 text-start sm:px-6">
                 <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs ${answer ? "bg-[#ecfdf9] text-[#087f72]" : "bg-[#f2f4f7] text-[#667085]"}`}>{answer ? <Check size={14} /> : index + 1}</span>
-                <span className="min-w-0 flex-1 break-words text-sm font-medium">{question.label}</span>
+                <span className="min-w-0 flex-1 break-words text-base font-semibold leading-7">{question.presentation?.prompt || question.label}{question.required && <span className="ms-2 text-xs font-normal text-[#667085]">נדרש</span>}</span>
                 {answer && <span className="shrink-0 text-xs text-[#087f72]">{ANSWER_LABELS[answer.state]}</span>}<ChevronDown size={16} className={`shrink-0 text-[#667085] ${active ? "rotate-180" : ""}`} />
               </button>
               {active && <div id={`question-${question.id}`} className="border-t border-[#eef0f3] px-4 py-5 sm:px-6">
-                <QuestionnaireField key={question.id} question={question} answer={answer} disabled={submitting || navigating} onIncompleteChange={(id, invalid) => { if (invalid) { incomplete.current.add(id); setSaveState("pending"); } else { incomplete.current.delete(id); setError(""); } }} onChange={value => update(question.id, value)} />
-                {index < questions.length - 1 && <button className={`${clientButtonClass} mt-5`} disabled={submitting || navigating} onClick={() => void selectQuestion(questions[index + 1].id)}>לשאלה הבאה<ArrowLeft size={15} /></button>}
+                <QuestionnaireField key={question.id} question={question} answer={answer} hideLegend disabled={submitting || navigating || uploading}
+                  uploadsAvailable={data.uploadsAvailable} onUpload={uploadAttachment} onDownload={downloadAttachment} onBusyChange={setUploading}
+                  onIncompleteChange={(id, invalid) => { if (invalid) { incomplete.current.add(id); setSaveState("pending"); } else { incomplete.current.delete(id); setError(""); } }} onChange={value => update(question.id, value)} />
+                {index < questions.length - 1 && <button className={`${clientButtonClass} mt-5`} disabled={submitting || navigating || uploading} onClick={() => void selectQuestion(questions[index + 1].id)}>לשאלה הבאה<ArrowLeft size={15} /></button>}
               </div>}
             </section>;
           })}
@@ -151,9 +187,9 @@ export function PublicQuestionnaire() {
       </>}
     </main>
     {data && !closed && <footer className="fixed inset-x-0 bottom-0 border-t border-[#e4e7ec] bg-white px-5 py-4"><div className="mx-auto flex max-w-[880px] items-center justify-between gap-3">
-      {step >= 0 ? <button className={clientButtonClass} disabled={submitting || navigating} onClick={() => void move(step - 1)}><ArrowRight size={16} />הקודם</button> : <span className="text-xs text-[#667085]">כ־{Math.max(4, Math.ceil(data.items.length / 3))} דקות</span>}
-      {step < sections.length - 1 ? <button className={clientPrimaryClass} disabled={submitting || navigating} onClick={() => void move(step + 1)}>{step < 0 ? "נתחיל" : "המשך"}<ArrowLeft size={16} /></button>
-        : <button className={clientPrimaryClass} disabled={submitting || navigating} onClick={() => void submit()}><Check size={16} />{submitting ? "שולח..." : "שלח ל־ADDZ"}</button>}
+      {step >= 0 ? <button className={clientButtonClass} disabled={submitting || navigating || uploading} onClick={() => void move(step - 1)}><ArrowRight size={16} />הקודם</button> : <span className="text-xs text-[#667085]">כ־{Math.max(4, Math.ceil(data.items.length / 3))} דקות</span>}
+      {step < sections.length - 1 ? <button className={clientPrimaryClass} disabled={submitting || navigating || uploading} onClick={() => void move(step + 1)}>{step < 0 ? "נתחיל" : "המשך"}<ArrowLeft size={16} /></button>
+        : <button className={clientPrimaryClass} disabled={submitting || navigating || uploading} onClick={() => void submit()}><Check size={16} />{submitting ? "שולח..." : "שלח ל־ADDZ"}</button>}
     </div></footer>}
   </div>;
 }

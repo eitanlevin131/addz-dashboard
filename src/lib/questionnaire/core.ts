@@ -1,8 +1,10 @@
 import type { IncludedService, PackageScope } from "../client-packages";
-import { questionPresentation } from "./presentation.ts";
+import { ASK_CONTENT, questionPresentation } from "./presentation.ts";
+import { parseAttachmentMetadata, type QuestionnaireAttachment } from "./attachments.ts";
 import type { questionnaireCatalogContext } from "../website-intelligence/catalog.ts";
+import { rankedAnswerError, type QuestionRanking } from "./ranked-answer.ts";
 
-export const QUESTIONNAIRE_VERSION = "questionnaire-v1";
+export const QUESTIONNAIRE_VERSION = "questionnaire-v2";
 export const QUESTIONNAIRE_SECTIONS = [
   { id: "known", label: "מה שכבר למדנו" },
   { id: "priorities", label: "מה חשוב עכשיו" },
@@ -30,7 +32,7 @@ export type QuestionSource = {
 };
 export type QuestionItem = {
   id: string; section: SectionId; label: string; action: "ask" | "confirm";
-  required: boolean; suggestion?: string; source?: QuestionSource; links?: boolean;
+  required: boolean; suggestion?: string; source?: QuestionSource; links?: boolean; ranking?: QuestionRanking;
 };
 export type QuestionnaireSnapshot = {
   version: string; clientName: string; website: string | null; scanId: string | null;
@@ -39,11 +41,11 @@ export type QuestionnaireSnapshot = {
 };
 export type QuestionnaireAnswer = {
   state: ValidationState; text: string; priority: "normal" | "high";
-  links: string[]; updatedAt: string;
+  links: string[]; attachments?: QuestionnaireAttachment[]; updatedAt: string;
 };
 export type QuestionnaireAnswers = Record<string, QuestionnaireAnswer>;
 export function editableQuestionnaireAnswer(answer?: Omit<QuestionnaireAnswer, "updatedAt"> | QuestionnaireAnswer): Omit<QuestionnaireAnswer, "updatedAt"> {
-  return { state: answer?.state || "unknown", text: answer?.text || "", priority: answer?.priority || "normal", links: answer?.links || [] };
+  return { state: answer?.state || "unknown", text: answer?.text || "", priority: answer?.priority || "normal", links: answer?.links || [], ...(answer?.attachments?.length ? { attachments: answer.attachments } : {}) };
 }
 export type QuestionnaireRecord = {
   id: string; clientId: string; snapshot: QuestionnaireSnapshot; selectedIds: string[];
@@ -146,11 +148,17 @@ export function generateQuestionnaire(client: {
         action: "confirm", required: false, suggestion, source });
     }
   }
-  const ask = (id: string, section: SectionId, label: string, required = false, links = false) => items.push({ id, section, label, action: "ask", required, ...(links ? { links: true } : {}) });
+  const ask = (id: string, section: SectionId, label: string, required = false, links = false) => items.push({ id, section, label: ASK_CONTENT[id]?.label || label, action: "ask", required, ...(links ? { links: true } : {}) });
   ask("priorities", "priorities", "אילו מוצרים ומהלכים הכי חשוב לכם לקדם עכשיו?", true);
   ask("changes", "priorities", "מה עומד להשתנות בחודשים הקרובים שכדאי לנו לדעת?");
+  for (const [id, kind, limit] of [["category_priorities", "categories", 4], ["product_bestsellers", "products", 8]] as const)
+    items.push({ id, section: "priorities", label: ASK_CONTENT[id].label, action: "ask", required: true, ranking: { kind, limit } });
   ask("audience_priority", "audience", "מי הלקוחות החשובים ביותר כרגע? האם חסר קהל ברשימה?");
   ask("customer_reality", "reality", "מה לקוחות שואלים או חוששים ממנו לפני קנייה? מה חסר בהבנה שלנו?");
+  for (const id of ["customer_pains", "customer_needs", "customer_desires", "purchase_motivations", "purchase_objections"])
+    ask(id, "reality", ASK_CONTENT[id].label, true);
+  for (const id of ["brand_story", "brand_positioning", "brand_promise", "brand_differentiators"])
+    ask(id, "brand", ASK_CONTENT[id].label, true);
   ask("brand_correction", "brand", "מה חשוב לשמר בשפת המותג, ומה לא מרגיש כמוכם?");
   ask("red_lines", "rules", "אילו ניסוחים, הבטחות או טענות אסור לנו להשתמש בהם? אפשר לציין שאין מגבלות נוספות.", true);
   ask("approved_claims", "rules", "האם יש ניסוחים מאושרים, מגבלות משפטיות או שמות שחייבים לדייק?");
@@ -190,16 +198,23 @@ export function parseAnswers(snapshot: QuestionnaireSnapshot, selectedIds: strin
     const question = snapshot.items.find(q => q.id === id && selectedIds.includes(id));
     if (!question || !value || typeof value !== "object" || Array.isArray(value)) throw new QuestionnaireError("התשובה אינה שייכת לשאלון.");
     const row = value as Record<string, unknown>;
-    if (Object.keys(row).some(key => !["state", "text", "priority", "links"].includes(key))) throw new QuestionnaireError("שדות תשובה אינם תקינים.");
+    if (Object.keys(row).some(key => !["state", "text", "priority", "links", "attachments"].includes(key))) throw new QuestionnaireError("שדות תשובה אינם תקינים.");
     const allowed = question.action === "confirm" ? ["confirmed", "partial", "corrected", "rejected", "unknown", "kickoff"] : ["answered", "unknown", "kickoff"];
     if (typeof row.state !== "string" || !allowed.includes(row.state) || typeof row.text !== "string" || row.text.length > 4000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(row.text)) throw new QuestionnaireError("מצב או תוכן התשובה אינו תקין.");
     const text = row.text.trim();
-    if (["corrected", "partial", "answered"].includes(String(row.state)) && !text) throw new QuestionnaireError("נדרש תוכן לתשובה או לתיקון.");
     const priority = row.priority ?? "normal";
     if (typeof priority !== "string" || !["normal", "high"].includes(priority)) throw new QuestionnaireError("העדיפות אינה תקינה.");
     const links = row.links ?? [];
     if (!Array.isArray(links) || links.length > 5 || (!question.links && links.length) || links.some(link => typeof link !== "string" || !safeReferenceUrl(link))) throw new QuestionnaireError("אפשר להוסיף עד חמישה קישורי http/https תקינים.");
-    answers[id] = { state: row.state as ValidationState, text, priority: priority as "normal" | "high", links: links as string[], updatedAt: now.toISOString() };
+    let attachments: QuestionnaireAttachment[];
+    try { attachments = parseAttachmentMetadata(row.attachments); } catch (error) { throw new QuestionnaireError((error as Error).message); }
+    if (attachments.length && id !== "assets") throw new QuestionnaireError("אפשר לצרף קבצים רק בשאלת חומרי המותג.");
+    if (["corrected", "partial", "answered"].includes(String(row.state)) && !text && !(row.state === "answered" && question.links && (links.length || attachments.length))) throw new QuestionnaireError("נדרש תוכן לתשובה או לתיקון.");
+    if (question.ranking && row.state === "answered") {
+      const error = rankedAnswerError(text, question.ranking);
+      if (error) throw new QuestionnaireError(error);
+    }
+    answers[id] = { state: row.state as ValidationState, text, priority: priority as "normal" | "high", links: links as string[], ...(attachments.length ? { attachments } : {}), updatedAt: now.toISOString() };
   }
   return answers;
 }
@@ -226,13 +241,13 @@ export function preKickoff(snapshot: QuestionnaireSnapshot, selectedIds: string[
   }
   return { groups, topics: snapshot.kickoffTopics, authority: "pre_kickoff" as const };
 }
-export function publicProjection(record: QuestionnaireRecord) {
+export function publicProjection(record: QuestionnaireRecord, uploadsAvailable = false) {
   return {
-    clientName: record.snapshot.clientName, status: record.status, revision: record.revision,
+    clientName: record.snapshot.clientName, status: record.status, revision: record.revision, uploadsAvailable,
     catalogContext: record.snapshot.catalogContext,
     items: record.snapshot.items.filter(q => record.selectedIds.includes(q.id)).map(q => ({
       id: q.id, section: q.section, label: q.label, action: q.action, required: q.required,
-      suggestion: q.suggestion, links: q.links, presentation: questionPresentation(q),
+      suggestion: q.suggestion, links: q.links, ranking: q.ranking, presentation: questionPresentation(q),
       source: q.source ? { authority: q.source.authority, evidence: q.source.evidence, url: q.source.url, confidence: q.source.confidence, unresolved: q.source.reviewDisposition === "needs_review" } : undefined,
     })), answers: record.answers, submittedAt: record.submittedAt,
     progress: questionnaireProgress(record.snapshot, record.selectedIds, record.answers),

@@ -42,7 +42,7 @@ test("personalized team review, secure public link, autosave/resume, corrections
   const scan = randomUUID(), source = randomUUID(), catalogSource = randomUUID(), catalogFinding = randomUUID(), shipping = randomUUID(), audience = randomUUID(), ignored = randomUUID(), unresolved = randomUUID(), product = randomUUID(), returns = randomUUID();
   await db`insert into website_scans(id,client_id,website_url,version,configuration,state,status) values(${scan},${client.id},'https://questionnaire-fixture.example.com','website-v3','{}','{}','completed')`;
   await db`insert into website_scan_sources(id,scan_id,url,canonical_url,url_hash,page_type,status,text) values(${source},${scan},'https://questionnaire-fixture.example.com/shipping','https://questionnaire-fixture.example.com/shipping',${source},'shipping','completed','משלוח לבית חינם מעל 300 ₪. בשלנים ביתיים מוצאים כאן תבלינים.')`;
-  const catalog = Array.from({ length: 100 }, (_, index) => ({ name: "תבלין " + index, url: `https://questionnaire-fixture.example.com/products/${index}`, price: 20, currency: "ILS", category: "תבלינים", evidence: "תבלין " + index + " במחיר 20 ₪", locator: "product_card[" + index + "]", sourceType: "html", featured: false }));
+  const catalog = Array.from({ length: 100 }, (_, index) => ({ name: "תבלין " + index + " · Regular price ₪20 Sale price ₪20 Unit price / per", url: `https://questionnaire-fixture.example.com/products/${index}`, price: 20, currency: "ILS", category: "תבלינים", evidence: "תבלין " + index + " במחיר 20 ₪", locator: "product_card[" + index + "]", sourceType: "html", featured: false }));
   await db.query("update website_scans set state=$1 where id=$2", [JSON.stringify({ candidates: catalog.map(p => ({ url: p.url, type: "product", depth: 1 })), stage: "finalize" }), scan]);
   await db.query("insert into website_scan_sources(id,scan_id,url,canonical_url,url_hash,page_type,status,text,extracted) values($1::uuid,$2,$3,$3,$1::text,'category','completed',$4,$5)", [catalogSource, scan, "https://questionnaire-fixture.example.com/collections/spices", "תבלינים ומגוון מוצרים", JSON.stringify({ catalog })]);
   await db.query("insert into website_findings(id,scan_id,source_id,category,key,value,evidence,source_type,observation_status,confidence,finding_hash) values($1::uuid,$2,$3,'products','catalog_listing',$4,$5,'html','observed','high',$1::text)", [catalogFinding, scan, catalogSource, JSON.stringify({ name: "תבלינים", productCount: 100, products: catalog, partial: true }), "תבלינים: " + catalog.map(p => p.evidence).join("; ")]);
@@ -82,14 +82,19 @@ test("personalized team review, secure public link, autosave/resume, corrections
   const publicContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const publicPage = await publicContext.newPage();
   expect((await publicPage.request.get(url)).status()).toBe(401);
-  await publicPage.goto(link); await expect(publicPage.getByRole("heading", { name: "מתחילים ממה שכבר למדנו" })).toBeVisible();
-  await expect(publicPage.getByText(/קראנו מידע על 100 מוצרים/)).toBeVisible();
+  await publicPage.goto(link); await expect(publicPage.getByRole("heading", { name: "לקראת פגישת האפיון עם איתן" })).toBeVisible();
+  await expect(publicPage.getByText(client.name, { exact: true })).not.toBeVisible();
+  await expect(publicPage.getByText(/קראנו מידע על 100 מוצרים/)).not.toBeVisible();
+  await expect(publicPage.getByText(/השאלון יעזור לכם לאשר או לתקן/)).toBeVisible();
   await publicPage.screenshot({ path: "output/playwright/epic3/public-intro-mobile.png", fullPage: true });
   expect(await publicPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
   const projection = await (await publicPage.request.get("/api/public/questionnaire", { headers: publicHeaders(token) })).json();
   for (const secret of ["PRIVATE INTERNAL NOTES", "3210", "999", '"commercialScope"', '"ownerUserId"', '"reviewDisposition"', ignored]) expect(JSON.stringify(projection)).not.toContain(secret);
   await publicPage.getByRole("button", { name: "נתחיל", exact: true }).click();
   await expect(publicPage.locator("header")).toHaveCSS("background-color", "rgb(8, 14, 45)");
+  await publicPage.getByRole("button", { name: "המשך", exact: true }).click();
+  await expect(publicPage.getByRole("alert").filter({ hasText: "לפני שממשיכים" })).toBeVisible();
+  await expect(publicPage.getByRole("heading", { name: "מה שכבר למדנו", exact: true })).toBeVisible();
   await publicPage.getByRole("radio", { name: "צריך תיקון", exact: true }).click();
   await publicPage.getByRole("button", { name: "המשך", exact: true }).click();
   await expect(publicPage.getByRole("alert").filter({ hasText: "השלימו את התיקון" })).toBeVisible();
@@ -101,13 +106,65 @@ test("personalized team review, secure public link, autosave/resume, corrections
   await expect(publicPage.locator("header")).toHaveCount(1);
   await publicPage.screenshot({ path: "output/playwright/epic3/public-question-desktop.png" });
   await publicPage.setViewportSize({ width: 390, height: 844 });
+  const answered = new Set([`finding:${shipping}`]);
+  const items = projection.data.items as { id: string; label: string; section: string; action: string; ranking?: { kind: "categories" | "products"; limit: number } }[];
+  const strategicAnswers: Record<string, string> = {
+    brand_story: "העסק הוקם ב־2020 מתוך חנות משפחתית לתבלינים, והיום מספק גם לשפים.",
+    brand_positioning: "חנות תבלינים מקצועית לשפים שרוצים התאמה מדויקת למתכון.",
+    brand_promise: "ייעוץ בבחירת התבלין לפי המתכון, בשעות הפעילות בלבד.",
+    brand_differentiators: "התאמת תערובות לפי בקשה, עם דוגמאות מתכונים שנבדקו בחנות.",
+    customer_pains: "לקוחות מתקשים לבחור תערובת מתאימה; אנחנו מסבירים איזה טעם כל תערובת מוסיפה.",
+    customer_needs: "מידע ברור על רכיבים ומשקל האריזה לפני ההזמנה.",
+    customer_desires: "לפי המשוב שקיבלנו, הם רוצים להגיע לטעם שאהבו במסעדה.",
+    purchase_motivations: "הכנת ארוחה לאירוח היא סיבה חוזרת לקנייה לפי שיחות בחנות.",
+    purchase_objections: "חוששים מתערובת חריפה מדי; אנחנו מסבירים את רמת החריפות.",
+  };
+  const panel = (id: string) => publicPage.locator(`[id="question-${id}"]`);
+  const completeSection = async (section: string) => {
+    for (const question of items.filter(q => q.section === section && !answered.has(q.id))) {
+      await publicPage.getByRole("button", { name: `פתח שאלה: ${question.label}`, exact: true }).click();
+      const field = panel(question.id);
+      if (question.id === `finding:${returns}`) {
+        await field.getByText("לקריאת הפרטים המלאים מהאתר", { exact: true }).click();
+        await expect(field.getByText("דמי ביטול בכפוף לתנאים, אין החזרה לאחר שימוש.", { exact: true }).first()).toBeVisible();
+        expect(await field.locator("details").first().locator("div[dir=rtl] > p").count()).toBeGreaterThan(40);
+      }
+      if (question.id === `finding:${catalogFinding}`) {
+        await expect(field.getByText(/אין צורך לאשר כל מוצר בנפרד/)).toBeVisible();
+        await expect(field.getByText("תבלין 0", { exact: true })).toBeVisible();
+        await expect(field.getByText(/Regular price/)).not.toBeVisible();
+      }
+      if (question.id === `finding:${product}`) {
+        await expect(field.getByText("מארז לדוגמה", { exact: true })).toBeVisible();
+        await expect(field.getByText("89 ₪", { exact: true })).toBeVisible();
+        await expect(field.getByText("תיאור מוצר ארוך ".repeat(70), { exact: true })).not.toBeVisible();
+      }
+      if (question.ranking) {
+        const kind = question.ranking.kind === "categories" ? "קטגוריה" : "מוצר";
+        await expect(field.getByRole("textbox")).toHaveCount(question.ranking.limit);
+        if (question.ranking.kind === "categories") {
+          await field.getByRole("textbox", { name: `${kind} במקום 2`, exact: true }).fill("קטגוריית בדיקה 2");
+          await expect(field.getByRole("status")).toContainText("החל מהמקום הראשון");
+          await publicPage.getByRole("button", { name: "המשך", exact: true }).click();
+          await expect(publicPage.getByRole("alert").filter({ hasText: "השלימו" })).toBeVisible();
+          await field.getByRole("textbox", { name: `${kind} במקום 1`, exact: true }).pressSequentially("קטגוריית בדיקה 1");
+        }
+        for (let index = 1; index <= question.ranking.limit; index++)
+          await field.getByRole("textbox", { name: `${kind} במקום ${index}`, exact: true }).fill(`${kind === "קטגוריה" ? "קטגוריית" : "מוצר"} בדיקה ${index}`);
+        expect(await publicPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+        await publicPage.screenshot({ path: `output/playwright/epic3/public-${question.ranking.kind}-ranking-mobile.png`, fullPage: true });
+      } else if (strategicAnswers[question.id]) {
+        await field.getByLabel(question.label, { exact: true }).fill(strategicAnswers[question.id]);
+      } else await field.getByRole("radio", { name: "עדיין לא ידוע", exact: true }).click();
+      answered.add(question.id);
+    }
+  };
+  // Later questions cannot bypass the unanswered returns/catalog questions.
   await publicPage.getByRole("button", { name: "פתח שאלה: מוצר ומחיר", exact: true }).click();
-  await expect(publicPage.getByText("מארז לדוגמה", { exact: true })).toBeVisible();
-  await expect(publicPage.getByText("89 ₪", { exact: true })).toBeVisible();
-  await expect(publicPage.getByText("תיאור מוצר ארוך ".repeat(70), { exact: true })).not.toBeVisible();
-  await publicPage.getByRole("button", { name: "פתח שאלה: החזרות וביטולים", exact: true }).click();
-  await publicPage.getByText("לקריאת הפרטים המלאים מהאתר", { exact: true }).click();
-  await expect(publicPage.getByText(/דמי ביטול בכפוף לתנאים, אין החזרה לאחר שימוש\./).first()).toBeVisible();
+  await expect(publicPage.getByRole("alert").filter({ hasText: "לפני שממשיכים" })).toBeVisible();
+  await expect(panel(`finding:${product}`)).not.toBeVisible();
+  await completeSection("known");
+  await expect(publicPage.getByRole("status")).toHaveText("כל השינויים נשמרו");
   await publicPage.reload(); await publicPage.getByRole("button", { name: "נתחיל", exact: true }).click();
   await expect(publicPage.getByLabel("משלוחים", { exact: true })).toHaveValue("כעת משלוח לבית חינם מעל 350 ₪");
   const next = async (heading: string) => {
@@ -116,27 +173,52 @@ test("personalized team review, secure public link, autosave/resume, corrections
   };
   await next("מה חשוב עכשיו");
   await publicPage.getByLabel("אילו מוצרים ומהלכים הכי חשוב לכם לקדם עכשיו?", { exact: true }).fill("מארזי מתנה וחידוש מלאי תבלינים");
+  answered.add("priorities");
+  const textPosition = await publicPage.getByLabel("אילו מוצרים ומהלכים הכי חשוב לכם לקדם עכשיו?", { exact: true }).boundingBox();
+  const deferPosition = await publicPage.getByRole("radio", { name: "עדיין לא ידוע", exact: true }).boundingBox();
+  expect(deferPosition!.y).toBeGreaterThan(textPosition!.y + textPosition!.height);
+  await completeSection("priorities");
   await next("הלקוחות שלכם");
   await expect(publicPage.getByText("הסקה מהאתר — לא עובדה מאושרת", { exact: true })).toBeVisible();
   await publicPage.getByRole("radio", { name: "לא מתאים", exact: true }).click();
   await publicPage.getByLabel("קהל אפשרי", { exact: true }).fill("רוב הלקוחות הם שפים מקצועיים");
+  answered.add(`finding:${audience}`);
+  await publicPage.getByRole("button", { name: "לשאלה הבאה", exact: true }).click();
+  await expect(publicPage.getByText(/למשל: לקוחות פרטיים או עסקים/)).toBeVisible();
+  await publicPage.getByLabel("מי הלקוחות העיקריים שלכם, ואילו קהלים תרצו להגיע אליהם?", { exact: true }).fill("שפים מקצועיים וחנויות מתנות");
+  answered.add("audience_priority");
   await next("צרכים וסיבות לרכישה");
+  await completeSection("reality");
   await next("המותג והשפה");
+  await completeSection("brand");
   await next("גבולות וכללים");
   await expect(publicPage.getByRole("heading", { name: "גבולות וכללים" })).toBeVisible();
   await publicPage.getByLabel("אילו ניסוחים, הבטחות או טענות אסור לנו להשתמש בהם? אפשר לציין שאין מגבלות נוספות.", { exact: true }).fill("לא מבטיחים תוצאות רפואיות");
+  answered.add("red_lines"); await completeSection("rules");
   await next("דיוור וקשר עם לקוחות");
+  await publicPage.getByLabel("מה ההנחה המקסימלית שמותר לנו להציע, ובאילו תנאים?", { exact: true }).fill("עד 10%, ללא כפל מבצעים");
+  answered.add("discount_rules"); await completeSection("services");
   await next("חומרים וגישה");
-  await publicPage.getByLabel("היכן נמצאים לוגו, תמונות, הנחיות מותג וחומרים קיימים?", { exact: true }).fill("תיקיית חומרים");
+  await publicPage.getByLabel("אילו חומרי מותג ותמונות תוכלו לשתף איתנו?", { exact: true }).fill("תיקיית חומרים עם תמונות מסוננות מימי צילום");
   await publicPage.getByLabel("קישורים לחומרים", { exact: true }).fill("https://example.test/assets");
+  await expect(publicPage.getByLabel("העלאת חומרי מותג", { exact: true })).toBeDisabled();
+  await expect(publicPage.getByText(/העלאת קבצים אינה זמינה בסביבה הזו/)).toBeVisible();
+  answered.add("assets");
+  await publicPage.screenshot({ path: "output/playwright/epic3/public-assets-mobile.png", fullPage: true });
+  await publicPage.getByRole("button", { name: "לשאלה הבאה", exact: true }).click();
+  await publicPage.getByLabel("מול מי נתנהל כדי לקבל גישה למערכות העבודה הרלוונטיות?", { exact: true }).fill("נועה, מנהלת האתר; noah@example.test");
   await publicPage.getByRole("button", { name: "שלח ל־ADDZ", exact: true }).click();
   await expect(publicPage.getByRole("heading", { name: "תודה, המידע התקבל" })).toBeVisible();
   await publicPage.reload(); await expect(publicPage.getByRole("heading", { name: "תודה, המידע התקבל" })).toBeVisible();
   expect(await publicPage.locator("textarea").count()).toBe(0);
   await publicPage.screenshot({ path: "output/playwright/epic3/public-submitted-mobile.png", fullPage: true });
   const final = (await (await publicPage.request.get("/api/public/questionnaire", { headers: publicHeaders(token) })).json()).data;
+  expect(final.answers.category_priorities.text).toBe(Array.from({ length: 4 }, (_, i) => `${i + 1}. קטגוריית בדיקה ${i + 1}`).join("\n"));
+  expect(final.answers.product_bestsellers.text).toBe(Array.from({ length: 8 }, (_, i) => `${i + 1}. מוצר בדיקה ${i + 1}`).join("\n"));
+  for (const [id, text] of Object.entries(strategicAnswers)) expect(final.answers[id].text).toBe(text);
   expect((await publicPage.request.patch("/api/public/questionnaire", { headers: publicHeaders(token), data: { revision: final.revision, answers: { priorities: { state: "answered", text: "overwrite" } } } })).status()).toBe(409);
   expect((await publicPage.request.patch("/api/public/questionnaire", { headers: publicHeaders(token), data: { revision: final.revision, answers: {}, submit: true } })).status()).toBe(200);
+  expect((await publicPage.request.post("/api/public/questionnaire/attachments", { headers: publicHeaders(token), data: { name: "assets.pdf", size: 1024 } })).status()).toBe(409);
   expect((await db`select count(*)::int as count from audit_logs where client_id=${client.id} and action='questionnaire.completed'`)[0].count).toBe(1);
   expect(await db`select value,evidence,observation_status from website_findings where scan_id=${scan} order by id`).toEqual(before);
   await page.getByRole("button", { name: "רענן שאלון", exact: true }).click();
@@ -149,6 +231,13 @@ test("personalized team review, secure public link, autosave/resume, corrections
   await page.screenshot({ path: "output/playwright/epic3/pre-kickoff-mobile.png", fullPage: true });
   await page.getByRole("button", { name: "סמן נבדק", exact: true }).click();
   await expect.poll(async () => (await (await page.request.get(url)).json()).data.status).toBe("reviewed");
+  expect((await page.request.post(`/api/clients/${client.id}/kickoff`)).status()).toBe(201);
+  const kickoff = (await (await page.request.get(`/api/clients/${client.id}/kickoff`)).json()).data;
+  const expectedDomains: Record<string, string> = { brand_story: "identity", brand_positioning: "positioning", brand_promise: "positioning", brand_differentiators: "differentiation", customer_pains: "pains", customer_needs: "pains", customer_desires: "desires", purchase_motivations: "motivations", purchase_objections: "objections", category_priorities: "products", product_bestsellers: "products" };
+  for (const [id, domain] of Object.entries(expectedDomains)) {
+    const topic = kickoff.snapshot.topics.find((t: { id: string }) => t.id === id);
+    expect(topic.domain).toBe(domain); expect(topic.knownValue).toBe(final.answers[id].text); expect(topic.knownAuthority).toBe("client_statement");
+  }
   await publicContext.close();
 });
 test("public isolation, token expiry/revocation, CAS races, limits and existing client-role denial", async ({ page, browser }) => {
@@ -171,6 +260,11 @@ test("public isolation, token expiry/revocation, CAS races, limits and existing 
   expect(initial.data.clientName).toBe(first.name);
   expect((await (await get(secondToken)).json()).data.clientName).toBe(second.name);
   for (const invalid of ["", "predictable-client-id", "x".repeat(43)]) { const response = await get(invalid); expect(response.status()).toBe(404); expect((await response.json()).message).toBe("הקישור אינו זמין."); }
+  const attachmentsEndpoint = "/api/public/questionnaire/attachments";
+  expect((await visitor.request.get(`/api/clients/${first.id}/questionnaire/attachments?pathname=foreign`)).status()).toBe(401);
+  expect((await visitor.request.post(attachmentsEndpoint, { headers: publicHeaders("x".repeat(43)), data: { name: "assets.pdf", size: 1024 } })).status()).toBe(404);
+  expect((await visitor.request.get(attachmentsEndpoint + "?pathname=foreign", { headers: publicHeaders(token) })).status()).toBe(404);
+  expect((await visitor.request.post(attachmentsEndpoint, { headers: { ...publicHeaders(token), origin: "https://malicious.example" }, data: { name: "assets.pdf", size: 1024 } })).status()).toBe(403);
   const payload = { revision: initial.data.revision, answers: { priorities: { state: "answered", text: "first tab" } } };
   const writes = await Promise.all([visitor.request.patch(endpoint, { headers: publicHeaders(token), data: payload }), visitor.request.patch(endpoint, { headers: publicHeaders(token), data: { ...payload, answers: { priorities: { state: "answered", text: "second tab" } } } })]);
   expect(writes.map(r => r.status()).sort()).toEqual([200, 409]);
@@ -180,6 +274,7 @@ test("public isolation, token expiry/revocation, CAS races, limits and existing 
     { ...payload, revision: latest.revision, answers: { priorities: { state: "answered", text: "tamper", authority: "approved" } } },
     { ...payload, revision: latest.revision, answers: { priorities: { state: ["answered"], text: "tamper" } } },
     { ...payload, revision: latest.revision, answers: { assets: { state: "answered", text: "x", links: ["javascript:alert(1)"] } } },
+    { ...payload, revision: latest.revision, answers: { assets: { state: "answered", text: "x", attachments: [{ pathname: "questionnaire-assets/" + "a".repeat(64) + "/file.pdf", name: "file.pdf", size: 1024, contentType: "application/pdf", receipt: "0".repeat(64) }] } } },
   ];
   for (const body of invalid) expect((await visitor.request.patch(endpoint, { headers: publicHeaders(token), data: body })).status()).toBe(400);
   expect((await visitor.request.patch(endpoint, { headers: { ...publicHeaders(token), origin: "https://malicious.example" }, data: payload })).status()).toBe(403);
@@ -194,6 +289,7 @@ test("public isolation, token expiry/revocation, CAS races, limits and existing 
   let q = (await (await page.request.get(`/api/clients/${first.id}/questionnaire`)).json()).data;
   await page.request.patch(`/api/clients/${first.id}/questionnaire`, { data: { action: "revoke", revision: q.revision } });
   expect((await get(token)).status()).toBe(404);
+  expect((await visitor.request.post(attachmentsEndpoint, { headers: publicHeaders(token), data: { name: "a.pdf", size: 1 } })).status()).toBe(404);
   q = (await (await page.request.get(`/api/clients/${first.id}/questionnaire`)).json()).data;
   const rotated = (await (await page.request.patch(`/api/clients/${first.id}/questionnaire`, { data: { action: "share", revision: q.revision } })).json()).data.token;
   expect((await get(token)).status()).toBe(404); expect((await get(rotated)).status()).toBe(200);
@@ -204,6 +300,7 @@ test("public isolation, token expiry/revocation, CAS races, limits and existing 
   for (const id of [first.id, second.id]) {
     expect((await customerPage.request.get(`/api/clients/${id}/questionnaire`)).status()).toBe(403);
     expect((await customerPage.request.post(`/api/clients/${id}/questionnaire`)).status()).toBe(403);
+    expect((await customerPage.request.get(`/api/clients/${id}/questionnaire/attachments?pathname=foreign`)).status()).toBe(403);
   }
   await customerPage.goto(`/?view=client-workspace&clientId=${first.id}&tab=questionnaire`);
   await expect(customerPage.getByRole("heading", { name: "שאלון והכנה לפגישה" })).not.toBeVisible();

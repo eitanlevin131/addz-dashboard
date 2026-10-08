@@ -88,7 +88,8 @@ test("questionnaire receives broad observed catalog context without asking to co
   const snapshot = generateQuestionnaire({ name: "Brand", website: root, includedServices: [], commercialScope: null }, "scan1", [finding], context);
   assert.equal(snapshot.catalogContext.catalogued, 100); assert.equal(snapshot.catalogContext.discovered, 174);
   assert.equal(snapshot.items.filter(q => q.source?.key === "catalog_listing").length, 1);
-  assert.ok(questionPresentation(snapshot.items[0]).facts.some(f => f.value === "100"));
+  assert.ok(questionPresentation(snapshot.items[0]).facts.some(f => f.value === "Chair"));
+  assert.ok(!questionPresentation(snapshot.items[0]).facts.some(f => f.value === "100"));
   assert.equal(publicProjection({ snapshot, selectedIds: snapshot.items.map(q => q.id), answers: {}, status: "draft", revision: 0 }).catalogContext.groups[0].sourceId, "source1");
 });
 test("Hebrew cancellation policy is classified and extracted as returns, not ignored", () => {

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { agenda, allTopics, characterization, expectedRevision, parseDecision, parseNewTopic, prepareKickoff, questionDomain } from "../src/lib/kickoff/core.ts";
+import { characterizationDocument, DOCUMENT_SECTIONS } from "../src/lib/kickoff/document.ts";
 
 const client = { packageCode: "email_5", commercialScope: { campaignLimit: 5, automationSetupTier: 3 } };
 function questionnaire() {
@@ -111,4 +112,59 @@ test("routes stay team-only with bounded bodies, CAS atomic audit and no provide
   assert.match(repo, /for update/); assert.match(repo, /row\.revision !== revision/); assert.match(repo, /db\.batch/); assert.match(repo, /previous: row\.decisions/);
   assert.ok(!/update\(website|update\(clientQuestionnaires|fetch\(|OpenAI|Resend/.test(repo));
   assert.ok(!/dangerouslySetInnerHTML/.test(ui));
+});
+test("document covers every domain once, with ordered chapters and no invented empty content", () => {
+  const record = prepared(), sections = characterizationDocument(record);
+  const domains = DOCUMENT_SECTIONS.flatMap(section => section.domains);
+  assert.equal(new Set(domains).size, domains.length);
+  assert.equal(domains.length, 16);
+  assert.equal(sections.flatMap(section => section.fields).length, allTopics(record).length);
+  assert.equal(sections.find(section => section.id === "positioning").fields.length, 0);
+  assert.equal(sections[0].title, "רקע על העסק וסיפור המותג");
+});
+test("document uses field labels rather than policy confirmation questions and preserves source wording", () => {
+  const record = prepared(), fields = characterizationDocument(record).flatMap(section => section.fields);
+  const shipping = fields.find(field => field.topic.id === "shipping");
+  assert.equal(shipping.label, "משלוחים ואספקה");
+  assert.equal(shipping.value, questionnaire().snapshot.items[0].source.evidence);
+  assert.equal(shipping.authority, "client_confirmed");
+});
+test("document client correction and website hypotheses remain proposals, not resolved truth", () => {
+  const fields = characterizationDocument(prepared()).flatMap(section => section.fields);
+  const returns = fields.find(field => field.topic.id === "returns"), audience = fields.find(field => field.topic.id === "audience");
+  assert.equal(returns.value, ""); assert.equal(returns.state, "unresolved");
+  assert.equal(returns.draft, "21 יום לפי תנאים"); assert.equal(returns.draftAuthority, "client_answer");
+  assert.equal(audience.value, ""); assert.equal(audience.draft, "ייתכן שבשלנים");
+  assert.equal(audience.draftAuthority, "website_proposal");
+});
+test("document edits use meeting authority and do not rewrite questionnaire, website or snapshot", () => {
+  const record = prepared(), before = JSON.stringify(record.snapshot);
+  record.decisions.shipping = parseDecision({ topicId: "shipping", outcome: "corrected", value: "משלוח לנקודה חינם מעל 200 ₪", note: "תוקן בשיחה" }, allTopics(record), "staff").decision;
+  const field = characterizationDocument(record).flatMap(section => section.fields).find(field => field.topic.id === "shipping");
+  assert.equal(field.value, "משלוח לנקודה חינם מעל 200 ₪"); assert.equal(field.authority, "kickoff_decision");
+  assert.equal(JSON.stringify(record.snapshot), before);
+});
+test("document follow-ups and unresolved drafts never surface as resolved document values", () => {
+  for (const outcome of ["unresolved", "follow_up"]) {
+    const record = prepared();
+    record.decisions.shipping = parseDecision({ topicId: "shipping", outcome, value: "תנאי חלקי", note: "לבירור" }, allTopics(record), "staff").decision;
+    const field = characterizationDocument(record).flatMap(section => section.fields).find(field => field.topic.id === "shipping");
+    assert.equal(field.value, ""); assert.equal(field.draft, "תנאי חלקי");
+    assert.equal(field.draftAuthority, "meeting_draft"); assert.equal(field.state, outcome);
+  }
+});
+test("new document sections use the existing meeting topic model and no fake evidence", () => {
+  const record = prepared(), topic = parseNewTopic({ label: "יעדי הקמפיין", domain: "services" }, "kickoff:new");
+  record.addedTopics.push(topic);
+  const field = characterizationDocument(record).find(section => section.id === "commercial").fields.find(field => field.topic.id === topic.id);
+  assert.equal(field.state, "unresolved"); assert.equal(field.topic.origin, "kickoff");
+  assert.equal(field.topic.question, undefined); assert.equal(field.value, "");
+});
+test("older catalog and voice assignments render in their proper document chapters without rewriting snapshots", () => {
+  const record = prepared(), catalog = { id: "catalog", label: "מגוון", domain: "identity", question: { source: { key: "catalog_listing" } } }, voice = { id: "brand_correction", label: "שפה", domain: "identity" };
+  record.snapshot.topics.push(catalog, voice);
+  const before = JSON.stringify(record.snapshot), sections = characterizationDocument(record);
+  assert.ok(sections.find(section => section.id === "products").fields.some(field => field.topic.id === "catalog"));
+  assert.ok(sections.find(section => section.id === "language").fields.some(field => field.topic.id === "brand_correction"));
+  assert.equal(JSON.stringify(record.snapshot), before);
 });

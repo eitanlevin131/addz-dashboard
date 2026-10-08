@@ -104,6 +104,7 @@ export const loginCodes = pgTable(
 export const clients = pgTable("clients", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
+  urlSlug: text("url_slug"),
   owner: text("owner"),
   industry: text("industry"),
   visibleModules: text("visible_modules").array().notNull().default(["reports", "planner", "ai"]),
@@ -121,7 +122,10 @@ export const clients = pgTable("clients", {
   onboardingStage: text("onboarding_stage"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, table => [
+  uniqueIndex("clients_url_slug_unique").on(table.urlSlug),
+  check("clients_url_slug_format", sql`${table.urlSlug} IS NULL OR (${table.urlSlug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND length(${table.urlSlug}) <= 80)`),
+]);
 
 export const clientContacts = pgTable("client_contacts", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -6,6 +6,7 @@ import { requireClient } from "@/lib/clients";
 import { clientQuestionnaires, websiteFindings, websiteScans, websiteScanSources } from "@/lib/schema";
 import { generateQuestionnaire, parseAnswers, preKickoff, publicProjection, questionnaireProgress, QuestionnaireError, validateSelection, type FindingSeed, type QuestionnaireRecord } from "./core";
 import { createQuestionnaireToken, isLiveQuestionnaireLink, questionnaireTokenHash } from "./security";
+import { validAttachmentReceipt } from "./attachment-security";
 
 type Row = typeof clientQuestionnaires.$inferSelect;
 function record(row: Row): QuestionnaireRecord {
@@ -105,19 +106,22 @@ export async function publicQuestionnaire(token: unknown) {
   if (!row || !isLiveQuestionnaireLink(row)) throw new QuestionnaireError("הקישור אינו זמין.", 404);
   return row;
 }
-export async function loadPublicQuestionnaire(token: unknown) { return publicProjection(record(await publicQuestionnaire(token))); }
+export async function loadPublicQuestionnaire(token: unknown) { return publicProjection(record(await publicQuestionnaire(token)), Boolean(process.env.QUESTIONNAIRE_UPLOADS_READ_WRITE_TOKEN)); }
 export async function savePublicQuestionnaire(token: unknown, body: Record<string, unknown>) {
   if (Object.keys(body).some(key => !["revision", "answers", "submit"].includes(key)) || (body.submit !== undefined && typeof body.submit !== "boolean")) throw new QuestionnaireError("הבקשה אינה תקינה.");
   const row = await publicQuestionnaire(token);
   if (["submitted", "reviewed"].includes(row.status)) {
-    if (body.submit === true) return publicProjection(record(row));
+    if (body.submit === true) return publicProjection(record(row), Boolean(process.env.QUESTIONNAIRE_UPLOADS_READ_WRITE_TOKEN));
     throw new QuestionnaireError("השאלון כבר נשלח ואינו פתוח לעריכה.", 409);
   }
   const revision = expectedRevision(body.revision);
   const changes = parseAnswers(row.snapshot, row.selectedIds, body.answers);
+  for (const answer of Object.values(changes)) for (const attachment of answer.attachments || []) {
+    if (!process.env.AUTH_SECRET || !validAttachmentReceipt(attachment, row.id, process.env.AUTH_SECRET)) throw new QuestionnaireError("הקובץ אינו שייך לשאלון או שלא הושלמה העלאתו.");
+  }
   const answers = { ...row.answers, ...changes };
   if (body.submit && questionnaireProgress(row.snapshot, row.selectedIds, answers).missingRequired.length) throw new QuestionnaireError("יש להשלים את שאלות החובה או לבחור שלא ידוע / נדבר בפגישה.");
   await commit(row, revision, { answers, status: body.submit ? "submitted" : "in_progress", ...(body.submit ? { submittedAt: new Date() } : {}) }, body.submit ? "questionnaire.completed" : "questionnaire.saved", null, true);
   const [updated] = await getDb().select().from(clientQuestionnaires).where(eq(clientQuestionnaires.id, row.id));
-  return publicProjection(record(updated));
+  return publicProjection(record(updated), Boolean(process.env.QUESTIONNAIRE_UPLOADS_READ_WRITE_TOKEN));
 }

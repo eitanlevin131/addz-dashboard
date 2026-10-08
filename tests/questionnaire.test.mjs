@@ -79,7 +79,7 @@ test("confirmed/rejected/unknown/kickoff/new answers are independently grouped",
     const answers = parseAnswers(q, selected(q), { [id]: { state, text: "" } });
     assert.ok(preKickoff(q, selected(q), answers).groups[group].some(e => e.question.id === id));
   }
-  const answers = parseAnswers(q, selected(q), { priorities: { state: "answered", text: "לקדם מארזים" }, red_lines: { state: "unknown", text: "" } });
+  const answers = parseAnswers(q, selected(q), { ...Object.fromEntries(q.items.filter(i => i.required).map(i => [i.id, { state: "unknown", text: "" }])), priorities: { state: "answered", text: "לקדם מארזים" } });
   assert.equal(questionnaireProgress(q, selected(q), answers).missingRequired.length, 0);
   assert.equal(preKickoff(q, selected(q), answers).groups.new.length, 1);
 });

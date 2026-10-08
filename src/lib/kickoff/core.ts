@@ -58,6 +58,8 @@ export class KickoffError extends Error {
 }
 export function questionDomain(question: QuestionItem): Domain {
   const key = question.source?.key || question.id;
+  const clientDomains: Record<string, Domain> = { brand_story: "identity", brand_positioning: "positioning", brand_promise: "positioning", brand_differentiators: "differentiation", customer_pains: "pains", customer_needs: "pains", customer_desires: "desires", purchase_motivations: "motivations", purchase_objections: "objections", category_priorities: "products", product_bestsellers: "products" };
+  if (!question.source && clientDomains[key]) return clientDomains[key];
   if (/shipping|returns|support|contact|faq|operations|assets|access/.test(key)) return "operations";
   if (/pain|stated_problem/.test(key)) return "pains";
   if (/desire|outcome/.test(key)) return "desires";

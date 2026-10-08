@@ -38,7 +38,12 @@ export async function publicQuestionnaireApi(request: Request, work: (token: str
     }
     const auth = request.headers.get("authorization") || "";
     const token = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(auth)?.[1] || null;
-    return respond({ success: true, data: await work(token) });
+    const output = await work(token);
+    if (output instanceof Response) {
+      for (const [key, value] of Object.entries(headers)) output.headers.set(key, value);
+      return output;
+    }
+    return respond({ success: true, data: output });
   } catch (error) {
     if (error instanceof QuestionnaireError) return respond({ success: false, message: error.message }, error.status);
     // Never log token, answer text, DB errors or request headers.

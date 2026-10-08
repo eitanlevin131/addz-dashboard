@@ -14,6 +14,7 @@ export type UserRole = "owner" | "admin" | "client";
 
 export interface Client {
   id: string;
+  urlSlug?: string | null;
   name: string;
   owner: string;
   industry: string;
